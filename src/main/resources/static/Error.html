@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaDropbox - Error</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .error-container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 10px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .error-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            color: #e74c3c;
+        }
+
+        .error-header h1 {
+            color: #333;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .error-header h2 {
+            color: #666;
+            font-size: 1.2rem;
+            font-weight: 400;
+            margin-bottom: 1.5rem;
+        }
+
+        .error-message {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 5px;
+            margin-bottom: 2rem;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .error-message p {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 0.5rem;
+        }
+
+        .error-code {
+            font-family: 'Courier New', monospace;
+            background: #e9ecef;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.9rem;
+            color: #e74c3c;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.2s ease;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .error-details {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid #e1e5e9;
+        }
+
+        .error-details h3 {
+            color: #333;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .error-details ul {
+            text-align: left;
+            color: #666;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .error-details li {
+            margin-bottom: 0.5rem;
+        }
+
+        @media (max-width: 480px) {
+            .error-container {
+                margin: 1rem;
+                padding: 2rem;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="error-container">
+    <div class="error-icon">⚠️</div>
+
+    <div class="error-header">
+        <h1>Oops!</h1>
+        <h2>Something went wrong</h2>
+    </div>
+
+    <div class="error-message">
+        <p><strong>Error:</strong> <span class="error-code" id="errorCode">500</span></p>
+        <p id="errorMessage">An unexpected error occurred while processing your request.</p>
+        <p id="errorTimestamp"></p>
+    </div>
+
+    <div class="action-buttons">
+        <a href="/" class="btn btn-primary">Go Home</a>
+        <a href="javascript:history.back()" class="btn btn-secondary">Go Back</a>
+    </div>
+
+    <div class="error-details">
+        <h3>What can you do?</h3>
+        <ul>
+            <li>Check the URL for any typos</li>
+            <li>Try refreshing the page
