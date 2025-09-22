@@ -7,11 +7,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -242,6 +244,92 @@ public class FileServingService {
             zos.putNextEntry(zipEntry);
             Files.copy(file.toPath(), zos);
             zos.closeEntry();
+        }
+    }
+
+    /**
+     * Saves uploaded files to a specified subdirectory.
+     * @param files The array of files uploaded by the user.
+     * @param subpath The relative path within the serving directory to save the files.
+     * @throws IOException if there's a security violation or a file-saving error.
+     */
+    public void saveUploadedFiles(MultipartFile[] files, String subpath) throws IOException {
+        Path rootPath = getServingDirectoryPath();
+        Path destinationFolder = rootPath.resolve(subpath).normalize();
+
+        // Ensure the destination is still inside the root serving directory.
+        if (!destinationFolder.startsWith(rootPath)) {
+            throw new IOException("Path Traversal Attempt Forbidden: " + subpath);
+        }
+
+        if (!Files.exists(destinationFolder)) {
+            Files.createDirectories(destinationFolder);
+        }
+
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) {
+                continue;
+            }
+
+            // Sanitize the filename to prevent path traversal within the filename itself
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename == null || originalFilename.contains("..")) {
+                throw new IOException("Invalid filename: " + originalFilename);
+            }
+
+            Path destinationFile = destinationFolder.resolve(originalFilename).normalize();
+
+            if (!destinationFile.getParent().equals(destinationFolder)) {
+                throw new IOException("Invalid destination path in filename: " + originalFilename);
+            }
+
+            Files.copy(file.getInputStream(), destinationFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+
+    /**
+     * Deletes a file or directory at the given relative path.
+     * @param relativePath The path of the item to delete.
+     * @throws IOException if the path is invalid or deletion fails.
+     */
+    public void deleteItem(String relativePath) throws IOException {
+        Path rootPath = getServingDirectoryPath();
+        Path fullPath = rootPath.resolve(relativePath).normalize();
+
+        if (!fullPath.startsWith(rootPath)) {
+            throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
+        }
+
+        File itemToDelete = fullPath.toFile();
+        if (!itemToDelete.exists()) {
+            throw new FileNotFoundException("Item not found: " + relativePath);
+        }
+
+        if (itemToDelete.isDirectory()) {
+            deleteRecursively(itemToDelete);
+        } else {
+            if (!itemToDelete.delete()) {
+                throw new IOException("Failed to delete file: " + relativePath);
+            }
+        }
+    }
+
+    /**
+     * Helper method to recursively delete a directory.
+     * @param file The file or directory to delete.
+     */
+    private void deleteRecursively(File file) throws IOException {
+        if (file.isDirectory()) {
+            File[] entries = file.listFiles();
+            if (entries != null) {
+                for (File entry : entries) {
+                    deleteRecursively(entry);
+                }
+            }
+        }
+        if (!file.delete()) {
+            throw new IOException("Failed to delete: " + file);
         }
     }
 }

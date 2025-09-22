@@ -7,16 +7,15 @@ public class FileTreeNode {
     private String name;
     private boolean isDirectory;
     private long size;
-    private List<FileTreeNode> children; // The crucial new property
+    private List<FileTreeNode> children;
 
     public FileTreeNode(String name, boolean isDirectory, long size) {
         this.name = name;
         this.isDirectory = isDirectory;
         this.size = size;
-        this.children = new ArrayList<>(); // Initialize to avoid nulls
+        this.children = new ArrayList<>();
     }
 
-    // --- Getters and Setters ---
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public boolean getIsDirectory() { return isDirectory; }

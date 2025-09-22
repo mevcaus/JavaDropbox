@@ -7,12 +7,11 @@ import com.javadropbox.javadropbox.service.FileServingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
@@ -111,6 +110,33 @@ public class WebController {
             // E.g., file not found or security violation
             System.err.println("Error processing download request: " + e.getMessage());
             return ResponseEntity.notFound().build();
+        }
+    }
+
+
+    @PostMapping("/api/upload")
+    public ResponseEntity<Map<String, String>> uploadFiles(
+            @RequestParam("files") MultipartFile[] files,
+            @RequestParam(value = "path", defaultValue = "") String path) {
+        try {
+            fileServingService.saveUploadedFiles(files, path);
+            return ResponseEntity.ok(Map.of("message", "Files uploaded successfully!"));
+        } catch (IOException e) {
+            System.err.println("File upload error: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Error uploading files: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/api/delete")
+    public ResponseEntity<Map<String, String>> deleteItem(@RequestParam String path) {
+        try {
+            fileServingService.deleteItem(path);
+            return ResponseEntity.ok(Map.of("message", "Item deleted successfully: " + path));
+        } catch (IOException e) {
+            System.err.println("Error deleting item: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Could not delete item: " + e.getMessage()));
         }
     }
 }

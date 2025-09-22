@@ -4,8 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JavaDropbox - Dashboard</title>
-    <!-- Link to the external CSS file -->
-    <link rel="stylesheet" href="css/dashboard.css" />
+    <link rel="stylesheet" href="/css/Dashboard.css" />
 </head>
 
 <body>
@@ -32,14 +31,55 @@
             <strong>Current Path: </strong>
             <code id="current-path-text">Loading...</code>
         </div>
-
+        <div class="action-bar">
+            <button id="add-files-btn" class="button-primary">Add Files</button>
+        </div>
         <div class="file-browser" id="file-browser-container">
             <p>Loading files...</p>
         </div>
     </div>
 </main>
 
-<!-- Link to the external JavaScript file just before the closing body tag -->
-<script src="js/dashboard.js"></script>
+<div id="upload-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Upload Files</h2>
+            <button id="close-modal-btn" class="close-button">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="drop-zone" class="drop-zone">
+                <p>Drag & Drop files here</p>
+                <p>or</p>
+                <button id="select-files-btn" class="button-secondary">Select Files</button>
+                <input type="file" id="file-input" multiple hidden />
+            </div>
+            <div id="file-list-preview" class="file-list-preview"></div>
+            <div id="upload-progress-container" class="progress-container hidden">
+                <div id="upload-progress-bar" class="progress-bar"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="upload-btn" class="button-primary" disabled>Upload</button>
+        </div>
+    </div>
+</div>
+
+<div id="delete-confirm-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Confirm Deletion</h2>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to permanently delete this item?</p>
+            <p><strong><code id="item-to-delete-name"></code></strong></p>
+        </div>
+        <div class="modal-footer">
+            <button id="cancel-delete-btn" class="button-secondary">Cancel</button>
+            <button id="confirm-delete-btn" class="button-danger">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/Dashboard.js"></script>
 </body>
 </html>
