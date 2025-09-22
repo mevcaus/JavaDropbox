@@ -86,6 +86,8 @@ public class FileServingService {
      * Lists the contents of a given subdirectory within the main serving directory.
      * @param subpath The relative path of the subdirectory. Can be empty for the root.
      * @return A list of FileItem objects representing files and directories.
+     *
+     * -- deprecated --
      */
     public List<FileItem> listFiles(String subpath) {
         Path rootPath = getServingDirectoryPath();
