@@ -26,33 +26,23 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-function collapseDescendants(parentId) {
-    const children = document.querySelectorAll(
-        `.file-table tr[data-parent-id='${parentId}']`
-    );
-    children.forEach((child) => {
-        child.classList.add("hidden");
-        if (child.classList.contains("collapsible")) {
-            child.classList.remove("expanded");
-            const childNodeId = child.dataset.nodeId;
-            if (childNodeId) {
-                collapseDescendants(childNodeId);
-            }
-        }
-    });
-}
-
 function toggleNode(nodeId) {
     const parentRow = document.querySelector(`tr[data-node-id='${nodeId}']`);
     const isCurrentlyExpanded = parentRow.classList.contains("expanded");
 
     if (isCurrentlyExpanded) {
         parentRow.classList.remove("expanded");
-        collapseDescendants(nodeId);
+        const descendants = document.querySelectorAll(`.child-of-${nodeId}`);
+        descendants.forEach((desc) => {
+            desc.classList.add("hidden");
+            if (desc.classList.contains("expanded")) {
+                desc.classList.remove("expanded");
+            }
+        });
     } else {
         parentRow.classList.add("expanded");
         const children = document.querySelectorAll(
-            `.file-table tr[data-parent-id='${nodeId}']`
+            `tr[data-parent-id='${nodeId}']`
         );
         children.forEach((child) => {
             child.classList.remove("hidden");
@@ -60,10 +50,11 @@ function toggleNode(nodeId) {
     }
 }
 
-function renderTree(nodes, level, parentId, parentPath) {
+function renderTree(nodes, level, ancestorIds, parentPath) {
     let html = "";
     nodes.forEach((node) => {
         const currentId = ++nodeIdCounter;
+        const parentId = ancestorIds[ancestorIds.length - 1]; // Get the immediate parent ID
         const isHidden = level > 0 ? "hidden" : "";
         const indent = level * 25;
         const sizeDisplay = formatFileSize(node.size);
@@ -71,20 +62,17 @@ function renderTree(nodes, level, parentId, parentPath) {
         const encodedPath = encodeURIComponent(currentPath);
         const downloadUrl = `/api/download?path=${encodedPath}`;
         const nameLink = `<a href="${downloadUrl}" class="download-link" onclick="event.stopPropagation()">${node.name}</a>`;
+        const deleteButton = `<td class="actions-cell"><button class="delete-btn" data-path="${currentPath}" data-name="${node.name}">🗑️</button></td>`;
 
-        const deleteButton = `
-            <td class="actions-cell">
-                <button class="delete-btn" data-path="${currentPath}" data-name="${node.name}">
-                    🗑️
-                </button>
-            </td>
-        `;
+        const ancestorClasses = ancestorIds
+            .map((id) => `child-of-${id}`)
+            .join(" ");
 
         if (node.isDirectory) {
             html += `
-                <tr class="collapsible ${isHidden}" 
+                <tr class="collapsible ${isHidden} ${ancestorClasses}" 
                     data-node-id="${currentId}" 
-                    data-parent-id="${parentId}" 
+                    data-parent-id="${parentId}"
                     onclick="toggleNode(${currentId})">
                     <td><div class="file-name-cell" style="padding-left: ${indent}px;"><span class="icon-toggle"></span><span class="file-icon">📁</span>${nameLink}</div></td>
                     <td class="file-size">${sizeDisplay}</td>
@@ -92,11 +80,17 @@ function renderTree(nodes, level, parentId, parentPath) {
                 </tr>
             `;
             if (node.children.length > 0) {
-                html += renderTree(node.children, level + 1, currentId, currentPath);
+                const newAncestorIds = [...ancestorIds, currentId];
+                html += renderTree(
+                    node.children,
+                    level + 1,
+                    newAncestorIds,
+                    currentPath
+                );
             }
         } else {
             html += `
-                <tr class="${isHidden}" data-parent-id="${parentId}">
+                <tr class="${isHidden} ${ancestorClasses}" data-parent-id="${parentId}">
                     <td><div class="file-name-cell" style="padding-left: ${
                 indent + 15
             }px;"><span class="file-icon">📄</span>${nameLink}</div></td>
@@ -121,7 +115,7 @@ async function loadFileTree() {
             return;
         }
         nodeIdCounter = 0;
-        const tableBodyHtml = renderTree(fileTree, 0, "root", "");
+        const tableBodyHtml = renderTree(fileTree, 0, ["root"], "");
         container.innerHTML = `
             <table class="file-table">
                 <thead><tr><th>Name</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
