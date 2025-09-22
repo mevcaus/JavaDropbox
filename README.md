@@ -79,7 +79,7 @@ You must have a Java Development Kit (JDK) installed on your system.
 -   **Uploading:** Click the "Add Files" button. A modal will appear where you can either drag and drop files or click "Select Files" to open your system's file explorer.
 -   **Deleting:** Click the trash can icon (🗑️) on the right side of any file or folder row. A confirmation pop-up will appear to prevent accidental deletion.
 
-## 🔮 Future Enhancements
+## Future Enhancements
 
 Here are some potential features that could be added:
 
@@ -88,6 +88,6 @@ Here are some potential features that could be added:
 -   [ ] **Upload entire folders:** Allow users to upload folders directly into the currently expanded folder.
 -   [ ] **Create New Folders:** Add a UI element to create new, empty directories.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
