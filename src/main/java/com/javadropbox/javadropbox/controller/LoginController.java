@@ -10,18 +10,17 @@ import org.springframework.web.bind.annotation.GetMapping;
 public class LoginController {
 
     @GetMapping("/")
-    public String root() {
-        return "redirect:/login";
-    }
-
-    @GetMapping("/login")
-    public String loginPage() {
+    public String index() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
         if (auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken)) {
             return "redirect:/dashboard";
         }
+        return "Login";
+    }
 
+    @GetMapping("/login")
+    public String loginPage() {
         return "Login";
     }
 }
