@@ -1,9 +1,12 @@
 package com.javadropbox.javadropbox;
 
+import com.javadropbox.javadropbox.service.AuthService;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -12,12 +15,11 @@ public class JavadropboxApplication {
 
     private static final String DEFAULT_JDB_FOLDER = "JDB";
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         String servingDirectory = getServingDirectory(args);
         System.setProperty("javadropbox.serving.directory", servingDirectory);
         SpringApplication.run(JavadropboxApplication.class, args);
 
-        // Show startup message
         System.out.println("\n" + "=".repeat(60));
         System.out.println("🚀 JavaDropbox is now running!");
         System.out.println("📁 Serving directory: " + servingDirectory);

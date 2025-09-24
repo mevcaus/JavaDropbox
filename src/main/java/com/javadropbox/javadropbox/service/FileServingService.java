@@ -190,6 +190,7 @@ public class FileServingService {
      * @param relativePath The path of the item relative to the serving directory.
      * @return A DownloadableResource containing the data and metadata.
      * @throws IOException if the file is not found or cannot be read.
+     * -- TODO: improve compression algorithm --
      */
     public DownloadableResource getResourceForPath(String relativePath) throws IOException {
         Path rootPath = getServingDirectoryPath();
