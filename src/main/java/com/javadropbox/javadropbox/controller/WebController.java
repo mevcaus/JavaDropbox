@@ -75,6 +75,7 @@ public class WebController {
     public String dashboard(Principal principal, Model model) {
         model.addAttribute("user", principal.getName());
         model.addAttribute("directory", fileServingService.getServingDirectory());
+
         return "Dashboard";
     }
 
@@ -192,7 +193,7 @@ public class WebController {
 
     @GetMapping("/setup")
     public String showSetupPage() {
-        return authService.isSetupRequired() ? "forward:/setup.html" : "redirect:/login";
+        return authService.isSetupRequired() ? "Setup" : "redirect:/login";
     }
 
     @PostMapping("/setup")

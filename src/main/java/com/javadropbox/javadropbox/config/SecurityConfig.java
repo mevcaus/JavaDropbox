@@ -63,7 +63,6 @@ public class SecurityConfig {
                         auth
                                 .requestMatchers(
                                         "/setup",
-                                        "/setup.html",
                                         "/login",
                                         "/css/**",
                                         "/js/**",
