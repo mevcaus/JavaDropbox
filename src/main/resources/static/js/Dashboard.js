@@ -4,19 +4,6 @@ let filesToUpload = [];
 let pathToDelete = null;
 
 // --- CORE FUNCTIONS ---
-function populateUserInfo() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const username = urlParams.get("user");
-    if (username) document.getElementById("username").textContent = username;
-
-    const directory = urlParams.get("directory");
-    if (directory) {
-        document.getElementById("current-path-text").textContent = directory;
-    } else {
-        document.getElementById("current-path-text").textContent =
-            "Directory path not found.";
-    }
-}
 
 function formatFileSize(bytes) {
     if (bytes === 0) return "0 B";
@@ -295,7 +282,6 @@ function setupDeleteModal() {
 
 // --- PAGE INITIALIZATION ---
 document.addEventListener("DOMContentLoaded", () => {
-    populateUserInfo();
     loadFileTree();
     setupUploadModal();
     setupDeleteModal();

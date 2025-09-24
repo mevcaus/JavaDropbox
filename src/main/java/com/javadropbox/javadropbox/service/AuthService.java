@@ -45,9 +45,11 @@ public class AuthService {
         }
 
         this.setupRequired = false;
-        System.out.println("✅ Setup complete. User credentials saved.");
+        System.out.println("Setup complete. User credentials saved.");
     }
 
+    // -- spring security already does this --
+    // this also does not actually hash the raw password so it doesn't even work
     public boolean authenticate(String username, String rawPassword) {
         if (isSetupRequired()) {
             return false;

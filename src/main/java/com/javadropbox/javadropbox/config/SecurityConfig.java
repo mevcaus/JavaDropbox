@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.config;
 
 import com.javadropbox.javadropbox.service.AuthService;
+import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -46,35 +47,54 @@ public class SecurityConfig {
             if (!storedUsername.equals(username)) {
                 throw new UsernameNotFoundException("User not found");
             }
-            UserDetails user = User.withUsername(storedUsername)
+            return User.withUsername(storedUsername)
                     .password(storedHash)
                     .roles("USER")
                     .build();
-            return user;
         };
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http)
+            throws Exception {
         http
                 .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/setup", "/setup.html", "/login", "/login.html",
-                                "/css/**", "/js/**").permitAll()
-                        .anyRequest().authenticated()
+                .authorizeHttpRequests(auth ->
+                        auth
+                                .requestMatchers(
+                                        "/setup",
+                                        "/setup.html",
+                                        "/login",
+                                        "/css/**",
+                                        "/js/**",
+                                        "/images/**",
+                                        "/JavaDropbox_favicon.png"
+                                )
+                                .permitAll()
+                                .anyRequest()
+                                .authenticated()
                 )
-                .formLogin(form -> form
-                        .loginPage("/login.html")
-                        .loginProcessingUrl("/login")
-                        .defaultSuccessUrl("/dashboard", true)
-                        .failureUrl("/login.html?error")
-                        .permitAll()
+                .formLogin(form ->
+                        form
+                                .loginPage("/login")
+                                .loginProcessingUrl("/login")
+                                .defaultSuccessUrl("/dashboard", true)
+                                .failureUrl("/login?error")
+                                .permitAll()
                 )
-                .logout(logout -> logout
-                        .logoutUrl("/logout")
-                        .logoutSuccessUrl("/login.html?logout")
-                        .permitAll()
+                .rememberMe(rememberMe ->
+                        rememberMe
+                                .key(UUID.randomUUID().toString())
+                                .tokenValiditySeconds(60)
+//                                .tokenValiditySeconds(86400 * 14) // 14 day cookie
                 )
+                .logout(logout ->
+                        logout
+                                .logoutUrl("/logout")
+                                .logoutSuccessUrl("/login?logout")
+                                .permitAll()
+                )
+                // -- DO NOT DO THIS IN PRODUCTION --
                 .csrf(AbstractHttpConfigurer::disable);
 
         return http.build();

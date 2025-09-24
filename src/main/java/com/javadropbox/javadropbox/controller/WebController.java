@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
@@ -35,24 +36,6 @@ public class WebController {
     private FileServingService fileServingService;
     @Autowired
     private AuthService authService;
-
-    /**
-     * Redirects to the login page.
-     * @return redirect to login.html
-     */
-    @GetMapping("/")
-    public String index() {
-        return "redirect:/login.html";
-    }
-
-    /**
-     * Redirects to the login page.
-     * @return redirect to login.html
-     */
-    @GetMapping("/login")
-    public String login() {
-        return "redirect:/login.html";
-    }
 
     /**
      * Handles login form submission.
@@ -83,22 +66,22 @@ public class WebController {
 //    }
 
     /**
-     * Redirects to the dashboard page with user and directory info.
+     * Renders the dashboard page with user and directory info.
      * @param principal the user logging in
-     * @param redirectAttributes attributes for redirect scenarios
-     * @return redirect to dashboard.html
+     * @param model the model to pass attributes to the view
+     * @return the dashboard view
      */
     @GetMapping("/dashboard")
-    public String dashboard(Principal principal, RedirectAttributes redirectAttributes) {
-        redirectAttributes.addAttribute("user", principal.getName());
-        redirectAttributes.addAttribute("directory", fileServingService.getServingDirectory());
-        return "redirect:/dashboard.html";
+    public String dashboard(Principal principal, Model model) {
+        model.addAttribute("user", principal.getName());
+        model.addAttribute("directory", fileServingService.getServingDirectory());
+        return "Dashboard";
     }
 
     /**
      * Logs out the current user by invalidating their session and redirects to the login page.
      * @param request the HTTP servlet request
-     * @return redirect to login.html
+     * @return redirect to login
      */
     @GetMapping("/logout")
     public String logout(HttpServletRequest request) {
@@ -106,7 +89,7 @@ public class WebController {
         if (session != null) {
             session.invalidate();
         }
-        return "redirect:/login.html";
+        return "redirect:/login";
     }
 
     /**
@@ -209,7 +192,7 @@ public class WebController {
 
     @GetMapping("/setup")
     public String showSetupPage() {
-        return authService.isSetupRequired() ? "forward:/setup.html" : "redirect:/login.html";
+        return authService.isSetupRequired() ? "forward:/setup.html" : "redirect:/login";
     }
 
     @PostMapping("/setup")
@@ -217,6 +200,7 @@ public class WebController {
         if (authService.isSetupRequired()) {
             authService.completeSetup(username, password);
         }
-        return "redirect:/login.html";
+        return "redirect:/login";
     }
 }
+

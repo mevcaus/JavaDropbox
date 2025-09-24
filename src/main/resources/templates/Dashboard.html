@@ -1,35 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JavaDropbox - Dashboard</title>
-    <link rel="stylesheet" href="/css/Dashboard.css" />
+    <link rel="stylesheet" href="../css/Dashboard.css" />
+    <link rel="icon" type="image/png" href="/JavaDropbox_favicon.png" />
 </head>
 
 <body>
 <header class="header">
     <div class="header-content">
-        <h1>📁 JavaDropbox</h1>
+        <h1>
+            <img
+                    src="/../images/Horizontal/JavaDropbox_white_logoAndText_horizontal_400px.png"
+                    alt="JavaDropbox Logo"/>
+        </h1>
         <div class="user-info">
-            <span>Welcome, <span id="username">User</span>!</span>
+            <span>Welcome, <span id="username" th:text="${#authentication.name}">User</span>!</span>
             <a href="/logout" class="logout-btn">Logout</a>
         </div>
     </div>
 </header>
 
 <main class="main-content">
-    <div class="card">
-        <h2>Welcome to JavaDropbox!</h2>
-        <p>Your self-hosted file storage solution.</p>
-    </div>
 
     <div class="card">
         <h2>File Browser</h2>
 
         <div class="path-display">
             <strong>Current Path: </strong>
-            <code id="current-path-text">Loading...</code>
+            <code id="current-path-text" th:text="${directory}">Loading...</code>
         </div>
         <div class="action-bar">
             <button id="add-files-btn" class="button-primary">Add Files</button>
