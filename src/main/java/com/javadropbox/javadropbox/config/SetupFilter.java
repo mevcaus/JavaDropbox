@@ -38,8 +38,11 @@ public class SetupFilter extends OncePerRequestFilter {
         String requestURI = request.getRequestURI();
 
         if (authService.isSetupRequired()) {
-            if (requestURI.equals("/setup") || requestURI.startsWith("/css/") ||
-                    requestURI.startsWith("/js/") || requestURI.startsWith("/images/")) {
+            if (requestURI.equals("/setup") ||
+                    requestURI.startsWith("/css/") ||
+                    requestURI.startsWith("/js/") ||
+                    requestURI.startsWith("/images/") ||
+                    requestURI.equals("/JavaDropbox_favicon.png")) {
                 filterChain.doFilter(request, response);
             } else {
                 response.sendRedirect("/setup");
