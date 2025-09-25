@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,10 @@ import java.util.Properties;
 
 @Service
 public class AuthService {
+
+    // -- used to override setup required in test suite --
+    @Value("${app.setup.required:#{null}}")
+    private Boolean setupRequiredOverride;
 
     private final File userFile = new File("user.properties");
     private final Properties userProperties = new Properties();
@@ -28,6 +33,11 @@ public class AuthService {
     }
 
     public boolean isSetupRequired() {
+        // -- used to override setup required in test suite --
+        if (setupRequiredOverride != null) {
+            return setupRequiredOverride;
+        }
+
         return setupRequired;
     }
 

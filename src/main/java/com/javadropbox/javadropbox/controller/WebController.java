@@ -198,6 +198,12 @@ public class WebController {
 
     @PostMapping("/setup")
     public String processSetup(@RequestParam String username, @RequestParam String password) throws IOException {
+        if (username == null || username.trim().isEmpty()) {
+            return "redirect:/setup?error=username-required";
+        }
+        if (password == null || password.trim().isEmpty()) {
+            return "redirect:/setup?error=password-required";
+        }
         if (authService.isSetupRequired()) {
             authService.completeSetup(username, password);
         }

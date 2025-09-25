@@ -67,7 +67,8 @@ public class SecurityConfig {
                                         "/css/**",
                                         "/js/**",
                                         "/images/**",
-                                        "/JavaDropbox_favicon.png"
+                                        "/JavaDropbox_favicon.png",
+                                        "/error"
                                 )
                                 .permitAll()
                                 .anyRequest()
