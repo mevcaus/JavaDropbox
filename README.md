@@ -1,4 +1,4 @@
-# 📁 JavaDropbox
+# JavaDropbox
 
 > A lightweight, self-hosted file management solution built with Java and Spring Boot. Access, manage, and download your files from anywhere.
 
@@ -9,12 +9,15 @@
     -   Download entire folders, which are automatically zipped on-the-fly.
 -   **Uploads:** Easily add files by dragging them into the browser or using a traditional file selector.
 -   **Configurable Directory:** Serve files from the default `JDB` subfolder or specify any directory on your system via a command-line argument.
+-   **Springboot Security:** Authentication to restrict access to the file management interface.
 
 ##  Tech Stack
 
 -   **Backend:**
     -   Java 21+
     -   Spring Boot 3+ (Spring Web)
+    -   Thymeleaf
+    -   Spring Security
 -   **Frontend:**
     -   HTML5
     -   CSS3 
@@ -71,7 +74,12 @@ You must have a Java Development Kit (JDK) installed on your system.
 1.  Once the server is running, open your web browser and navigate to:
     **`http://localhost:8080`**
 
-2.  You will be greeted by a simple login screen. Enter any username and password to proceed to the dashboard. (Note: This is a placeholder and not a secure authentication system).
+2.  Upon first access it will ask you to setup a username and password for authentication.
+
+3.  After setting up your credentials, you will be redirected to the login screen. Use the credentials you just created to log in.
+
+
+> note: if you forget your credentials, you can delete the `users.properties` file located in the project directory to reset them.
 
 ### Core Functionality
 
@@ -81,12 +89,14 @@ You must have a Java Development Kit (JDK) installed on your system.
 
 ## Future Enhancements
 
-Here are some potential features that could be added:
-
--   [ ] **Real User Authentication:** Implement a proper login system with usernames, hashed passwords, and session management.
+Future plans for this project include:
+-   [ ] **File Previews:** Implement previews for common file types (images, PDFs, text files).
+-   [ ] **Search Functionality:** Add a search bar to quickly locate files and folders.
+-   [ ] **Sorting Options:** Allow users to sort files and folders by name, date, size, etc.
 -   [ ] **Upload to Subfolders:** Allow users to upload files directly into the currently expanded folder.
 -   [ ] **Upload entire folders:** Allow users to upload folders directly into the currently expanded folder.
 -   [ ] **Create New Folders:** Add a UI element to create new, empty directories.
+-   [ ] **Desktop Folder Integration:** Create a desktop folder functionality that syncs a local folder with the server.
 
 ## License
 
