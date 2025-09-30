@@ -161,6 +161,7 @@ function setupUploadModal() {
 
     fileBrowser.addEventListener("click", (e) => {
         if (e.target && e.target.closest(".upload-btn")) {
+            // current bug does not stop expanding of folder when clicking upload button
             e.stopPropagation();
             const button = e.target.closest(".upload-btn");
             const path = button.dataset.path;
