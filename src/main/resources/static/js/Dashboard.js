@@ -2,6 +2,7 @@
 let nodeIdCounter = 0;
 let filesToUpload = [];
 let pathToDelete = null;
+let targetUploadPath = "";
 
 // --- CORE FUNCTIONS ---
 
@@ -41,7 +42,7 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
     let html = "";
     nodes.forEach((node) => {
         const currentId = ++nodeIdCounter;
-        const parentId = ancestorIds[ancestorIds.length - 1]; // Get the immediate parent ID
+        const parentId = ancestorIds[ancestorIds.length - 1];
         const isHidden = level > 0 ? "hidden" : "";
         const indent = level * 25;
         const sizeDisplay = formatFileSize(node.size);
@@ -49,13 +50,16 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
         const encodedPath = encodeURIComponent(currentPath);
         const downloadUrl = `/api/download?path=${encodedPath}`;
         const nameLink = `<a href="${downloadUrl}" class="download-link" onclick="event.stopPropagation()">${node.name}</a>`;
-        const deleteButton = `<td class="actions-cell"><button class="delete-btn" data-path="${currentPath}" data-name="${node.name}">🗑️</button></td>`;
 
         const ancestorClasses = ancestorIds
             .map((id) => `child-of-${id}`)
             .join(" ");
 
         if (node.isDirectory) {
+            const uploadButton = `<button class="upload-btn" data-path="${currentPath}" data-name="${node.name}" title="Upload files to this directory">📁⬆️</button>`;
+            const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this directory">🗑️</button>`;
+            const actionsCell = `<td class="actions-cell">${uploadButton}${deleteButton}</td>`;
+
             html += `
                 <tr class="collapsible ${isHidden} ${ancestorClasses}" 
                     data-node-id="${currentId}" 
@@ -63,7 +67,7 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
                     onclick="toggleNode(${currentId})">
                     <td><div class="file-name-cell" style="padding-left: ${indent}px;"><span class="icon-toggle"></span><span class="file-icon">📁</span>${nameLink}</div></td>
                     <td class="file-size">${sizeDisplay}</td>
-                    ${deleteButton}
+                    ${actionsCell}
                 </tr>
             `;
             if (node.children.length > 0) {
@@ -76,13 +80,16 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
                 );
             }
         } else {
+            const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this file">🗑️</button>`;
+            const actionsCell = `<td class="actions-cell">${deleteButton}</td>`;
+
             html += `
                 <tr class="${isHidden} ${ancestorClasses}" data-parent-id="${parentId}">
                     <td><div class="file-name-cell" style="padding-left: ${
                 indent + 15
             }px;"><span class="file-icon">📄</span>${nameLink}</div></td>
                     <td class="file-size">${sizeDisplay}</td>
-                    ${deleteButton}
+                    ${actionsCell}
                 </tr>
             `;
         }
@@ -97,12 +104,22 @@ async function loadFileTree() {
         const response = await fetch("/api/files");
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const fileTree = await response.json();
+
+        nodeIdCounter = 0;
+        let tableBodyHtml = "";
+
         if (fileTree.length === 0) {
-            container.innerHTML = `<p class="empty-message">This directory is empty.</p>`;
+            container.innerHTML = `
+                <table class="file-table">
+                    <thead><tr><th>Name</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
+                    <tbody>${tableBodyHtml}</tbody>
+                </table>
+                <p class="empty-message">This directory is empty. Use the upload button above to add files.</p>
+            `;
             return;
         }
-        nodeIdCounter = 0;
-        const tableBodyHtml = renderTree(fileTree, 0, ["root"], "");
+
+        tableBodyHtml += renderTree(fileTree, 0, ["root"], "");
         container.innerHTML = `
             <table class="file-table">
                 <thead><tr><th>Name</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
@@ -115,11 +132,20 @@ async function loadFileTree() {
     }
 }
 
+function openUploadModal(targetPath = "", displayName = "Root Directory") {
+    targetUploadPath = targetPath;
+    const modal = document.getElementById("upload-modal");
+    const targetPathDisplay = modal.querySelector("#target-path-display");
+
+    targetPathDisplay.textContent = displayName;
+    modal.classList.remove("hidden");
+}
+
 function setupUploadModal() {
     const modal = document.getElementById("upload-modal");
     const addFilesBtn = document.getElementById("add-files-btn");
-    const closeModalBtn = modal.querySelector(".close-button"); // Scoped
-    const modalContent = modal.querySelector(".modal-content"); // Scoped - THIS IS THE FIX
+    const closeModalBtn = modal.querySelector(".close-button");
+    const modalContent = modal.querySelector(".modal-content");
     const dropZone = modal.querySelector("#drop-zone");
     const fileInput = modal.querySelector("#file-input");
     const selectFilesBtn = modal.querySelector("#select-files-btn");
@@ -127,10 +153,22 @@ function setupUploadModal() {
     const fileListPreview = modal.querySelector("#file-list-preview");
     const progressContainer = modal.querySelector("#upload-progress-container");
     const progressBar = modal.querySelector("#upload-progress-bar");
+    const fileBrowser = document.getElementById("file-browser-container");
 
     // --- Event Listeners ---
-    addFilesBtn.addEventListener("click", () => modal.classList.remove("hidden"));
-    closeModalBtn.addEventListener("click", closeModal); // We don't need stopPropagation here anymore
+    addFilesBtn.addEventListener("click", () => openUploadModal());
+    closeModalBtn.addEventListener("click", closeModal);
+
+    fileBrowser.addEventListener("click", (e) => {
+        if (e.target && e.target.closest(".upload-btn")) {
+            e.stopPropagation();
+            const button = e.target.closest(".upload-btn");
+            const path = button.dataset.path;
+            const name = button.dataset.name;
+            const displayName = path === "" ? "Root Directory" : `${name}/`;
+            openUploadModal(path, displayName);
+        }
+    });
 
     modal.addEventListener("click", (e) => {
         if (e.target === modal) {
@@ -138,7 +176,7 @@ function setupUploadModal() {
         }
     });
 
-    modalContent.addEventListener("click", (e) => { // This now correctly targets the upload modal's content
+    modalContent.addEventListener("click", (e) => {
         e.stopPropagation();
     });
 
@@ -185,13 +223,13 @@ function setupUploadModal() {
     async function uploadFiles() {
         if (filesToUpload.length === 0) return;
         const formData = new FormData();
-        formData.append("path", "");
+        formData.append("path", targetUploadPath); // Use the selected target path
         filesToUpload.forEach((file) => formData.append("files", file));
         progressContainer.classList.remove("hidden");
         progressBar.style.width = "0%";
         uploadBtn.disabled = true;
         try {
-            progressBar.style.width = "50%"; // Simulate progress
+            progressBar.style.width = "50%";
             const response = await fetch("/api/upload", {
                 method: "POST",
                 body: formData,
@@ -216,6 +254,7 @@ function setupUploadModal() {
     function closeModal() {
         modal.classList.add("hidden");
         filesToUpload = [];
+        targetUploadPath = "";
         updateFileListUI();
         progressContainer.classList.add("hidden");
         progressBar.style.width = "0%";
@@ -224,7 +263,7 @@ function setupUploadModal() {
 
 function setupDeleteModal() {
     const deleteModal = document.getElementById("delete-confirm-modal");
-    const modalContent = deleteModal.querySelector(".modal-content"); // Scoped query
+    const modalContent = deleteModal.querySelector(".modal-content");
     const fileBrowser = document.getElementById("file-browser-container");
     const cancelBtn = deleteModal.querySelector("#cancel-delete-btn");
     const confirmBtn = deleteModal.querySelector("#confirm-delete-btn");
@@ -255,7 +294,6 @@ function setupDeleteModal() {
         e.stopPropagation();
     });
 
-    // Handle the confirmation click
     confirmBtn.addEventListener("click", async () => {
         if (!pathToDelete) return;
 
@@ -266,7 +304,7 @@ function setupDeleteModal() {
                 }
             );
             if (response.ok) {
-                loadFileTree(); //
+                loadFileTree();
             } else {
                 const error = await response.json();
                 alert(`Error: ${error.message}`);

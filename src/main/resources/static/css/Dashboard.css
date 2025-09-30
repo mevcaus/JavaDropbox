@@ -336,6 +336,56 @@ body {
     background-color: #c82333;
 }
 
+/* Upload target info styling */
+.upload-target-info {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border-left: 4px solid #007bff;
+}
+
+.upload-target-info code {
+    background-color: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+/* Action buttons styling */
+.actions-cell {
+    white-space: nowrap;
+    width: 100px;
+}
+
+.upload-btn, .delete-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    margin: 0 2px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.upload-btn:hover {
+    background-color: #e3f2fd;
+}
+
+.delete-btn:hover {
+    background-color: #ffebee;
+}
+
+.root-directory-row {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.root-directory-row .file-name-cell {
+    padding-left: 10px;
+}
+
 /* keep this at the bottom */
 .hidden {
     display: none;
