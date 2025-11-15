@@ -2,6 +2,14 @@
 
 > A lightweight, self-hosted file management solution built with Java and Spring Boot. Access, manage, and download your files from anywhere.
 
+JavaDropbox is designed for:
+- **Developers and IT professionals** who want a private, self-hosted solution for managing project files or internal documentation.
+- **Small businesses** that wish to securely store, share, and access digital assets within their own infrastructure.
+- **Students and educators** needing a simple system to upload and share documents in an academic environment.
+- **Individuals** who prefer self-hosted alternatives to commercial cloud storage services, focusing on privacy and ownership of data.
+
+In short, the main audience consists of users who value **control, security, and simplicity** over large enterprise-scale features.
+
 ## Features
 
 -   **File & Folder Downloads:**
