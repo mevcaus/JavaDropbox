@@ -34,6 +34,7 @@
         </div>
         <div class="action-bar">
             <button id="add-files-btn" class="button-primary">Add Files</button>
+            <button id="create-folder-btn" class="button-secondary">Create Folder</button>
         </div>
         <div class="file-browser" id="file-browser-container">
             <p>Loading files...</p>
@@ -86,6 +87,28 @@
     </div>
 </div>
 
+<div id="create-folder-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Create New Folder</h2>
+            <button id="close-create-folder-btn" class="close-button">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="upload-target-info">
+                <strong>Creating in: </strong>
+                <code id="create-folder-target-display">Root Directory</code>
+            </div>
+            <div class="form-group">
+                <label for="folder-name-input">Folder Name</label>
+                <input type="text" id="folder-name-input" placeholder="Enter folder name" />
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="cancel-create-folder-btn" class="button-secondary">Cancel</button>
+            <button id="confirm-create-folder-btn" class="button-primary">Create</button>
+        </div>
+    </div>
+</div>
 <script src="/js/Dashboard.js"></script>
 </body>
 </html>

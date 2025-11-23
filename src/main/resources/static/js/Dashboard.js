@@ -3,9 +3,9 @@ let nodeIdCounter = 0;
 let filesToUpload = [];
 let pathToDelete = null;
 let targetUploadPath = "";
+let targetCreateFolderPath = "";
 
 // --- CORE FUNCTIONS ---
-
 function formatFileSize(bytes) {
     if (bytes === 0) return "0 B";
     const k = 1024;
@@ -57,9 +57,9 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
 
         if (node.isDirectory) {
             const uploadButton = `<button class="upload-btn" data-path="${currentPath}" data-name="${node.name}" title="Upload files to this directory">📁⬆️</button>`;
+            const createFolderButton = `<button class="create-folder-btn" data-path="${currentPath}" data-name="${node.name}" title="Create folder in this directory">📁➕</button>`;
             const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this directory">🗑️</button>`;
-            const actionsCell = `<td class="actions-cell">${uploadButton}${deleteButton}</td>`;
-
+            const actionsCell = `<td class="actions-cell">${createFolderButton}${uploadButton}${deleteButton}</td>`;
             html += `
                 <tr class="collapsible ${isHidden} ${ancestorClasses}" 
                     data-node-id="${currentId}" 
@@ -319,9 +319,106 @@ function setupDeleteModal() {
     });
 }
 
+function setupCreateFolderModal() {
+    const modal = document.getElementById("create-folder-modal");
+    const modalContent = modal.querySelector(".modal-content");
+    const createFolderBtn = document.getElementById("create-folder-btn");
+    const closeBtn = modal.querySelector("#close-create-folder-btn");
+    const cancelBtn = modal.querySelector("#cancel-create-folder-btn");
+    const confirmBtn = modal.querySelector("#confirm-create-folder-btn");
+    const folderNameInput = modal.querySelector("#folder-name-input");
+    const targetDisplay = modal.querySelector("#create-folder-target-display");
+    const fileBrowser = document.getElementById("file-browser-container");
+
+    const openCreateFolderModal = (targetPath = "", displayName = "Root Directory") => {
+        targetCreateFolderPath = targetPath;
+        targetDisplay.textContent = displayName;
+        folderNameInput.value = "";
+        modal.classList.remove("hidden");
+        folderNameInput.focus();
+    };
+
+    const closeCreateFolderModal = () => {
+        modal.classList.add("hidden");
+        targetCreateFolderPath = "";
+        folderNameInput.value = "";
+    };
+
+    createFolderBtn.addEventListener("click", () => openCreateFolderModal());
+
+    fileBrowser.addEventListener("click", (e) => {
+        if (e.target && e.target.closest(".create-folder-btn")) {
+            e.stopPropagation();
+            const button = e.target.closest(".create-folder-btn");
+            const path = button.dataset.path;
+            const name = button.dataset.name;
+            const displayName = path === "" ? "Root Directory" : `${name}/`;
+            openCreateFolderModal(path, displayName);
+        }
+    });
+
+    closeBtn.addEventListener("click", closeCreateFolderModal);
+    cancelBtn.addEventListener("click", closeCreateFolderModal);
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            closeCreateFolderModal();
+        }
+    });
+
+    modalContent.addEventListener("click", (e) => {
+        e.stopPropagation();
+    });
+
+    folderNameInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            confirmBtn.click();
+        }
+    });
+
+    confirmBtn.addEventListener("click", async () => {
+        const folderName = folderNameInput.value.trim();
+
+        if (!folderName) {
+            alert("Please enter a folder name");
+            return;
+        }
+
+        if (folderName.includes("/") || folderName.includes("\\") || folderName.includes("..")) {
+            alert("Invalid folder name. Cannot contain /, \\, or ..");
+            return;
+        }
+
+        try {
+            const response = await fetch("/api/create-directory", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({
+                    path: targetCreateFolderPath,
+                    name: folderName,
+                }),
+            });
+
+            if (response.ok) {
+                closeCreateFolderModal();
+                loadFileTree();
+            } else {
+                const error = await response.json();
+                alert(`Error: ${error.message}`);
+            }
+        } catch (error) {
+            alert("An unexpected error occurred.");
+            console.error("Create folder error:", error);
+        }
+    });
+}
+
 // --- PAGE INITIALIZATION ---
 document.addEventListener("DOMContentLoaded", () => {
     loadFileTree();
     setupUploadModal();
     setupDeleteModal();
+    setupCreateFolderModal();
 });

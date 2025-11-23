@@ -335,4 +335,29 @@ public class FileServingService {
             throw new IOException("Failed to delete: " + file);
         }
     }
+
+    public void createDirectory(String relativePath, String directoryName) throws IOException {
+        Path rootPath = getServingDirectoryPath();
+        Path parentPath = rootPath.resolve(relativePath).normalize();
+
+        if (!parentPath.startsWith(rootPath)) {
+            throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
+        }
+
+        if (directoryName == null || directoryName.trim().isEmpty() || directoryName.contains("..") || directoryName.contains("/") || directoryName.contains("\\")) {
+            throw new IOException("Invalid directory name: " + directoryName);
+        }
+
+        Path newDirPath = parentPath.resolve(directoryName).normalize();
+
+        if (!newDirPath.getParent().equals(parentPath)) {
+            throw new IOException("Invalid directory path");
+        }
+
+        if (Files.exists(newDirPath)) {
+            throw new IOException("Directory already exists: " + directoryName);
+        }
+
+        Files.createDirectories(newDirPath);
+    }
 }

@@ -209,5 +209,20 @@ public class WebController {
         }
         return "redirect:/login";
     }
+
+    @PostMapping("/api/create-directory")
+    public ResponseEntity<Map<String, String>> createDirectory(
+            @RequestParam String path,
+            @RequestParam String name,
+            HttpSession session) {
+        try {
+            fileServingService.createDirectory(path, name);
+            return ResponseEntity.ok(Map.of("message", "Directory created successfully: " + name));
+        } catch (IOException e) {
+            System.err.println("Error creating directory: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
+        }
+    }
 }
 
