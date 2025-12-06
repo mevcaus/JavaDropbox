@@ -3,3 +3,4 @@
 *.jar binary
 src/main/resources/static/images/**/*.png filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
+src/main/resources/static/images/icons/** filter=lfs diff=lfs merge=lfs -text
