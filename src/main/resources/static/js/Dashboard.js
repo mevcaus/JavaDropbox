@@ -38,6 +38,23 @@ function toggleNode(nodeId) {
     }
 }
 
+// --- HELPER --
+function getFileIcon(name, isDirectory) {
+    if (isDirectory) return "/images/icons/folder.png";
+    const ext = name.split('.').pop().toLowerCase();
+    switch (ext) {
+        case 'java': return "/images/icons/java.png";
+        case 'html': return "/images/icons/html.png";
+        case 'css': return "/images/icons/css.png";
+        case 'js': return "/images/icons/js.png";
+        case 'png':
+        case 'jpg':
+        case 'jpeg':
+        case 'gif': return "/images/icons/image.png";
+        default: return "/images/icons/file.png";
+    }
+}
+
 function renderTree(nodes, level, ancestorIds, parentPath) {
     let html = "";
     nodes.forEach((node) => {
@@ -55,17 +72,21 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
             .map((id) => `child-of-${id}`)
             .join(" ");
 
+        const iconSrc = getFileIcon(node.name, node.isDirectory);
+        const iconImg = `<img src="${iconSrc}" class="file-icon-img" style="width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;" alt="icon"/>`;
+
+
         if (node.isDirectory) {
-            const uploadButton = `<button class="upload-btn" data-path="${currentPath}" data-name="${node.name}" title="Upload files to this directory">📁⬆️</button>`;
-            const createFolderButton = `<button class="create-folder-btn" data-path="${currentPath}" data-name="${node.name}" title="Create folder in this directory">📁➕</button>`;
-            const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this directory">🗑️</button>`;
+            const uploadButton = `<button class="upload-btn" data-path="${currentPath}" data-name="${node.name}" title="Upload files to this directory"><img src="/images/icons/file-upload.png" style="width: 20px; height: 20px;" alt="Upload"/></button>`;
+            const createFolderButton = `<button class="create-folder-btn" data-path="${currentPath}" data-name="${node.name}" title="Create folder in this directory"><img src="/images/icons/create-folder.png" style="width: 20px; height: 20px;" alt="New Folder"/></button>`;
+            const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this directory"><img src="/images/icons/delete-folder.png" style="width: 20px; height: 20px;" alt="Delete"/></button>`;
             const actionsCell = `<td class="actions-cell">${createFolderButton}${uploadButton}${deleteButton}</td>`;
             html += `
                 <tr class="collapsible ${isHidden} ${ancestorClasses}" 
                     data-node-id="${currentId}" 
                     data-parent-id="${parentId}"
                     onclick="toggleNode(${currentId})">
-                    <td><div class="file-name-cell" style="padding-left: ${indent}px;"><span class="icon-toggle"></span><span class="file-icon">📁</span>${nameLink}</div></td>
+                    <td><div class="file-name-cell" style="padding-left: ${indent}px;"><span class="icon-toggle"></span>${iconImg}${nameLink}</div></td>
                     <td class="file-size">${sizeDisplay}</td>
                     ${actionsCell}
                 </tr>
@@ -80,14 +101,13 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
                 );
             }
         } else {
-            const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this file">🗑️</button>`;
+            const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this file"><img src="/images/icons/delete-file.png" style="width: 20px; height: 20px;" alt="Delete"/></button>`;
             const actionsCell = `<td class="actions-cell">${deleteButton}</td>`;
 
             html += `
                 <tr class="${isHidden} ${ancestorClasses}" data-parent-id="${parentId}">
-                    <td><div class="file-name-cell" style="padding-left: ${
-                indent + 15
-            }px;"><span class="file-icon">📄</span>${nameLink}</div></td>
+                    <td><div class="file-name-cell" style="padding-left: ${indent + 15
+                }px;">${iconImg}${nameLink}</div></td>
                     <td class="file-size">${sizeDisplay}</td>
                     ${actionsCell}
                 </tr>
@@ -301,8 +321,8 @@ function setupDeleteModal() {
         try {
             const response = await fetch(
                 `/api/delete?path=${encodeURIComponent(pathToDelete)}`, {
-                    method: "DELETE",
-                }
+                method: "DELETE",
+            }
             );
             if (response.ok) {
                 loadFileTree();

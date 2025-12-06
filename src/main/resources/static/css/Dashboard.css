@@ -138,7 +138,8 @@ body {
 }
 
 .collapsible .icon-toggle::before {
-    content: "▶"; /* Collapsed state */
+    content: "▶";
+    /* Collapsed state */
     display: inline-block;
     width: 1em;
     font-size: 0.8em;
@@ -146,7 +147,8 @@ body {
 }
 
 .collapsible.expanded .icon-toggle::before {
-    content: "▼"; /* Expanded state */
+    content: "▼";
+    /* Expanded state */
 }
 
 @media (max-width: 768px) {
@@ -264,8 +266,8 @@ body {
     text-align: center;
     color: #6c757d;
     transition:
-            background-color 0.2s ease,
-            border-color 0.2s ease;
+        background-color 0.2s ease,
+        border-color 0.2s ease;
 }
 
 .drop-zone.drag-over {
@@ -358,7 +360,9 @@ body {
     width: 100px;
 }
 
-.upload-btn, .delete-btn {
+.upload-btn,
+.delete-btn,
+.create-folder-btn {
     background: none;
     border: none;
     cursor: pointer;
@@ -375,6 +379,10 @@ body {
 
 .delete-btn:hover {
     background-color: #ffebee;
+}
+
+.create-folder-btn:hover {
+    background-color: #e3f2fd;
 }
 
 .root-directory-row {
@@ -432,4 +440,3 @@ body {
 .hidden {
     display: none;
 }
-
