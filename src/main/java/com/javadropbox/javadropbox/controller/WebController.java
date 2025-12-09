@@ -27,7 +27,8 @@ import java.util.Map;
 
 /**
  * WebController handles HTTP requests for the Java Dropbox application.
- * It provides endpoints for login, dashboard navigation, file management, and directory information.
+ * It provides endpoints for login, dashboard navigation, file management, and
+ * directory information.
  */
 @Controller
 public class WebController {
@@ -40,35 +41,37 @@ public class WebController {
     /**
      * Handles login form submission.
      *
-     * @param username the username entered by the user
-     * @param password the password entered by the user
-     * @param request the HTTP servlet request
+     * @param username           the username entered by the user
+     * @param password           the password entered by the user
+     * @param request            the HTTP servlet request
      * @param redirectAttributes attributes for redirect scenarios
-     * @return redirect to dashboard on successful login, otherwise redirect to login page with error
+     * @return redirect to dashboard on successful login, otherwise redirect to
+     *         login page with error
      */
-//    @PostMapping("/login")
-//    public String handleLogin(@RequestParam String username,
-//                              @RequestParam String password,
-//                              HttpServletRequest request,
-//                              RedirectAttributes redirectAttributes) {
-//
-//        if (authService.authenticate(username, password)) {
-//            // On successful login, create a session
-//            HttpSession session = request.getSession(true);
-//            session.setAttribute("user", username);
-//
-//            redirectAttributes.addAttribute("user", username);
-//            return "redirect:/dashboard";
-//        } else {
-//            redirectAttributes.addAttribute("error", "Invalid username or password");
-//            return "redirect:/login.html";
-//        }
-//    }
+    // @PostMapping("/login")
+    // public String handleLogin(@RequestParam String username,
+    // @RequestParam String password,
+    // HttpServletRequest request,
+    // RedirectAttributes redirectAttributes) {
+    //
+    // if (authService.authenticate(username, password)) {
+    // // On successful login, create a session
+    // HttpSession session = request.getSession(true);
+    // session.setAttribute("user", username);
+    //
+    // redirectAttributes.addAttribute("user", username);
+    // return "redirect:/dashboard";
+    // } else {
+    // redirectAttributes.addAttribute("error", "Invalid username or password");
+    // return "redirect:/login.html";
+    // }
+    // }
 
     /**
      * Renders the dashboard page with user and directory info.
+     * 
      * @param principal the user logging in
-     * @param model the model to pass attributes to the view
+     * @param model     the model to pass attributes to the view
      * @return the dashboard view
      */
     @GetMapping("/dashboard")
@@ -80,7 +83,9 @@ public class WebController {
     }
 
     /**
-     * Logs out the current user by invalidating their session and redirects to the login page.
+     * Logs out the current user by invalidating their session and redirects to the
+     * login page.
+     * 
      * @param request the HTTP servlet request
      * @return redirect to login
      */
@@ -95,6 +100,7 @@ public class WebController {
 
     /**
      * Prints directory info to the console and redirects to the dashboard.
+     * 
      * @return redirect to dashboard
      */
     @GetMapping("/directory-info")
@@ -105,7 +111,9 @@ public class WebController {
 
     /**
      * API endpoint to get directory information.
-     * @return a map containing path, existence, readability, and writability of the directory
+     * 
+     * @return a map containing path, existence, readability, and writability of the
+     *         directory
      */
     @GetMapping("/api/directory-info")
     @ResponseBody
@@ -121,6 +129,7 @@ public class WebController {
 
     /**
      * API endpoint to get the list of files and directories.
+     * 
      * @return a JSON array of file tree nodes
      */
     @GetMapping("/api/files")
@@ -132,6 +141,7 @@ public class WebController {
 
     /**
      * API endpoint to download a file or folder.
+     * 
      * @param path the path to the file or folder
      * @return the resource to download, or 404 if not found
      */
@@ -154,8 +164,9 @@ public class WebController {
 
     /**
      * API endpoint to upload files.
+     * 
      * @param files the files to upload
-     * @param path the target directory path
+     * @param path  the target directory path
      * @return a message indicating success or failure
      */
     @PostMapping("/api/upload")
@@ -176,6 +187,7 @@ public class WebController {
 
     /**
      * API endpoint to delete a file or folder.
+     * 
      * @param path the path to the item to delete
      * @return a message indicating success or failure
      */
@@ -205,7 +217,7 @@ public class WebController {
             return "redirect:/setup?error=password-required";
         }
         if (authService.isSetupRequired()) {
-            authService.completeSetup(username, password);
+            authService.setupUser(username, password);
         }
         return "redirect:/login";
     }
@@ -225,4 +237,3 @@ public class WebController {
         }
     }
 }
-

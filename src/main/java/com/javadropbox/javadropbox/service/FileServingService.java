@@ -3,6 +3,11 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.dto.DownloadableResource;
 import com.javadropbox.javadropbox.dto.FileItem;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
+import com.javadropbox.javadropbox.model.FileHistory;
+import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.repository.FileHistoryRepository;
+import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
@@ -23,6 +28,18 @@ public class FileServingService {
 
     @Value("${javadropbox.serving.directory:#{systemProperties['user.dir']}}")
     private String servingDirectory;
+
+    private final FileMetadataRepository fileMetadataRepository;
+    private final FileHistoryRepository fileHistoryRepository;
+    private final AuthService authService;
+
+    public FileServingService(FileMetadataRepository fileMetadataRepository,
+            FileHistoryRepository fileHistoryRepository,
+            AuthService authService) {
+        this.fileMetadataRepository = fileMetadataRepository;
+        this.fileHistoryRepository = fileHistoryRepository;
+        this.authService = authService;
+    }
 
     public String getServingDirectory() {
         return servingDirectory;
@@ -82,25 +99,17 @@ public class FileServingService {
         return info.toString();
     }
 
-    /**
-     * Lists the contents of a given subdirectory within the main serving directory.
-     * @param subpath The relative path of the subdirectory. Can be empty for the root.
-     * @return A list of FileItem objects representing files and directories.
-     *
-     * -- deprecated --
-     */
     public List<FileItem> listFiles(String subpath) {
+        // Keeping FS as source of truth for listing for now
         Path rootPath = getServingDirectoryPath();
         Path currentPath;
 
-        // Sanitize the subpath to prevent navigation outside the serving directory
         if (subpath == null || subpath.isEmpty() || subpath.equals("/")) {
             currentPath = rootPath;
         } else {
             currentPath = rootPath.resolve(subpath).normalize();
         }
 
-        // Ensure the resolved path is still inside the root serving directory.
         if (!currentPath.startsWith(rootPath)) {
             System.err.println("SECURITY ALERT: Attempted path traversal to: " + currentPath);
             return Collections.emptyList();
@@ -116,30 +125,23 @@ public class FileServingService {
             return Collections.emptyList();
         }
 
-        // Sort directories first, then files, all alphabetically
         Arrays.sort(files, Comparator.comparing(File::isDirectory).reversed()
                 .thenComparing(File::getName, String.CASE_INSENSITIVE_ORDER));
 
         List<FileItem> fileItems = new ArrayList<>();
 
-        // Add a ".." entry to go up one level, if we are not in the root
         if (!currentPath.equals(rootPath)) {
             fileItems.add(new FileItem("..", true, 0));
         }
 
         for (File file : files) {
             fileItems.add(
-                    new FileItem(file.getName(), file.isDirectory(), file.length())
-            );
+                    new FileItem(file.getName(), file.isDirectory(), file.length()));
         }
 
         return fileItems;
     }
 
-    /**
-     * Public method to get the entire directory structure as a tree.
-     * @return A list of root-level FileTreeNode objects.
-     */
     public List<FileTreeNode> getDirectoryTree() {
         File rootDir = getServingDirectoryFile();
         if (!isValidDirectory() || !canRead()) {
@@ -148,12 +150,6 @@ public class FileServingService {
         return buildTreeRecursively(rootDir);
     }
 
-    /**
-     * Recursively builds a list of file tree nodes for a given directory,
-     * calculating the total size for subdirectories.
-     * @param directory The directory to scan.
-     * @return A list of nodes representing the contents of the directory.
-     */
     private List<FileTreeNode> buildTreeRecursively(File directory) {
         File[] files = directory.listFiles();
         if (files == null) {
@@ -184,19 +180,10 @@ public class FileServingService {
         return nodes;
     }
 
-
-    /**
-     * Prepares a file or a zipped folder for download.
-     * @param relativePath The path of the item relative to the serving directory.
-     * @return A DownloadableResource containing the data and metadata.
-     * @throws IOException if the file is not found or cannot be read.
-     * -- TODO: improve compression algorithm --
-     */
     public DownloadableResource getResourceForPath(String relativePath) throws IOException {
         Path rootPath = getServingDirectoryPath();
         Path fullPath = rootPath.resolve(relativePath).normalize();
 
-        // --- CRITICAL SECURITY CHECK ---
         if (!fullPath.startsWith(rootPath)) {
             throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
         }
@@ -207,7 +194,6 @@ public class FileServingService {
         }
 
         if (file.isDirectory()) {
-            // Handle directory zipping
             String zipFilename = file.getName() + ".zip";
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             try (ZipOutputStream zos = new ZipOutputStream(baos)) {
@@ -220,7 +206,6 @@ public class FileServingService {
             return new DownloadableResource(zipResource, zipFilename, "application/zip");
 
         } else {
-            // Handle single file download
             Resource resource = new org.springframework.core.io.UrlResource(fullPath.toUri());
             String contentType = Files.probeContentType(fullPath);
             if (contentType == null) {
@@ -230,13 +215,6 @@ public class FileServingService {
         }
     }
 
-    /**
-     * Recursively adds files from a directory to a ZipOutputStream.
-     * @param folder The folder to zip.
-     * @param parentPath The path to prepend to entries in the zip.
-     * @param zos The ZipOutputStream to write to.
-     * @throws IOException if an error occurs during zipping.
-     */
     private void zipDirectory(File folder, String parentPath, ZipOutputStream zos) throws IOException {
         for (File file : folder.listFiles()) {
             if (file.isDirectory()) {
@@ -250,17 +228,10 @@ public class FileServingService {
         }
     }
 
-    /**
-     * Saves uploaded files to a specified subdirectory.
-     * @param files The array of files uploaded by the user.
-     * @param subpath The relative path within the serving directory to save the files.
-     * @throws IOException if there's a security violation or a file-saving error.
-     */
     public void saveUploadedFiles(MultipartFile[] files, String subpath) throws IOException {
         Path rootPath = getServingDirectoryPath();
         Path destinationFolder = rootPath.resolve(subpath).normalize();
 
-        // Ensure the destination is still inside the root serving directory.
         if (!destinationFolder.startsWith(rootPath)) {
             throw new IOException("Path Traversal Attempt Forbidden: " + subpath);
         }
@@ -269,12 +240,13 @@ public class FileServingService {
             Files.createDirectories(destinationFolder);
         }
 
+        User currentUser = authService.getMainUser().orElse(null);
+
         for (MultipartFile file : files) {
             if (file.isEmpty()) {
                 continue;
             }
 
-            // Sanitize the filename to prevent path traversal within the filename itself
             String originalFilename = file.getOriginalFilename();
             if (originalFilename == null || originalFilename.contains("..")) {
                 throw new IOException("Invalid filename: " + originalFilename);
@@ -287,15 +259,34 @@ public class FileServingService {
             }
 
             Files.copy(file.getInputStream(), destinationFile, StandardCopyOption.REPLACE_EXISTING);
+
+            // DB Integration
+            try {
+                String relativeFilePath = subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
+
+                // Check if metadata exists, otherwise create
+                FileMetadata metadata = fileMetadataRepository.findByPath(relativeFilePath)
+                        .orElse(new FileMetadata(relativeFilePath, originalFilename, file.getSize(), false,
+                                currentUser));
+
+                // Update size/time if existing
+                metadata.setSize(file.getSize());
+                metadata.setUpdatedAt(java.time.LocalDateTime.now());
+
+                // Save metadata
+                FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
+
+                // Save History
+                FileHistory history = new FileHistory(savedMetadata, FileHistory.ChangeType.UPLOAD, currentUser);
+                fileHistoryRepository.save(history);
+
+            } catch (Exception e) {
+                System.err.println("Failed to save DB metadata for: " + originalFilename);
+                e.printStackTrace();
+            }
         }
     }
 
-
-    /**
-     * Deletes a file or directory at the given relative path.
-     * @param relativePath The path of the item to delete.
-     * @throws IOException if the path is invalid or deletion fails.
-     */
     public void deleteItem(String relativePath) throws IOException {
         Path rootPath = getServingDirectoryPath();
         Path fullPath = rootPath.resolve(relativePath).normalize();
@@ -309,19 +300,44 @@ public class FileServingService {
             throw new FileNotFoundException("Item not found: " + relativePath);
         }
 
+        User currentUser = authService.getMainUser().orElse(null);
+        String filename = itemToDelete.getName();
+
         if (itemToDelete.isDirectory()) {
             deleteRecursively(itemToDelete);
+            // Ideally we would delete metadata for everything inside, but for now simple
+            // handling:
+            recordDeletion(relativePath, filename, currentUser);
         } else {
             if (!itemToDelete.delete()) {
                 throw new IOException("Failed to delete file: " + relativePath);
             }
+            recordDeletion(relativePath, filename, currentUser);
         }
     }
 
-    /**
-     * Helper method to recursively delete a directory.
-     * @param file The file or directory to delete.
-     */
+    private void recordDeletion(String path, String filename, User user) {
+        try {
+            Optional<FileMetadata> metadataOpt = fileMetadataRepository.findByPath(path);
+            if (metadataOpt.isPresent()) {
+                FileMetadata metadata = metadataOpt.get();
+
+                // Archive history before deleting metadata
+                FileHistory history = new FileHistory(path, filename, FileHistory.ChangeType.DELETE, user);
+                fileHistoryRepository.save(history);
+
+                fileMetadataRepository.delete(metadata);
+            } else {
+                // Even if metadata missing, record history of deletion attempt/success
+                FileHistory history = new FileHistory(path, filename, FileHistory.ChangeType.DELETE, user);
+                fileHistoryRepository.save(history);
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to update DB for deletion: " + path);
+            e.printStackTrace();
+        }
+    }
+
     private void deleteRecursively(File file) throws IOException {
         if (file.isDirectory()) {
             File[] entries = file.listFiles();
@@ -344,7 +360,8 @@ public class FileServingService {
             throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
         }
 
-        if (directoryName == null || directoryName.trim().isEmpty() || directoryName.contains("..") || directoryName.contains("/") || directoryName.contains("\\")) {
+        if (directoryName == null || directoryName.trim().isEmpty() || directoryName.contains("..")
+                || directoryName.contains("/") || directoryName.contains("\\")) {
             throw new IOException("Invalid directory name: " + directoryName);
         }
 
@@ -359,5 +376,21 @@ public class FileServingService {
         }
 
         Files.createDirectories(newDirPath);
+
+        // DB Integration
+        try {
+            User currentUser = authService.getMainUser().orElse(null);
+            String fullRelativePath = relativePath.isEmpty() ? directoryName : relativePath + "/" + directoryName;
+
+            FileMetadata metadata = new FileMetadata(fullRelativePath, directoryName, 0L, true, currentUser);
+            FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
+
+            FileHistory history = new FileHistory(savedMetadata, FileHistory.ChangeType.CREATE_FOLDER, currentUser);
+            fileHistoryRepository.save(history);
+
+        } catch (Exception e) {
+            System.err.println("Failed to save DB metadata for dir: " + directoryName);
+            e.printStackTrace();
+        }
     }
 }
