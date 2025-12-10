@@ -33,6 +33,35 @@ class SecurityIntegrationTests {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private com.javadropbox.javadropbox.repository.UserRepository userRepository;
+
+    @Autowired
+    private com.javadropbox.javadropbox.repository.FileHistoryRepository fileHistoryRepository;
+
+    @Autowired
+    private com.javadropbox.javadropbox.repository.FileMetadataRepository fileMetadataRepository;
+
+    @Autowired
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        // Ensure setup is NOT required by creating a user
+        if (userRepository.count() == 0) {
+            com.javadropbox.javadropbox.model.User user = new com.javadropbox.javadropbox.model.User("testadmin",
+                    passwordEncoder.encode("password"), "ROLE_ADMIN");
+            userRepository.save(user);
+        }
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        fileHistoryRepository.deleteAll();
+        fileMetadataRepository.deleteAll();
+        userRepository.deleteAll();
+    }
+
     // ------------------------------
     // Basic Authentication Tests
     // ------------------------------
@@ -47,7 +76,7 @@ class SecurityIntegrationTests {
 
     @Test
     @DisplayName("Authenticated user can access dashboard")
-    @WithMockUser(username = "testuser", roles = {"USER"})
+    @WithMockUser(username = "testuser", roles = { "USER" })
     void authenticatedUserCanAccessDashboard() throws Exception {
         mockMvc.perform(get("/dashboard"))
                 .andExpect(status().isOk())
@@ -64,7 +93,7 @@ class SecurityIntegrationTests {
 
     @Test
     @DisplayName("Root path redirects authenticated user to dashboard")
-    @WithMockUser(username = "testuser", roles = {"USER"})
+    @WithMockUser(username = "testuser", roles = { "USER" })
     void rootPathRedirectsAuthenticatedUser() throws Exception {
         mockMvc.perform(get("/"))
                 .andExpect(status().is3xxRedirection())
@@ -108,7 +137,6 @@ class SecurityIntegrationTests {
         }
     }
 
-
     // ------------------------------
     // Controller Endpoints Tests
     // ------------------------------
@@ -127,7 +155,7 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("Authenticated user can access directory-info")
-        @WithMockUser(username = "testuser", roles = {"USER"})
+        @WithMockUser(username = "testuser", roles = { "USER" })
         void authenticatedUserCanAccessDirectoryInfoPage() throws Exception {
             mockMvc.perform(get("/directory-info"))
                     .andExpect(status().is3xxRedirection())
@@ -161,7 +189,7 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("Logout invalidates session for authenticated user")
-        @WithMockUser(username = "testuser", roles = {"USER"})
+        @WithMockUser(username = "testuser", roles = { "USER" })
         void logoutInvalidatesSession() throws Exception {
             // User can access dashboard first
             mockMvc.perform(get("/dashboard"))
@@ -194,8 +222,8 @@ class SecurityIntegrationTests {
         @DisplayName("POST to setup redirects to login when setup is complete")
         void postSetupRedirectsWhenComplete() throws Exception {
             mockMvc.perform(post("/setup")
-                            .param("username", "testuser")
-                            .param("password", "testpass"))
+                    .param("username", "testuser")
+                    .param("password", "testpass"))
                     .andExpect(status().is3xxRedirection())
                     .andExpect(redirectedUrl("/login"));
         }
@@ -211,7 +239,7 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("User with USER role can access dashboard")
-        @WithMockUser(username = "user", roles = {"USER"})
+        @WithMockUser(username = "user", roles = { "USER" })
         void userRoleCanAccessDashboard() throws Exception {
             mockMvc.perform(get("/dashboard"))
                     .andExpect(status().isOk());
@@ -219,7 +247,7 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("User with ADMIN role can access dashboard")
-        @WithMockUser(username = "admin", roles = {"ADMIN"})
+        @WithMockUser(username = "admin", roles = { "ADMIN" })
         void adminRoleCanAccessDashboard() throws Exception {
             mockMvc.perform(get("/dashboard"))
                     .andExpect(status().isOk());
@@ -227,7 +255,7 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("User with multiple roles can access dashboard")
-        @WithMockUser(username = "superuser", roles = {"USER", "ADMIN"})
+        @WithMockUser(username = "superuser", roles = { "USER", "ADMIN" })
         void multipleRolesCanAccessDashboard() throws Exception {
             mockMvc.perform(get("/dashboard"))
                     .andExpect(status().isOk());
@@ -253,7 +281,7 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("404 errors for authenticated users")
-        @WithMockUser(username = "testuser", roles = {"USER"})
+        @WithMockUser(username = "testuser", roles = { "USER" })
         void notFoundForAuthenticatedUser() throws Exception {
             mockMvc.perform(get("/nonexistent-page"))
                     .andExpect(status().isNotFound());
@@ -285,20 +313,20 @@ class SecurityIntegrationTests {
 
         @Test
         @DisplayName("JSON API endpoints return JSON when authenticated")
-        @WithMockUser(username = "testuser", roles = {"USER"})
+        @WithMockUser(username = "testuser", roles = { "USER" })
         void apiEndpointsReturnJson() throws Exception {
             mockMvc.perform(get("/api/directory-info")
-                            .accept(MediaType.APPLICATION_JSON))
+                    .accept(MediaType.APPLICATION_JSON))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON));
         }
 
         @Test
         @DisplayName("HTML endpoints return HTML when authenticated")
-        @WithMockUser(username = "testuser", roles = {"USER"})
+        @WithMockUser(username = "testuser", roles = { "USER" })
         void htmlEndpointsReturnHtml() throws Exception {
             mockMvc.perform(get("/dashboard")
-                            .accept(MediaType.TEXT_HTML))
+                    .accept(MediaType.TEXT_HTML))
                     .andExpect(status().isOk())
                     .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
         }
@@ -326,9 +354,9 @@ class SecurityIntegrationTests {
         @DisplayName("Login form should support remember-me parameter")
         void loginFormSupportsRememberMe() throws Exception {
             mockMvc.perform(post("/login")
-                            .param("username", "testuser")
-                            .param("password", "testpass")
-                            .param("remember-me", "true"))
+                    .param("username", "testuser")
+                    .param("password", "testpass")
+                    .param("remember-me", "true"))
                     .andExpect(status().is3xxRedirection());
         }
 
@@ -336,8 +364,8 @@ class SecurityIntegrationTests {
         @DisplayName("Login without remember-me parameter works")
         void loginWithoutRememberMe() throws Exception {
             mockMvc.perform(post("/login")
-                            .param("username", "testuser")
-                            .param("password", "testpass"))
+                    .param("username", "testuser")
+                    .param("password", "testpass"))
                     .andExpect(status().is3xxRedirection());
         }
     }

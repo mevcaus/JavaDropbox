@@ -31,6 +31,24 @@ class SetupIntegrationTests {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private com.javadropbox.javadropbox.repository.UserRepository userRepository;
+
+    @Autowired
+    private com.javadropbox.javadropbox.repository.FileHistoryRepository fileHistoryRepository;
+
+    @Autowired
+    private com.javadropbox.javadropbox.repository.FileMetadataRepository fileMetadataRepository;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        // Ensure setup IS required by clearing users
+        // Must clear dependent tables first to avoid foreign key violations
+        fileHistoryRepository.deleteAll();
+        fileMetadataRepository.deleteAll();
+        userRepository.deleteAll();
+    }
+
     // ------------------------------
     // Setup Page Access Tests
     // ------------------------------
@@ -143,8 +161,8 @@ class SetupIntegrationTests {
         @DisplayName("Valid setup form submission should redirect to login")
         void validSetupSubmissionRedirectsToLogin() throws Exception {
             mockMvc.perform(post("/setup")
-                            .param("username", "testadmin")
-                            .param("password", "testpassword123"))
+                    .param("username", "testadmin")
+                    .param("password", "testpassword123"))
                     .andExpect(status().is3xxRedirection())
                     .andExpect(redirectedUrl("/login"));
         }
@@ -153,7 +171,7 @@ class SetupIntegrationTests {
         @DisplayName("Setup form submission with missing username should show error")
         void setupWithMissingUsernameHandled() throws Exception {
             mockMvc.perform(post("/setup")
-                            .param("password", "testpassword123"))
+                    .param("password", "testpassword123"))
                     .andExpect(status().isBadRequest());
         }
 
@@ -161,7 +179,7 @@ class SetupIntegrationTests {
         @DisplayName("Setup form submission with missing password should show error")
         void setupWithMissingPasswordHandled() throws Exception {
             mockMvc.perform(post("/setup")
-                            .param("username", "testadmin"))
+                    .param("username", "testadmin"))
                     .andExpect(status().isBadRequest());
         }
 
@@ -169,9 +187,9 @@ class SetupIntegrationTests {
         @DisplayName("Setup form submission with empty values should show error")
         void setupWithEmptyValuesHandled() throws Exception {
             mockMvc.perform(post("/setup")
-                            .param("username", "")
-                            .param("password", ""))
-                    .andExpect(status().is3xxRedirection())  // Changed from isBadRequest()
+                    .param("username", "")
+                    .param("password", ""))
+                    .andExpect(status().is3xxRedirection()) // Changed from isBadRequest()
                     .andExpect(redirectedUrl("/setup?error=username-required"));
         }
     }
@@ -182,7 +200,7 @@ class SetupIntegrationTests {
 
     @Test
     @DisplayName("Mock authenticated user should still be redirected to setup when setup is required")
-    @WithMockUser(username = "testuser", roles = {"USER"})
+    @WithMockUser(username = "testuser", roles = { "USER" })
     void evenAuthenticatedUserRedirectedToSetupWhenRequired() throws Exception {
         mockMvc.perform(get("/dashboard"))
                 .andExpect(status().is3xxRedirection())
@@ -191,7 +209,7 @@ class SetupIntegrationTests {
 
     @Test
     @DisplayName("Mock authenticated user cannot access API endpoints when setup is required")
-    @WithMockUser(username = "testuser", roles = {"USER"})
+    @WithMockUser(username = "testuser", roles = { "USER" })
     void authenticatedUserCannotAccessApiDuringSetup() throws Exception {
         mockMvc.perform(get("/api/files"))
                 .andExpect(status().is3xxRedirection())
@@ -238,13 +256,12 @@ class SetupIntegrationTests {
     // Security Context Tests
     // ------------------------------
 
-
     @Test
     @DisplayName("Setup filter should have higher precedence than security config")
     void setupFilterTakesPrecedenceOverSecurity() throws Exception {
         // Even protected endpoints should redirect to setup
         mockMvc.perform(get("/api/delete")
-                        .param("path", "somefile.txt"))
+                .param("path", "somefile.txt"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/setup"));
     }
