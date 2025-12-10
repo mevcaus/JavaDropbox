@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JavaDropbox - History</title>
+    <link rel="stylesheet" href="../css/Dashboard.css" />
+    <link rel="icon" type="image/png" href="/JavaDropbox_favicon.png" />
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1>
+                <img src="/../images/Horizontal/JavaDropbox_white_logoAndText_horizontal_400px.png"
+                    alt="JavaDropbox Logo" />
+            </h1>
+            <div class="user-info">
+                <span>Welcome, <span id="username" th:text="${user}">User</span>!</span>
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+
+        <div class="nav-tabs">
+            <a href="/dashboard" class="nav-link">Files</a>
+            <a href="/history" class="nav-link active">History</a>
+        </div>
+
+        <div class="card">
+            <h2>File History</h2>
+
+            <div class="file-browser" id="history-container">
+                <p>Loading history...</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="/js/History.js"></script>
+</body>
+
+</html>

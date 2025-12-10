@@ -29,10 +29,12 @@ public class FileMetadata {
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime lastAccessed;
 
     public FileMetadata() {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+        this.lastAccessed = LocalDateTime.now();
     }
 
     public FileMetadata(String path, String filename, Long size, Boolean isDirectory, User owner) {
@@ -43,6 +45,7 @@ public class FileMetadata {
         this.owner = owner;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+        this.lastAccessed = LocalDateTime.now();
     }
 
     // Getters and Setters
@@ -109,5 +112,13 @@ public class FileMetadata {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public LocalDateTime getLastAccessed() {
+        return lastAccessed;
+    }
+
+    public void setLastAccessed(LocalDateTime lastAccessed) {
+        this.lastAccessed = lastAccessed;
     }
 }

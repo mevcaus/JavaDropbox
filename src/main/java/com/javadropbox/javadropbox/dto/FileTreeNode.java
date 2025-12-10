@@ -7,6 +7,9 @@ public class FileTreeNode {
     private String name;
     private boolean isDirectory;
     private long size;
+    private String createdDate;
+    private String lastModified;
+    private String ownerName;
     private List<FileTreeNode> children;
 
     public FileTreeNode(String name, boolean isDirectory, long size) {
@@ -16,12 +19,59 @@ public class FileTreeNode {
         this.children = new ArrayList<>();
     }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public boolean getIsDirectory() { return isDirectory; }
-    public void setIsDirectory(boolean isDirectory) { this.isDirectory = isDirectory; }
-    public long getSize() { return size; }
-    public void setSize(long size) { this.size = size; }
-    public List<FileTreeNode> getChildren() { return children; }
-    public void setChildren(List<FileTreeNode> children) { this.children = children; }
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public boolean getIsDirectory() {
+        return isDirectory;
+    }
+
+    public void setIsDirectory(boolean isDirectory) {
+        this.isDirectory = isDirectory;
+    }
+
+    public long getSize() {
+        return size;
+    }
+
+    public void setSize(long size) {
+        this.size = size;
+    }
+
+    public List<FileTreeNode> getChildren() {
+        return children;
+    }
+
+    public void setChildren(List<FileTreeNode> children) {
+        this.children = children;
+    }
+
+    public String getCreatedDate() {
+        return createdDate;
+    }
+
+    public void setCreatedDate(String createdDate) {
+        this.createdDate = createdDate;
+    }
+
+    public String getLastModified() {
+        return lastModified;
+    }
+
+    public void setLastModified(String lastModified) {
+        this.lastModified = lastModified;
+    }
+
+    public String getOwnerName() {
+        return ownerName;
+    }
+
+    public void setOwnerName(String ownerName) {
+        this.ownerName = ownerName;
+    }
 }

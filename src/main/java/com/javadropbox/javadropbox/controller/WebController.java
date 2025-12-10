@@ -236,4 +236,10 @@ public class WebController {
                     .body(Map.of("message", e.getMessage()));
         }
     }
+
+    @GetMapping("/history")
+    public String historyPage(Model model, Principal principal) {
+        model.addAttribute("user", principal.getName());
+        return "History";
+    }
 }

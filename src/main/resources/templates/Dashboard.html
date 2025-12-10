@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,106 +10,134 @@
 </head>
 
 <body>
-<header class="header">
-    <div class="header-content">
-        <h1>
-            <img
-                    src="/../images/Horizontal/JavaDropbox_white_logoAndText_horizontal_400px.png"
-                    alt="JavaDropbox Logo"/>
-        </h1>
-        <div class="user-info">
-            <span>Welcome, <span id="username" th:text="${#authentication.name}">User</span>!</span>
-            <a href="/logout" class="logout-btn">Logout</a>
-        </div>
-    </div>
-</header>
-
-<main class="main-content">
-
-    <div class="card">
-        <h2>File Browser</h2>
-
-        <div class="path-display">
-            <strong>Current Path: </strong>
-            <code id="current-path-text" th:text="${directory}">Loading...</code>
-        </div>
-        <div class="action-bar">
-            <button id="add-files-btn" class="button-primary">Add Files</button>
-            <button id="create-folder-btn" class="button-secondary">Create Folder</button>
-        </div>
-        <div class="file-browser" id="file-browser-container">
-            <p>Loading files...</p>
-        </div>
-    </div>
-</main>
-
-<div id="upload-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2>Upload Files</h2>
-            <button id="close-modal-btn" class="close-button">&times;</button>
-        </div>
-        <div class="modal-body">
-            <!-- Add target directory display -->
-            <div class="upload-target-info">
-                <strong>Uploading to: </strong>
-                <code id="target-path-display">Root Directory</code>
-            </div>
-            <div id="drop-zone" class="drop-zone">
-                <p>Drag & Drop files here</p>
-                <p>or</p>
-                <button id="select-files-btn" class="button-secondary">Select Files</button>
-                <input type="file" id="file-input" multiple hidden />
-            </div>
-            <div id="file-list-preview" class="file-list-preview"></div>
-            <div id="upload-progress-container" class="progress-container hidden">
-                <div id="upload-progress-bar" class="progress-bar"></div>
+    <header class="header">
+        <div class="header-content">
+            <h1>
+                <img src="/../images/Horizontal/JavaDropbox_white_logoAndText_horizontal_400px.png"
+                    alt="JavaDropbox Logo" />
+            </h1>
+            <div class="user-info">
+                <span>Welcome, <span id="username" th:text="${#authentication.name}">User</span>!</span>
+                <a href="/logout" class="logout-btn">Logout</a>
             </div>
         </div>
-        <div class="modal-footer">
-            <button id="upload-btn" class="button-primary" disabled>Upload</button>
-        </div>
-    </div>
-</div>
+    </header>
 
-<div id="delete-confirm-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2>Confirm Deletion</h2>
-        </div>
-        <div class="modal-body">
-            <p>Are you sure you want to permanently delete this item?</p>
-            <p><strong><code id="item-to-delete-name"></code></strong></p>
-        </div>
-        <div class="modal-footer">
-            <button id="cancel-delete-btn" class="button-secondary">Cancel</button>
-            <button id="confirm-delete-btn" class="button-danger">Delete</button>
-        </div>
-    </div>
-</div>
+    <main class="main-content">
 
-<div id="create-folder-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2>Create New Folder</h2>
-            <button id="close-create-folder-btn" class="close-button">&times;</button>
+        <div class="nav-tabs">
+            <a href="/dashboard" class="nav-link active">Files</a>
+            <a href="/history" class="nav-link">History</a>
         </div>
-        <div class="modal-body">
-            <div class="upload-target-info">
-                <strong>Creating in: </strong>
-                <code id="create-folder-target-display">Root Directory</code>
+
+        <div class="card">
+            <h2>File Browser</h2>
+
+            <div class="path-display">
+                <strong>Current Path: </strong>
+                <code id="current-path-text" th:text="${directory}">Loading...</code>
             </div>
-            <div class="form-group">
-                <label for="folder-name-input">Folder Name</label>
-                <input type="text" id="folder-name-input" placeholder="Enter folder name" />
+            <div class="action-bar">
+                <button id="add-files-btn" class="button-primary">Add Files</button>
+                <button id="create-folder-btn" class="button-secondary">Create Folder</button>
+            </div>
+            <div class="file-browser" id="file-browser-container">
+                <p>Loading files...</p>
             </div>
         </div>
-        <div class="modal-footer">
-            <button id="cancel-create-folder-btn" class="button-secondary">Cancel</button>
-            <button id="confirm-create-folder-btn" class="button-primary">Create</button>
+    </main>
+
+    <div id="upload-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Upload Files</h2>
+                <button id="close-modal-btn" class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Add target directory display -->
+                <div class="upload-target-info">
+                    <strong>Uploading to: </strong>
+                    <code id="target-path-display">Root Directory</code>
+                </div>
+                <div id="drop-zone" class="drop-zone">
+                    <p>Drag & Drop files here</p>
+                    <p>or</p>
+                    <button id="select-files-btn" class="button-secondary">Select Files</button>
+                    <input type="file" id="file-input" multiple hidden />
+                </div>
+                <div id="file-list-preview" class="file-list-preview"></div>
+                <div id="upload-progress-container" class="progress-container hidden">
+                    <div id="upload-progress-bar" class="progress-bar"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="upload-btn" class="button-primary" disabled>Upload</button>
+            </div>
         </div>
     </div>
-</div>
-<script src="/js/Dashboard.js"></script>
+
+    <div id="delete-confirm-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Confirm Deletion</h2>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to permanently delete this item?</p>
+                <p><strong><code id="item-to-delete-name"></code></strong></p>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-delete-btn" class="button-secondary">Cancel</button>
+                <button id="confirm-delete-btn" class="button-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="create-folder-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Folder</h2>
+                <button id="close-create-folder-btn" class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-target-info">
+                    <strong>Creating in: </strong>
+                    <code id="create-folder-target-display">Root Directory</code>
+                </div>
+                <div class="form-group">
+                    <label for="folder-name-input">Folder Name</label>
+                    <input type="text" id="folder-name-input" placeholder="Enter folder name" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-create-folder-btn" class="button-secondary">Cancel</button>
+                <button id="confirm-create-folder-btn" class="button-primary">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="file-details-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>File Details</h2>
+                <button id="close-file-details-btn" class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="file-details-grid">
+                    <strong>Name:</strong> <span id="detail-filename"></span><br>
+                    <strong>Type:</strong> <span id="detail-type"></span><br>
+                    <strong>Size:</strong> <span id="detail-size"></span><br>
+                    <strong>Created:</strong> <span id="detail-created"></span><br>
+                    <strong>Modified:</strong> <span id="detail-modified"></span><br>
+                    <strong>Owner:</strong> <span id="detail-owner"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a id="detail-download-btn" href="#" class="button-primary" download>Download</a>
+                <button id="close-details-secondary-btn" class="button-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+    <script src="/js/Dashboard.js"></script>
 </body>
+
 </html>

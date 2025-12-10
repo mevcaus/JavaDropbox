@@ -19,6 +19,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -147,21 +151,54 @@ public class FileServingService {
         if (!isValidDirectory() || !canRead()) {
             return Collections.emptyList();
         }
-        return buildTreeRecursively(rootDir);
+        return buildTreeRecursively(rootDir, "");
     }
 
-    private List<FileTreeNode> buildTreeRecursively(File directory) {
+    private List<FileTreeNode> buildTreeRecursively(File directory, String relativePath) {
         File[] files = directory.listFiles();
         if (files == null) {
             return Collections.emptyList();
         }
 
         List<FileTreeNode> nodes = new ArrayList<>();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
         for (File file : files) {
             FileTreeNode node = new FileTreeNode(file.getName(), file.isDirectory(), file.length());
 
+            // Build relative path for DB lookup
+            String currentPath = relativePath.isEmpty() ? file.getName() : relativePath + "/" + file.getName();
+
+            // Fetch metadata
+            Optional<FileMetadata> metadataOpt = fileMetadataRepository.findByPath(currentPath);
+
+            if (metadataOpt.isPresent()) {
+                FileMetadata meta = metadataOpt.get();
+                if (meta.getCreatedAt() != null)
+                    node.setCreatedDate(meta.getCreatedAt().format(formatter));
+                if (meta.getUpdatedAt() != null)
+                    node.setLastModified(meta.getUpdatedAt().format(formatter));
+                if (meta.getOwner() != null)
+                    node.setOwnerName(meta.getOwner().getUsername());
+            } else {
+                // Fallback to FS attributes
+                try {
+                    BasicFileAttributes attrs = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
+                    LocalDateTime created = LocalDateTime.ofInstant(attrs.creationTime().toInstant(),
+                            ZoneId.systemDefault());
+                    LocalDateTime modified = LocalDateTime.ofInstant(attrs.lastModifiedTime().toInstant(),
+                            ZoneId.systemDefault());
+                    node.setCreatedDate(created.format(formatter));
+                    node.setLastModified(modified.format(formatter));
+                    node.setOwnerName("system");
+                } catch (IOException e) {
+                    node.setCreatedDate("Unknown");
+                    node.setOwnerName("system");
+                }
+            }
+
             if (file.isDirectory()) {
-                List<FileTreeNode> children = buildTreeRecursively(file);
+                List<FileTreeNode> children = buildTreeRecursively(file, currentPath);
                 node.setChildren(children);
 
                 long totalSize = children.stream()
@@ -191,6 +228,18 @@ public class FileServingService {
         File file = fullPath.toFile();
         if (!file.exists()) {
             throw new FileNotFoundException("File not found: " + relativePath);
+        }
+
+        // Update Last Accessed
+        try {
+            Optional<FileMetadata> metadata = fileMetadataRepository.findByPath(relativePath);
+            metadata.ifPresent(m -> {
+                m.setLastAccessed(LocalDateTime.now());
+                fileMetadataRepository.save(m);
+            });
+        } catch (Exception e) {
+            // Non-blocking
+            e.printStackTrace();
         }
 
         if (file.isDirectory()) {
@@ -248,41 +297,52 @@ public class FileServingService {
             }
 
             String originalFilename = file.getOriginalFilename();
-            if (originalFilename == null || originalFilename.contains("..")) {
-                throw new IOException("Invalid filename: " + originalFilename);
-            }
 
-            Path destinationFile = destinationFolder.resolve(originalFilename).normalize();
-
-            if (!destinationFile.getParent().equals(destinationFolder)) {
-                throw new IOException("Invalid destination path in filename: " + originalFilename);
-            }
-
-            Files.copy(file.getInputStream(), destinationFile, StandardCopyOption.REPLACE_EXISTING);
-
-            // DB Integration
             try {
-                String relativeFilePath = subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
+                if (originalFilename == null || originalFilename.contains("..")) {
+                    throw new IOException("Invalid filename: " + originalFilename);
+                }
 
-                // Check if metadata exists, otherwise create
-                FileMetadata metadata = fileMetadataRepository.findByPath(relativeFilePath)
-                        .orElse(new FileMetadata(relativeFilePath, originalFilename, file.getSize(), false,
-                                currentUser));
+                Path destinationFile = destinationFolder.resolve(originalFilename).normalize();
 
-                // Update size/time if existing
-                metadata.setSize(file.getSize());
-                metadata.setUpdatedAt(java.time.LocalDateTime.now());
+                if (!destinationFile.getParent().equals(destinationFolder)) {
+                    throw new IOException("Invalid destination path in filename: " + originalFilename);
+                }
 
-                // Save metadata
-                FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
+                Files.copy(file.getInputStream(), destinationFile, StandardCopyOption.REPLACE_EXISTING);
 
-                // Save History
-                FileHistory history = new FileHistory(savedMetadata, FileHistory.ChangeType.UPLOAD, currentUser);
-                fileHistoryRepository.save(history);
+                // DB Integration: Success
+                try {
+                    String relativeFilePath = subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
+
+                    FileMetadata metadata = fileMetadataRepository.findByPath(relativeFilePath)
+                            .orElse(new FileMetadata(relativeFilePath, originalFilename, file.getSize(), false,
+                                    currentUser));
+
+                    metadata.setSize(file.getSize());
+                    metadata.setUpdatedAt(java.time.LocalDateTime.now());
+
+                    FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
+
+                    FileHistory history = new FileHistory(savedMetadata, FileHistory.ChangeType.UPLOAD, currentUser);
+                    fileHistoryRepository.save(history);
+
+                } catch (Exception e) {
+                    // Log error but don't fail the request if just DB fails, or should we?
+                    // For now, let's just log print stack trace as before for DB errors,
+                    // BUT if the file copy itself failed, we want to capture that in history if
+                    // possible (though we might not have a file record yet).
+                    System.err.println("Failed to save DB metadata for: " + originalFilename);
+                    e.printStackTrace();
+                }
 
             } catch (Exception e) {
-                System.err.println("Failed to save DB metadata for: " + originalFilename);
-                e.printStackTrace();
+                // Log Failure
+                String failedPath = subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
+                FileHistory failure = new FileHistory(failedPath, originalFilename, FileHistory.ChangeType.UPLOAD,
+                        currentUser, false, e.getMessage());
+                fileHistoryRepository.save(failure);
+                throw e; // Rethrow to notify controller
             }
         }
     }
@@ -290,29 +350,37 @@ public class FileServingService {
     public void deleteItem(String relativePath) throws IOException {
         Path rootPath = getServingDirectoryPath();
         Path fullPath = rootPath.resolve(relativePath).normalize();
-
-        if (!fullPath.startsWith(rootPath)) {
-            throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
-        }
-
-        File itemToDelete = fullPath.toFile();
-        if (!itemToDelete.exists()) {
-            throw new FileNotFoundException("Item not found: " + relativePath);
-        }
-
         User currentUser = authService.getMainUser().orElse(null);
-        String filename = itemToDelete.getName();
+        String filename = "unknown";
 
-        if (itemToDelete.isDirectory()) {
-            deleteRecursively(itemToDelete);
-            // Ideally we would delete metadata for everything inside, but for now simple
-            // handling:
-            recordDeletion(relativePath, filename, currentUser);
-        } else {
-            if (!itemToDelete.delete()) {
-                throw new IOException("Failed to delete file: " + relativePath);
+        try {
+            if (!fullPath.startsWith(rootPath)) {
+                throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
             }
-            recordDeletion(relativePath, filename, currentUser);
+
+            File itemToDelete = fullPath.toFile();
+            if (!itemToDelete.exists()) {
+                throw new FileNotFoundException("Item not found: " + relativePath);
+            }
+
+            filename = itemToDelete.getName();
+
+            if (itemToDelete.isDirectory()) {
+                deleteRecursively(itemToDelete);
+                // Ideally we would delete metadata for everything inside, but for now simple
+                // handling:
+                recordDeletion(relativePath, filename, currentUser);
+            } else {
+                if (!itemToDelete.delete()) {
+                    throw new IOException("Failed to delete file: " + relativePath);
+                }
+                recordDeletion(relativePath, filename, currentUser);
+            }
+        } catch (Exception e) {
+            FileHistory failure = new FileHistory(relativePath, filename, FileHistory.ChangeType.DELETE, currentUser,
+                    false, e.getMessage());
+            fileHistoryRepository.save(failure);
+            throw e;
         }
     }
 
@@ -353,44 +421,54 @@ public class FileServingService {
     }
 
     public void createDirectory(String relativePath, String directoryName) throws IOException {
-        Path rootPath = getServingDirectoryPath();
-        Path parentPath = rootPath.resolve(relativePath).normalize();
+        User currentUser = authService.getMainUser().orElse(null);
 
-        if (!parentPath.startsWith(rootPath)) {
-            throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
-        }
-
-        if (directoryName == null || directoryName.trim().isEmpty() || directoryName.contains("..")
-                || directoryName.contains("/") || directoryName.contains("\\")) {
-            throw new IOException("Invalid directory name: " + directoryName);
-        }
-
-        Path newDirPath = parentPath.resolve(directoryName).normalize();
-
-        if (!newDirPath.getParent().equals(parentPath)) {
-            throw new IOException("Invalid directory path");
-        }
-
-        if (Files.exists(newDirPath)) {
-            throw new IOException("Directory already exists: " + directoryName);
-        }
-
-        Files.createDirectories(newDirPath);
-
-        // DB Integration
         try {
-            User currentUser = authService.getMainUser().orElse(null);
-            String fullRelativePath = relativePath.isEmpty() ? directoryName : relativePath + "/" + directoryName;
+            Path rootPath = getServingDirectoryPath();
+            Path parentPath = rootPath.resolve(relativePath).normalize();
 
-            FileMetadata metadata = new FileMetadata(fullRelativePath, directoryName, 0L, true, currentUser);
-            FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
+            if (!parentPath.startsWith(rootPath)) {
+                throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
+            }
 
-            FileHistory history = new FileHistory(savedMetadata, FileHistory.ChangeType.CREATE_FOLDER, currentUser);
-            fileHistoryRepository.save(history);
+            if (directoryName == null || directoryName.trim().isEmpty() || directoryName.contains("..")
+                    || directoryName.contains("/") || directoryName.contains("\\")) {
+                throw new IOException("Invalid directory name: " + directoryName);
+            }
+
+            Path newDirPath = parentPath.resolve(directoryName).normalize();
+
+            if (!newDirPath.getParent().equals(parentPath)) {
+                throw new IOException("Invalid directory path");
+            }
+
+            if (Files.exists(newDirPath)) {
+                throw new IOException("Directory already exists: " + directoryName);
+            }
+
+            Files.createDirectories(newDirPath);
+
+            // DB Integration: Success
+            try {
+                String fullRelativePath = relativePath.isEmpty() ? directoryName : relativePath + "/" + directoryName;
+
+                FileMetadata metadata = new FileMetadata(fullRelativePath, directoryName, 0L, true, currentUser);
+                FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
+
+                FileHistory history = new FileHistory(savedMetadata, FileHistory.ChangeType.CREATE_FOLDER, currentUser);
+                fileHistoryRepository.save(history);
+
+            } catch (Exception e) {
+                System.err.println("Failed to save DB metadata for dir: " + directoryName);
+                e.printStackTrace();
+            }
 
         } catch (Exception e) {
-            System.err.println("Failed to save DB metadata for dir: " + directoryName);
-            e.printStackTrace();
+            String fullRelativePath = relativePath.isEmpty() ? directoryName : relativePath + "/" + directoryName;
+            FileHistory failure = new FileHistory(fullRelativePath, directoryName, FileHistory.ChangeType.CREATE_FOLDER,
+                    currentUser, false, e.getMessage());
+            fileHistoryRepository.save(failure);
+            throw e;
         }
     }
 }

@@ -43,6 +43,9 @@ public class FileHistory {
     @JoinColumn(name = "user_id")
     private User user;
 
+    private boolean success = true;
+    private String errorMessage;
+
     public FileHistory() {
         this.timestamp = LocalDateTime.now();
     }
@@ -56,6 +59,7 @@ public class FileHistory {
         this.changeType = changeType;
         this.user = user;
         this.timestamp = LocalDateTime.now();
+        this.success = true;
     }
 
     // Constructor for Deletions where metadata might be gone or we just want to
@@ -66,6 +70,19 @@ public class FileHistory {
         this.changeType = changeType;
         this.user = user;
         this.timestamp = LocalDateTime.now();
+        this.success = true;
+    }
+
+    // Constructor for failures
+    public FileHistory(String filePath, String filename, ChangeType changeType, User user, boolean success,
+            String errorMessage) {
+        this.filePath = filePath;
+        this.filename = filename;
+        this.changeType = changeType;
+        this.user = user;
+        this.timestamp = LocalDateTime.now();
+        this.success = success;
+        this.errorMessage = errorMessage;
     }
 
     // Getters and Setters
@@ -124,5 +141,21 @@ public class FileHistory {
 
     public void setUser(User user) {
         this.user = user;
+    }
+
+    public boolean isSuccess() {
+        return success;
+    }
+
+    public void setSuccess(boolean success) {
+        this.success = success;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public void setErrorMessage(String errorMessage) {
+        this.errorMessage = errorMessage;
     }
 }
