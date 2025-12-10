@@ -14,7 +14,13 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-function toggleNode(nodeId) {
+function toggleNode(nodeId, isDirectory, nodeData) {
+    if (!isDirectory) {
+        // It's a file, show details
+        showFileDetails(nodeData);
+        return;
+    }
+
     const parentRow = document.querySelector(`tr[data-node-id='${nodeId}']`);
     const isCurrentlyExpanded = parentRow.classList.contains("expanded");
 
@@ -37,6 +43,23 @@ function toggleNode(nodeId) {
         });
     }
 }
+
+function showFileDetails(node) {
+    const modal = document.getElementById("file-details-modal");
+
+    // Populate Modal
+    document.getElementById("detail-filename").textContent = node.name;
+    document.getElementById("detail-type").textContent = node.isDirectory ? "Folder" : (node.name.split('.').pop().toUpperCase() + " File");
+    document.getElementById("detail-size").textContent = formatFileSize(node.size);
+    document.getElementById("detail-created").textContent = node.createdDate || "Unknown";
+    document.getElementById("detail-modified").textContent = node.lastModified || "Unknown";
+    document.getElementById("detail-owner").textContent = node.ownerName || "Unknown";
+
+    // Setup Download Link
+    const downloadBtn = document.getElementById("detail-download-btn");
+
+}
+
 
 // --- HELPER --
 function getFileIcon(name, isDirectory) {
@@ -66,7 +89,12 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
         const currentPath = [parentPath, node.name].filter(Boolean).join("/");
         const encodedPath = encodeURIComponent(currentPath);
         const downloadUrl = `/api/download?path=${encodedPath}`;
-        const nameLink = `<a href="${downloadUrl}" class="download-link" onclick="event.stopPropagation()">${node.name}</a>`;
+
+        // Pass essential data + path to the handler
+        // Escaping strings for onclick is annoying, so we'll store data in attributes and read it in the handler
+        const nodeJson = JSON.stringify({ ...node, fullPath: currentPath }).replace(/"/g, '&quot;');
+
+        const nameLink = `<span class="file-name-span">${node.name}</span>`;
 
         const ancestorClasses = ancestorIds
             .map((id) => `child-of-${id}`)
@@ -75,6 +103,7 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
         const iconSrc = getFileIcon(node.name, node.isDirectory);
         const iconImg = `<img src="${iconSrc}" class="file-icon-img" style="width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;" alt="icon"/>`;
 
+        const dateDisplay = node.createdDate || "-";
 
         if (node.isDirectory) {
             const uploadButton = `<button class="upload-btn" data-path="${currentPath}" data-name="${node.name}" title="Upload files to this directory"><img src="/images/icons/file-upload.png" style="width: 20px; height: 20px;" alt="Upload"/></button>`;
@@ -85,8 +114,9 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
                 <tr class="collapsible ${isHidden} ${ancestorClasses}" 
                     data-node-id="${currentId}" 
                     data-parent-id="${parentId}"
-                    onclick="toggleNode(${currentId})">
+                    onclick="toggleNode(${currentId}, true, null)">
                     <td><div class="file-name-cell" style="padding-left: ${indent}px;"><span class="icon-toggle"></span>${iconImg}${nameLink}</div></td>
+                    <td>${dateDisplay}</td>
                     <td class="file-size">${sizeDisplay}</td>
                     ${actionsCell}
                 </tr>
@@ -105,9 +135,12 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
             const actionsCell = `<td class="actions-cell">${deleteButton}</td>`;
 
             html += `
-                <tr class="${isHidden} ${ancestorClasses}" data-parent-id="${parentId}">
+                <tr class="${isHidden} ${ancestorClasses} file-row" 
+                    data-parent-id="${parentId}"
+                    onclick="toggleNode(${currentId}, false, ${nodeJson})">
                     <td><div class="file-name-cell" style="padding-left: ${indent + 15
                 }px;">${iconImg}${nameLink}</div></td>
+                    <td>${dateDisplay}</td>
                     <td class="file-size">${sizeDisplay}</td>
                     ${actionsCell}
                 </tr>
@@ -116,6 +149,33 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
     });
     return html;
 }
+
+function showFileDetails(node) {
+    const modal = document.getElementById("file-details-modal");
+
+    document.getElementById("detail-filename").textContent = node.name;
+    document.getElementById("detail-type").textContent = node.name.split('.').pop().toUpperCase() + " File";
+    document.getElementById("detail-size").textContent = formatFileSize(node.size);
+    document.getElementById("detail-created").textContent = node.createdDate || "Unknown";
+    document.getElementById("detail-modified").textContent = node.lastModified || "Unknown";
+    document.getElementById("detail-owner").textContent = node.ownerName || "Unknown";
+
+    const downloadBtn = document.getElementById("detail-download-btn");
+    const encodedPath = encodeURIComponent(node.fullPath);
+    downloadBtn.href = `/api/download?path=${encodedPath}`;
+
+    modal.classList.remove("hidden");
+
+    // Close handlers
+    const closeBtn = document.getElementById("close-file-details-btn");
+    const closeBtn2 = document.getElementById("close-details-secondary-btn");
+
+    const closeHandler = () => modal.classList.add("hidden");
+
+    closeBtn.onclick = closeHandler;
+    closeBtn2.onclick = closeHandler;
+}
+
 
 async function loadFileTree() {
     const container = document.getElementById("file-browser-container");
@@ -131,7 +191,7 @@ async function loadFileTree() {
         if (fileTree.length === 0) {
             container.innerHTML = `
                 <table class="file-table">
-                    <thead><tr><th>Name</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Date Created</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
                     <tbody>${tableBodyHtml}</tbody>
                 </table>
                 <p class="empty-message">This directory is empty. Use the upload button above to add files.</p>
@@ -142,7 +202,7 @@ async function loadFileTree() {
         tableBodyHtml += renderTree(fileTree, 0, ["root"], "");
         container.innerHTML = `
             <table class="file-table">
-                <thead><tr><th>Name</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
+                <thead><tr><th>Name</th><th>Date Created</th><th>Size</th><th class="actions-cell">Actions</th></tr></thead>
                 <tbody>${tableBodyHtml}</tbody>
             </table>
         `;
