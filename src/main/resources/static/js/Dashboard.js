@@ -14,7 +14,12 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-function toggleNode(nodeId, isDirectory, nodeData) {
+function toggleNode(event, nodeId, isDirectory, nodeData) {
+    // Prevent toggling if a button or an element inside a button was clicked
+    if (event && event.target.closest('button')) {
+        return;
+    }
+
     if (!isDirectory) {
         // It's a file, show details
         showFileDetails(nodeData);
@@ -114,7 +119,7 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
                 <tr class="collapsible ${isHidden} ${ancestorClasses}" 
                     data-node-id="${currentId}" 
                     data-parent-id="${parentId}"
-                    onclick="toggleNode(${currentId}, true, null)">
+                    onclick="toggleNode(event, ${currentId}, true, null)">
                     <td><div class="file-name-cell" style="padding-left: ${indent}px;"><span class="icon-toggle"></span>${iconImg}${nameLink}</div></td>
                     <td>${dateDisplay}</td>
                     <td class="file-size">${sizeDisplay}</td>
@@ -137,7 +142,7 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
             html += `
                 <tr class="${isHidden} ${ancestorClasses} file-row" 
                     data-parent-id="${parentId}"
-                    onclick="toggleNode(${currentId}, false, ${nodeJson})">
+                    onclick="toggleNode(event, ${currentId}, false, ${nodeJson})">
                     <td><div class="file-name-cell" style="padding-left: ${indent + 15
                 }px;">${iconImg}${nameLink}</div></td>
                     <td>${dateDisplay}</td>
