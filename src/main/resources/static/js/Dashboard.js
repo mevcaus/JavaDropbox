@@ -171,16 +171,8 @@ function showFileDetails(node) {
 
     modal.classList.remove("hidden");
 
-    // Close handlers
-    const closeBtn = document.getElementById("close-file-details-btn");
-    const closeBtn2 = document.getElementById("close-details-secondary-btn");
-
-    const closeHandler = () => modal.classList.add("hidden");
-
-    closeBtn.onclick = closeHandler;
-    closeBtn2.onclick = closeHandler;
+    modal.classList.remove("hidden");
 }
-
 
 async function loadFileTree() {
     const container = document.getElementById("file-browser-container");
@@ -500,10 +492,36 @@ function setupCreateFolderModal() {
     });
 }
 
+function setupFileDetailsModal() {
+    const modal = document.getElementById("file-details-modal");
+    if (!modal) return;
+    const modalContent = modal.querySelector(".modal-content");
+    const closeBtn = document.getElementById("close-file-details-btn");
+    const closeBtn2 = document.getElementById("close-details-secondary-btn");
+
+    const closeHandler = () => modal.classList.add("hidden");
+
+    if (closeBtn) closeBtn.addEventListener("click", closeHandler);
+    if (closeBtn2) closeBtn2.addEventListener("click", closeHandler);
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            closeHandler();
+        }
+    });
+
+    if (modalContent) {
+        modalContent.addEventListener("click", (e) => {
+            e.stopPropagation();
+        });
+    }
+}
+
 // --- PAGE INITIALIZATION ---
 document.addEventListener("DOMContentLoaded", () => {
     loadFileTree();
     setupUploadModal();
     setupDeleteModal();
     setupCreateFolderModal();
+    setupFileDetailsModal();
 });
