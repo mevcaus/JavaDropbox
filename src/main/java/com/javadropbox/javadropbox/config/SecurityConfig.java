@@ -69,9 +69,7 @@ public class SecurityConfig {
                                                 .permitAll())
                                 .rememberMe(rememberMe -> rememberMe
                                                 .key(UUID.randomUUID().toString())
-                                                .tokenValiditySeconds(60)
-                                // .tokenValiditySeconds(86400 * 14) // 14 day cookie
-                                )
+                                                .tokenValiditySeconds(60))
                                 .logout(logout -> logout
                                                 .logoutUrl("/logout")
                                                 .logoutSuccessUrl("/login?logout")

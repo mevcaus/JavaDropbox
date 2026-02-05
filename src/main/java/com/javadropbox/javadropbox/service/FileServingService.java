@@ -5,9 +5,12 @@ import com.javadropbox.javadropbox.dto.FileItem;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.model.FileHistory;
 import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.FileVersion;
+import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileHistoryRepository;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
@@ -34,14 +37,18 @@ public class FileServingService {
     private String servingDirectory;
 
     private final FileMetadataRepository fileMetadataRepository;
+
     private final FileHistoryRepository fileHistoryRepository;
+    private final FileVersionRepository fileVersionRepository;
     private final AuthService authService;
 
     public FileServingService(FileMetadataRepository fileMetadataRepository,
             FileHistoryRepository fileHistoryRepository,
+            FileVersionRepository fileVersionRepository,
             AuthService authService) {
         this.fileMetadataRepository = fileMetadataRepository;
         this.fileHistoryRepository = fileHistoryRepository;
+        this.fileVersionRepository = fileVersionRepository;
         this.authService = authService;
     }
 
@@ -174,6 +181,7 @@ public class FileServingService {
 
             if (metadataOpt.isPresent()) {
                 FileMetadata meta = metadataOpt.get();
+                node.setId(meta.getId()); // Set ID
                 if (meta.getCreatedAt() != null)
                     node.setCreatedDate(meta.getCreatedAt().format(formatter));
                 if (meta.getUpdatedAt() != null)
@@ -309,11 +317,17 @@ public class FileServingService {
                     throw new IOException("Invalid destination path in filename: " + originalFilename);
                 }
 
+                String relativeFilePath = subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
+                Optional<FileMetadata> existingMetadata = fileMetadataRepository.findByPath(relativeFilePath);
+
+                if (existingMetadata.isPresent() && Files.exists(destinationFile)) {
+                    saveVersion(existingMetadata.get(), destinationFile);
+                }
+
                 Files.copy(file.getInputStream(), destinationFile, StandardCopyOption.REPLACE_EXISTING);
 
                 // DB Integration: Success
                 try {
-                    String relativeFilePath = subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
 
                     FileMetadata metadata = fileMetadataRepository.findByPath(relativeFilePath)
                             .orElse(new FileMetadata(relativeFilePath, originalFilename, file.getSize(), false,
@@ -328,10 +342,10 @@ public class FileServingService {
                     fileHistoryRepository.save(history);
 
                 } catch (Exception e) {
-                    // Log error but don't fail the request if just DB fails, or should we?
-                    // For now, let's just log print stack trace as before for DB errors,
-                    // BUT if the file copy itself failed, we want to capture that in history if
-                    // possible (though we might not have a file record yet).
+                    // Log error but don't fail the request if just DB fails, or should i?
+                    // For now just log print stack trace as before for DB errors,
+                    // BUT if the file copy itself failed, i want to capture that in history if
+                    // possible (though i might not have a file record yet).
                     System.err.println("Failed to save DB metadata for: " + originalFilename);
                     e.printStackTrace();
                 }
@@ -344,6 +358,135 @@ public class FileServingService {
                 fileHistoryRepository.save(failure);
                 throw e; // Rethrow to notify controller
             }
+        }
+    }
+
+    private void saveVersion(FileMetadata metadata, Path currentFilePath) throws IOException {
+        File currentFile = currentFilePath.toFile();
+        Path versionsDir = getServingDirectoryPath().resolve(".versions");
+        if (!Files.exists(versionsDir)) {
+            Files.createDirectories(versionsDir);
+        }
+
+        int currentVer = metadata.getCurrentVersion() != null ? metadata.getCurrentVersion() : 1;
+        String versionFilename = metadata.getFilename() + ".v" + currentVer;
+
+        Path versionPath = versionsDir.resolve(versionFilename);
+        while (Files.exists(versionPath)) {
+            currentVer++;
+            versionFilename = metadata.getFilename() + ".v" + currentVer;
+            versionPath = versionsDir.resolve(versionFilename);
+            metadata.setCurrentVersion(currentVer);
+        }
+
+        Files.move(currentFile.toPath(), versionPath, StandardCopyOption.REPLACE_EXISTING);
+
+        FileVersion fileVersion = new FileVersion(
+                metadata,
+                currentVer,
+                versionFilename,
+                Files.size(versionPath),
+                authService.getMainUser().orElse(null));
+        fileVersionRepository.save(fileVersion);
+
+        metadata.setCurrentVersion(currentVer + 1);
+        fileMetadataRepository.save(metadata);
+
+        List<FileVersion> versions = fileVersionRepository.findByFileMetadataOrderByVersionDesc(metadata);
+        if (versions.size() > 10) {
+            for (int i = 10; i < versions.size(); i++) {
+                FileVersion oldVersion = versions.get(i);
+                try {
+                    Files.deleteIfExists(versionsDir.resolve(oldVersion.getStoredFilename()));
+                    fileVersionRepository.delete(oldVersion);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public void restoreVersion(Long fileId, Integer version, RestoreMode mode) throws IOException {
+        FileMetadata metadata = fileMetadataRepository.findById(fileId)
+                .orElseThrow(() -> new FileNotFoundException("File not found"));
+
+        List<FileVersion> versions = fileVersionRepository.findByFileMetadataOrderByVersionDesc(metadata);
+        FileVersion versionToRestore = versions.stream()
+                .filter(v -> v.getVersion().equals(version))
+                .findFirst()
+                .orElseThrow(() -> new FileNotFoundException("Version not found"));
+
+        Path versionsDir = getServingDirectoryPath().resolve(".versions");
+        Path versionPath = versionsDir.resolve(versionToRestore.getStoredFilename());
+
+        if (!Files.exists(versionPath)) {
+            throw new FileNotFoundException("Version file missing on disk");
+        }
+
+        User currentUser = authService.getMainUser().orElse(null);
+
+        if (mode == RestoreMode.COPY) {
+            // Restore as COPY
+            String originalName = metadata.getFilename();
+            String nameWithoutExt = originalName;
+            String ext = "";
+            int lastDot = originalName.lastIndexOf(".");
+            if (lastDot > 0) {
+                nameWithoutExt = originalName.substring(0, lastDot);
+                ext = originalName.substring(lastDot);
+            }
+
+            String newFilename = nameWithoutExt + "_v" + version + ext;
+            String newRelativePath = "";
+
+            // Handle parent directory in path
+            Path oldPath = Paths.get(metadata.getPath());
+            if (oldPath.getParent() != null) {
+                newRelativePath = oldPath.getParent().toString() + "/" + newFilename;
+            } else {
+                newRelativePath = newFilename;
+            }
+
+            Path newFullPath = getServingDirectoryPath().resolve(newRelativePath).normalize();
+
+            // Just in case check traversal again although we constructed it safely
+            if (!newFullPath.startsWith(getServingDirectoryPath())) {
+                throw new IOException("Security check failed");
+            }
+
+            Files.copy(versionPath, newFullPath, StandardCopyOption.REPLACE_EXISTING);
+
+            // Create new metadata
+            FileMetadata newMetadata = new FileMetadata(
+                    newRelativePath,
+                    newFilename,
+                    Files.size(newFullPath),
+                    false,
+                    currentUser);
+            fileMetadataRepository.save(newMetadata);
+
+            FileHistory history = new FileHistory(newMetadata, FileHistory.ChangeType.UPLOAD, currentUser);
+            history.setErrorMessage("Restored from " + metadata.getFilename() + " (v" + version + ")");
+            fileHistoryRepository.save(history);
+
+        } else {
+            // Restore as OVERWRITE
+            Path currentFilePath = getServingDirectoryPath().resolve(metadata.getPath());
+            File currentFile = currentFilePath.toFile();
+
+            if (currentFile.exists()) {
+                saveVersion(metadata, currentFilePath);
+            }
+
+            Files.copy(versionPath, currentFilePath, StandardCopyOption.REPLACE_EXISTING);
+
+            metadata.setSize(Files.size(currentFilePath));
+            metadata.setUpdatedAt(LocalDateTime.now());
+            fileMetadataRepository.save(metadata);
+
+            FileHistory history = new FileHistory(metadata, FileHistory.ChangeType.UPLOAD, currentUser);
+            history.setErrorMessage("Restored from version " + version);
+            fileHistoryRepository.save(history);
         }
     }
 

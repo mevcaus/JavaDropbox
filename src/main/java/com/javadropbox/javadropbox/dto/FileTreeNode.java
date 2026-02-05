@@ -7,6 +7,7 @@ public class FileTreeNode {
     private String name;
     private boolean isDirectory;
     private long size;
+    private Long id; // Added ID for versioning support
     private String createdDate;
     private String lastModified;
     private String ownerName;
@@ -73,5 +74,13 @@ public class FileTreeNode {
 
     public void setOwnerName(String ownerName) {
         this.ownerName = ownerName;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
     }
 }

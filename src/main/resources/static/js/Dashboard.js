@@ -137,7 +137,8 @@ function renderTree(nodes, level, ancestorIds, parentPath) {
             }
         } else {
             const deleteButton = `<button class="delete-btn" data-path="${currentPath}" data-name="${node.name}" title="Delete this file"><img src="/images/icons/delete-file.png" style="width: 20px; height: 20px;" alt="Delete"/></button>`;
-            const actionsCell = `<td class="actions-cell">${deleteButton}</td>`;
+            const historyButton = `<button class="history-btn" data-id="${node.id}" data-name="${node.name}" title="View Version History"><img src="/images/icons/history.png" style="width: 20px; height: 20px;" alt="History"/></button>`;
+            const actionsCell = `<td class="actions-cell">${historyButton}${deleteButton}</td>`;
 
             html += `
                 <tr class="${isHidden} ${ancestorClasses} file-row" 
@@ -524,4 +525,173 @@ document.addEventListener("DOMContentLoaded", () => {
     setupDeleteModal();
     setupCreateFolderModal();
     setupFileDetailsModal();
+    setupVersionsModal();
+    setupRestoreOptionsModal();
 });
+// --- VERSION HISTORY FUNCTIONS ---
+
+let currentVersionFileId = null;
+let currentVersionNumber = null;
+
+function setupVersionsModal() {
+    const modal = document.getElementById("versions-modal");
+    if (!modal) return;
+    const closeBtn = document.getElementById("close-versions-btn");
+    const closeBtn2 = document.getElementById("close-versions-secondary-btn");
+    const container = document.getElementById("file-browser-container");
+
+    const closeHandler = () => modal.classList.add("hidden");
+
+    if (closeBtn) closeBtn.addEventListener("click", closeHandler);
+    if (closeBtn2) closeBtn2.addEventListener("click", closeHandler);
+
+    // Event delegation for History button
+    container.addEventListener("click", (e) => {
+        if (e.target && e.target.closest(".history-btn")) {
+            e.stopPropagation();
+            const button = e.target.closest(".history-btn");
+            const fileId = button.dataset.id;
+            const fileName = button.dataset.name;
+            openVersionsModal(fileId, fileName);
+        }
+    });
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeHandler();
+    });
+}
+
+function openVersionsModal(fileId, fileName) {
+    const modal = document.getElementById("versions-modal");
+    const titleSpan = document.getElementById("versions-filename");
+    const container = document.getElementById("versions-list-container");
+
+    titleSpan.textContent = fileName;
+    container.innerHTML = `<p>Loading versions...</p>`;
+    modal.classList.remove("hidden");
+
+    // If data-id is missing or "undefined" (string), handle gracefully
+    if (!fileId || fileId === "undefined" || fileId === "null") {
+        container.innerHTML = `<p class="empty-message">No history available for this file.</p>`;
+        modal.classList.remove("hidden");
+        return;
+    }
+
+    currentVersionFileId = fileId;
+
+    fetch(`/api/files/${fileId}/versions`)
+        .then(response => {
+            if (response.status === 404) {
+                return []; // Treat 404 as empty list
+            }
+            if (!response.ok) throw new Error("Failed to load versions");
+            return response.json();
+        })
+        .then(versions => {
+            if (versions.length === 0) {
+                container.innerHTML = `<p class="empty-message">No previous versions found.</p>`;
+                return;
+            }
+            renderVersionsTable(versions);
+        })
+        .catch(err => {
+            console.error(err);
+            container.innerHTML = `<p class="empty-message">No history available.</p>`;
+        });
+}
+
+function renderVersionsTable(versions) {
+    const container = document.getElementById("versions-list-container");
+    let html = `
+        <table class="file-table">
+            <thead>
+                <tr>
+                    <th>Version</th>
+                    <th>Date</th>
+                    <th>Size</th>
+                    <th>User</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    versions.forEach(v => {
+        html += `
+            <tr>
+                <td>v${v.version}</td>
+                <td>${v.createdAt}</td>
+                <td>${v.size}</td>
+                <td>${v.createdBy}</td>
+                <td>
+                    <button class="button-secondary restore-btn" onclick="openRestoreOptions(${v.version})">Restore</button>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+// --- RESTORE OPTIONS FUNCTIONS ---
+
+function setupRestoreOptionsModal() {
+    const modal = document.getElementById("restore-options-modal");
+    if (!modal) return;
+
+    const closeBtn = document.getElementById("close-restore-options-btn");
+    const cancelBtn = document.getElementById("cancel-restore-btn");
+    const overwriteBtn = document.getElementById("restore-overwrite-btn");
+    const copyBtn = document.getElementById("restore-copy-btn");
+    const versionSpan = document.getElementById("restore-version-number");
+
+    const closeHandler = () => modal.classList.add("hidden");
+
+    if (closeBtn) closeBtn.addEventListener("click", closeHandler);
+    if (cancelBtn) cancelBtn.addEventListener("click", closeHandler);
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeHandler();
+    });
+
+    overwriteBtn.addEventListener("click", () => performRestore("OVERWRITE"));
+    copyBtn.addEventListener("click", () => performRestore("COPY"));
+}
+
+function openRestoreOptions(version) {
+    const modal = document.getElementById("restore-options-modal");
+    const versionSpan = document.getElementById("restore-version-number");
+
+    currentVersionNumber = version;
+    versionSpan.textContent = "v" + version;
+    modal.classList.remove("hidden");
+}
+
+function performRestore(mode) {
+    if (!currentVersionFileId || !currentVersionNumber) return;
+
+    const modal = document.getElementById("restore-options-modal");
+    const versionsModal = document.getElementById("versions-modal");
+
+    // Disable buttons or show loading state if desired (omitted for brevity)
+
+    fetch(`/api/files/${currentVersionFileId}/versions/${currentVersionNumber}/restore?mode=${mode}`, {
+        method: "POST"
+    })
+        .then(response => response.json().then(data => ({ status: response.status, body: data })))
+        .then(result => {
+            if (result.status === 200) {
+                alert(result.body.message);
+                modal.classList.add("hidden");
+                versionsModal.classList.add("hidden");
+                loadFileTree(); // Refresh main file list
+            } else {
+                alert("Error: " + result.body.message);
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert("An unexpected error occurred during restore.");
+        });
+}
