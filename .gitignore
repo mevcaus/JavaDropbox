@@ -8,6 +8,7 @@ JDB/
 TODO.TXT
 user.properties
 true
+.agent/
 ### STS ###
 .apt_generated
 .classpath

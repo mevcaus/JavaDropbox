@@ -137,6 +137,49 @@
             </div>
         </div>
     </div>
+    <div id="versions-modal" class="modal-overlay hidden">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h2>Version History</h2>
+                <button id="close-versions-btn" class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Viewing versions for: <strong><span id="versions-filename"></span></strong></p>
+                <div id="versions-list-container">
+                    <p>Loading...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="close-versions-secondary-btn" class="button-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="restore-options-modal" class="modal-overlay hidden" style="z-index: 2000;">
+        <!-- Higher z-index to show on top of versions modal -->
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Restore Version</h2>
+                <button id="close-restore-options-btn" class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>How would you like to restore version <strong id="restore-version-number"></strong>?</p>
+                <div class="restore-options">
+                    <div class="restore-option">
+                        <button id="restore-overwrite-btn" class="button-danger">Overwrite Current</button>
+                        <p class="small-text">Replaces the current file with this version.</p>
+                    </div>
+                    <div class="restore-option">
+                        <button id="restore-copy-btn" class="button-primary">Restore as Copy</button>
+                        <p class="small-text">Creates a new file (e.g. <code>filename_v1.txt</code>).</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-restore-btn" class="button-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
     <script src="/js/Dashboard.js"></script>
 </body>
 

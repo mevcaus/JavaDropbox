@@ -23,6 +23,8 @@ public class FileMetadata {
     private Long size;
     private Boolean isDirectory;
 
+    private Integer currentVersion = 1;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private User owner;
@@ -120,5 +122,13 @@ public class FileMetadata {
 
     public void setLastAccessed(LocalDateTime lastAccessed) {
         this.lastAccessed = lastAccessed;
+    }
+
+    public Integer getCurrentVersion() {
+        return currentVersion;
+    }
+
+    public void setCurrentVersion(Integer currentVersion) {
+        this.currentVersion = currentVersion;
     }
 }
