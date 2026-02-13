@@ -1,11 +1,9 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.DownloadableResource;
-import com.javadropbox.javadropbox.dto.FileItem;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FileServingService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
@@ -14,13 +12,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
-import java.security.Principal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,41 +69,6 @@ public class WebController {
      * @param model     the model to pass attributes to the view
      * @return the dashboard view
      */
-    @GetMapping("/dashboard")
-    public String dashboard(Principal principal, Model model) {
-        model.addAttribute("user", principal.getName());
-        model.addAttribute("directory", fileServingService.getServingDirectory());
-
-        return "Dashboard";
-    }
-
-    /**
-     * Logs out the current user by invalidating their session and redirects to the
-     * login page.
-     * 
-     * @param request the HTTP servlet request
-     * @return redirect to login
-     */
-    @GetMapping("/logout")
-    public String logout(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
-        return "redirect:/login";
-    }
-
-    /**
-     * Prints directory info to the console and redirects to the dashboard.
-     * 
-     * @return redirect to dashboard
-     */
-    @GetMapping("/directory-info")
-    public String directoryInfo() {
-        System.out.println(fileServingService.getDirectoryInfo());
-        return "redirect:/dashboard";
-    }
-
     /**
      * API endpoint to get directory information.
      * 
@@ -203,23 +163,19 @@ public class WebController {
         }
     }
 
-    @GetMapping("/setup")
-    public String showSetupPage() {
-        return authService.isSetupRequired() ? "Setup" : "redirect:/login";
-    }
-
     @PostMapping("/setup")
-    public String processSetup(@RequestParam String username, @RequestParam String password) throws IOException {
+    public ResponseEntity<?> processSetup(@RequestParam String username, @RequestParam String password) {
         if (username == null || username.trim().isEmpty()) {
-            return "redirect:/setup?error=username-required";
+            return ResponseEntity.badRequest().body(Map.of("error", "Username required"));
         }
         if (password == null || password.trim().isEmpty()) {
-            return "redirect:/setup?error=password-required";
+            return ResponseEntity.badRequest().body(Map.of("error", "Password required"));
         }
         if (authService.isSetupRequired()) {
             authService.setupUser(username, password);
+            return ResponseEntity.ok(Map.of("message", "Setup successful"));
         }
-        return "redirect:/login";
+        return ResponseEntity.badRequest().body(Map.of("error", "Setup already completed"));
     }
 
     @PostMapping("/api/create-directory")
@@ -235,11 +191,5 @@ public class WebController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("message", e.getMessage()));
         }
-    }
-
-    @GetMapping("/history")
-    public String historyPage(Model model, Principal principal) {
-        model.addAttribute("user", principal.getName());
-        return "History";
     }
 }
