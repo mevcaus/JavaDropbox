@@ -49,34 +49,48 @@ public class SecurityConfig {
                         throws Exception {
                 http
                                 .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
+                                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                                 .authorizeHttpRequests(auth -> auth
                                                 .requestMatchers(
                                                                 "/setup",
                                                                 "/login",
-                                                                "/css/**",
-                                                                "/js/**",
-                                                                "/images/**",
-                                                                "/JavaDropbox_favicon.png",
+                                                                "/setup",
+                                                                "/login",
                                                                 "/error")
                                                 .permitAll()
                                                 .anyRequest()
                                                 .authenticated())
+                                .exceptionHandling(ex -> ex
+                                                .authenticationEntryPoint(
+                                                                new org.springframework.security.web.authentication.HttpStatusEntryPoint(
+                                                                                org.springframework.http.HttpStatus.UNAUTHORIZED)))
                                 .formLogin(form -> form
-                                                .loginPage("/login")
                                                 .loginProcessingUrl("/login")
-                                                .defaultSuccessUrl("/dashboard", true)
-                                                .failureUrl("/login?error")
+                                                .successHandler((req, res, auth) -> res.setStatus(200))
+                                                .failureHandler((req, res, exc) -> res.setStatus(401))
                                                 .permitAll())
                                 .rememberMe(rememberMe -> rememberMe
                                                 .key(UUID.randomUUID().toString())
                                                 .tokenValiditySeconds(60))
                                 .logout(logout -> logout
                                                 .logoutUrl("/logout")
-                                                .logoutSuccessUrl("/login?logout")
+                                                .logoutSuccessHandler((req, res, auth) -> res.setStatus(200))
                                                 .permitAll())
                                 // -- DO NOT DO THIS IN PRODUCTION --
                                 .csrf(AbstractHttpConfigurer::disable);
 
                 return http.build();
+        }
+
+        @Bean
+        public org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource() {
+                org.springframework.web.cors.CorsConfiguration configuration = new org.springframework.web.cors.CorsConfiguration();
+                configuration.setAllowedOrigins(java.util.List.of("http://localhost:5173", "http://localhost:5174"));
+                configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+                configuration.setAllowedHeaders(java.util.List.of("*"));
+                configuration.setAllowCredentials(true);
+                org.springframework.web.cors.UrlBasedCorsConfigurationSource source = new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/**", configuration);
+                return source;
         }
 }

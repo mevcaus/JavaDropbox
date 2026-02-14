@@ -33,11 +33,17 @@ import java.util.zip.ZipOutputStream;
 @Service
 public class FileServingService {
 
+    private static final int MAX_FILE_VERSIONS = 10;
+    private static final String VERSIONS_DIR_NAME = ".versions";
+    private static final String SECURITY_ALERT_MESSAGE = "SECURITY ALERT: Attempted path traversal to: ";
+    private static final String PATH_TRAVERSAL_ERROR = "Path Traversal Attempt Forbidden: ";
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy hh:mm a");
+    private static final String FALLBACK_OWNER = "system";
+
     @Value("${javadropbox.serving.directory:#{systemProperties['user.dir']}}")
     private String servingDirectory;
 
     private final FileMetadataRepository fileMetadataRepository;
-
     private final FileHistoryRepository fileHistoryRepository;
     private final FileVersionRepository fileVersionRepository;
     private final AuthService authService;
@@ -50,6 +56,14 @@ public class FileServingService {
         this.fileHistoryRepository = fileHistoryRepository;
         this.fileVersionRepository = fileVersionRepository;
         this.authService = authService;
+    }
+
+    private void validatePathSecurity(Path fullPath, String relativePath) throws IOException {
+        Path rootPath = getServingDirectoryPath();
+        if (!fullPath.startsWith(rootPath)) {
+            System.err.println(SECURITY_ALERT_MESSAGE + fullPath);
+            throw new IOException(PATH_TRAVERSAL_ERROR + relativePath);
+        }
     }
 
     public String getServingDirectory() {
@@ -121,8 +135,9 @@ public class FileServingService {
             currentPath = rootPath.resolve(subpath).normalize();
         }
 
-        if (!currentPath.startsWith(rootPath)) {
-            System.err.println("SECURITY ALERT: Attempted path traversal to: " + currentPath);
+        try {
+            validatePathSecurity(currentPath, subpath);
+        } catch (IOException e) {
             return Collections.emptyList();
         }
 
@@ -146,6 +161,9 @@ public class FileServingService {
         }
 
         for (File file : files) {
+            if (file.getName().startsWith(".")) {
+                continue;
+            }
             fileItems.add(
                     new FileItem(file.getName(), file.isDirectory(), file.length()));
         }
@@ -168,42 +186,15 @@ public class FileServingService {
         }
 
         List<FileTreeNode> nodes = new ArrayList<>();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
         for (File file : files) {
-            FileTreeNode node = new FileTreeNode(file.getName(), file.isDirectory(), file.length());
-
-            // Build relative path for DB lookup
-            String currentPath = relativePath.isEmpty() ? file.getName() : relativePath + "/" + file.getName();
-
-            // Fetch metadata
-            Optional<FileMetadata> metadataOpt = fileMetadataRepository.findByPath(currentPath);
-
-            if (metadataOpt.isPresent()) {
-                FileMetadata meta = metadataOpt.get();
-                node.setId(meta.getId()); // Set ID
-                if (meta.getCreatedAt() != null)
-                    node.setCreatedDate(meta.getCreatedAt().format(formatter));
-                if (meta.getUpdatedAt() != null)
-                    node.setLastModified(meta.getUpdatedAt().format(formatter));
-                if (meta.getOwner() != null)
-                    node.setOwnerName(meta.getOwner().getUsername());
-            } else {
-                // Fallback to FS attributes
-                try {
-                    BasicFileAttributes attrs = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
-                    LocalDateTime created = LocalDateTime.ofInstant(attrs.creationTime().toInstant(),
-                            ZoneId.systemDefault());
-                    LocalDateTime modified = LocalDateTime.ofInstant(attrs.lastModifiedTime().toInstant(),
-                            ZoneId.systemDefault());
-                    node.setCreatedDate(created.format(formatter));
-                    node.setLastModified(modified.format(formatter));
-                    node.setOwnerName("system");
-                } catch (IOException e) {
-                    node.setCreatedDate("Unknown");
-                    node.setOwnerName("system");
-                }
+            if (file.getName().startsWith(".")) {
+                continue;
             }
+            String currentPath = relativePath.isEmpty() ? file.getName() : relativePath + "/" + file.getName();
+            FileTreeNode node = new FileTreeNode(file.getName(), file.isDirectory(), file.length(), currentPath);
+
+            populateNodeMetadata(node, currentPath, file);
 
             if (file.isDirectory()) {
                 List<FileTreeNode> children = buildTreeRecursively(file, currentPath);
@@ -225,6 +216,44 @@ public class FileServingService {
         return nodes;
     }
 
+    private void populateNodeMetadata(FileTreeNode node, String currentPath, File file) {
+        Optional<FileMetadata> metadataOpt = fileMetadataRepository.findByPath(currentPath);
+
+        if (metadataOpt.isPresent()) {
+            FileMetadata meta = metadataOpt.get();
+            node.setId(meta.getId());
+            if (meta.getCreatedAt() != null) {
+                node.setCreatedDate(meta.getCreatedAt().format(DATE_FORMATTER));
+            }
+            if (meta.getUpdatedAt() != null) {
+                node.setLastModified(meta.getUpdatedAt().format(DATE_FORMATTER));
+            }
+            if (meta.getOwner() != null) {
+                node.setOwnerName(meta.getOwner().getUsername());
+            }
+        } else {
+            populateNodeFromFileSystem(node, file);
+        }
+    }
+
+    private void populateNodeFromFileSystem(FileTreeNode node, File file) {
+        try {
+            BasicFileAttributes attrs = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
+            LocalDateTime created = LocalDateTime.ofInstant(
+                    attrs.creationTime().toInstant(),
+                    ZoneId.systemDefault());
+            LocalDateTime modified = LocalDateTime.ofInstant(
+                    attrs.lastModifiedTime().toInstant(),
+                    ZoneId.systemDefault());
+            node.setCreatedDate(created.format(DATE_FORMATTER));
+            node.setLastModified(modified.format(DATE_FORMATTER));
+            node.setOwnerName(FALLBACK_OWNER);
+        } catch (IOException e) {
+            node.setCreatedDate("Unknown");
+            node.setOwnerName(FALLBACK_OWNER);
+        }
+    }
+
     public DownloadableResource getResourceForPath(String relativePath) throws IOException {
         Path rootPath = getServingDirectoryPath();
         Path fullPath = rootPath.resolve(relativePath).normalize();
@@ -238,7 +267,17 @@ public class FileServingService {
             throw new FileNotFoundException("File not found: " + relativePath);
         }
 
-        // Update Last Accessed
+        updateLastAccessedTime(relativePath);
+
+        if (file.isDirectory()) {
+            return createZipResourceForDirectory(file);
+
+        } else {
+            return createResourceForFile(fullPath, file);
+        }
+    }
+
+    private void updateLastAccessedTime(String relativePath) {
         try {
             Optional<FileMetadata> metadata = fileMetadataRepository.findByPath(relativePath);
             metadata.ifPresent(m -> {
@@ -246,30 +285,30 @@ public class FileServingService {
                 fileMetadataRepository.save(m);
             });
         } catch (Exception e) {
-            // Non-blocking
             e.printStackTrace();
         }
+    }
 
-        if (file.isDirectory()) {
-            String zipFilename = file.getName() + ".zip";
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try (ZipOutputStream zos = new ZipOutputStream(baos)) {
-                zipDirectory(file, file.getName(), zos);
-            }
+    private DownloadableResource createZipResourceForDirectory(File directory) throws IOException {
+        String zipFilename = directory.getName() + ".zip";
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
 
-            ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-            Resource zipResource = new InputStreamResource(bais);
-
-            return new DownloadableResource(zipResource, zipFilename, "application/zip");
-
-        } else {
-            Resource resource = new org.springframework.core.io.UrlResource(fullPath.toUri());
-            String contentType = Files.probeContentType(fullPath);
-            if (contentType == null) {
-                contentType = "application/octet-stream";
-            }
-            return new DownloadableResource(resource, file.getName(), contentType);
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(byteArrayOutputStream)) {
+            zipDirectory(directory, directory.getName(), zipOutputStream);
         }
+
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(byteArrayOutputStream.toByteArray());
+        Resource zipResource = new InputStreamResource(byteArrayInputStream);
+        return new DownloadableResource(zipResource, zipFilename, "application/zip");
+    }
+
+    private DownloadableResource createResourceForFile(Path fullPath, File file) throws IOException {
+        Resource resource = new org.springframework.core.io.UrlResource(fullPath.toUri());
+        String contentType = Files.probeContentType(fullPath);
+        if (contentType == null) {
+            contentType = "application/octet-stream";
+        }
+        return new DownloadableResource(resource, file.getName(), contentType);
     }
 
     private void zipDirectory(File folder, String parentPath, ZipOutputStream zos) throws IOException {
@@ -286,12 +325,8 @@ public class FileServingService {
     }
 
     public void saveUploadedFiles(MultipartFile[] files, String subpath) throws IOException {
-        Path rootPath = getServingDirectoryPath();
-        Path destinationFolder = rootPath.resolve(subpath).normalize();
-
-        if (!destinationFolder.startsWith(rootPath)) {
-            throw new IOException("Path Traversal Attempt Forbidden: " + subpath);
-        }
+        Path destinationFolder = getServingDirectoryPath().resolve(subpath).normalize();
+        validatePathSecurity(destinationFolder, subpath);
 
         if (!Files.exists(destinationFolder)) {
             Files.createDirectories(destinationFolder);
@@ -363,7 +398,7 @@ public class FileServingService {
 
     private void saveVersion(FileMetadata metadata, Path currentFilePath) throws IOException {
         File currentFile = currentFilePath.toFile();
-        Path versionsDir = getServingDirectoryPath().resolve(".versions");
+        Path versionsDir = getServingDirectoryPath().resolve(VERSIONS_DIR_NAME);
         if (!Files.exists(versionsDir)) {
             Files.createDirectories(versionsDir);
         }
@@ -393,8 +428,8 @@ public class FileServingService {
         fileMetadataRepository.save(metadata);
 
         List<FileVersion> versions = fileVersionRepository.findByFileMetadataOrderByVersionDesc(metadata);
-        if (versions.size() > 10) {
-            for (int i = 10; i < versions.size(); i++) {
+        if (versions.size() > MAX_FILE_VERSIONS) {
+            for (int i = MAX_FILE_VERSIONS; i < versions.size(); i++) {
                 FileVersion oldVersion = versions.get(i);
                 try {
                     Files.deleteIfExists(versionsDir.resolve(oldVersion.getStoredFilename()));
@@ -416,7 +451,7 @@ public class FileServingService {
                 .findFirst()
                 .orElseThrow(() -> new FileNotFoundException("Version not found"));
 
-        Path versionsDir = getServingDirectoryPath().resolve(".versions");
+        Path versionsDir = getServingDirectoryPath().resolve(VERSIONS_DIR_NAME);
         Path versionPath = versionsDir.resolve(versionToRestore.getStoredFilename());
 
         if (!Files.exists(versionPath)) {
@@ -448,11 +483,7 @@ public class FileServingService {
             }
 
             Path newFullPath = getServingDirectoryPath().resolve(newRelativePath).normalize();
-
-            // Just in case check traversal again although we constructed it safely
-            if (!newFullPath.startsWith(getServingDirectoryPath())) {
-                throw new IOException("Security check failed");
-            }
+            validatePathSecurity(newFullPath, newRelativePath);
 
             Files.copy(versionPath, newFullPath, StandardCopyOption.REPLACE_EXISTING);
 
@@ -491,15 +522,12 @@ public class FileServingService {
     }
 
     public void deleteItem(String relativePath) throws IOException {
-        Path rootPath = getServingDirectoryPath();
-        Path fullPath = rootPath.resolve(relativePath).normalize();
+        Path fullPath = getServingDirectoryPath().resolve(relativePath).normalize();
         User currentUser = authService.getMainUser().orElse(null);
         String filename = "unknown";
 
         try {
-            if (!fullPath.startsWith(rootPath)) {
-                throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
-            }
+            validatePathSecurity(fullPath, relativePath);
 
             File itemToDelete = fullPath.toFile();
             if (!itemToDelete.exists()) {
@@ -510,8 +538,6 @@ public class FileServingService {
 
             if (itemToDelete.isDirectory()) {
                 deleteRecursively(itemToDelete);
-                // Ideally we would delete metadata for everything inside, but for now simple
-                // handling:
                 recordDeletion(relativePath, filename, currentUser);
             } else {
                 if (!itemToDelete.delete()) {
@@ -567,12 +593,8 @@ public class FileServingService {
         User currentUser = authService.getMainUser().orElse(null);
 
         try {
-            Path rootPath = getServingDirectoryPath();
-            Path parentPath = rootPath.resolve(relativePath).normalize();
-
-            if (!parentPath.startsWith(rootPath)) {
-                throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
-            }
+            Path parentPath = getServingDirectoryPath().resolve(relativePath).normalize();
+            validatePathSecurity(parentPath, relativePath);
 
             if (directoryName == null || directoryName.trim().isEmpty() || directoryName.contains("..")
                     || directoryName.contains("/") || directoryName.contains("\\")) {
@@ -591,7 +613,6 @@ public class FileServingService {
 
             Files.createDirectories(newDirPath);
 
-            // DB Integration: Success
             try {
                 String fullRelativePath = relativePath.isEmpty() ? directoryName : relativePath + "/" + directoryName;
 

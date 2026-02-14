@@ -11,6 +11,7 @@ public class FileTreeNode {
     private String createdDate;
     private String lastModified;
     private String ownerName;
+    private String relativePath; // Added relative path for navigation
     private List<FileTreeNode> children;
 
     public FileTreeNode(String name, boolean isDirectory, long size) {
@@ -18,6 +19,11 @@ public class FileTreeNode {
         this.isDirectory = isDirectory;
         this.size = size;
         this.children = new ArrayList<>();
+    }
+
+    public FileTreeNode(String name, boolean isDirectory, long size, String relativePath) {
+        this(name, isDirectory, size);
+        this.relativePath = relativePath;
     }
 
     public String getName() {
@@ -82,5 +88,13 @@ public class FileTreeNode {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getRelativePath() {
+        return relativePath;
+    }
+
+    public void setRelativePath(String relativePath) {
+        this.relativePath = relativePath;
     }
 }
