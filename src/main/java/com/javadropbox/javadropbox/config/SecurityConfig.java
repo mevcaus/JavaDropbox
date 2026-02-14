@@ -74,7 +74,7 @@ public class SecurityConfig {
                                                 .tokenValiditySeconds(60))
                                 .logout(logout -> logout
                                                 .logoutUrl("/logout")
-                                                .logoutSuccessUrl("/login?logout")
+                                                .logoutSuccessHandler((req, res, auth) -> res.setStatus(200))
                                                 .permitAll())
                                 // -- DO NOT DO THIS IN PRODUCTION --
                                 .csrf(AbstractHttpConfigurer::disable);
