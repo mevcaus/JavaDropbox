@@ -265,38 +265,33 @@ git clone https://github.com/mevcaus/JavaDropBox.git
 cd JavaDropBox
 ```
 
-### 2. Start the Database
+### 2. Start Everything
 
 ```bash
+./start.sh
+```
+
+This single command starts the **PostgreSQL database** (via Docker Compose, managed automatically by Spring Boot), the **Spring Boot backend** on `http://localhost:8080`, and the **Vite frontend** on `http://localhost:5173` — all concurrently. Frontend dependencies are installed automatically on first run.
+
+<details>
+<summary><strong>Manual startup (individual steps)</strong></summary>
+
+```bash
+# Start the database
 docker compose up -d
-```
 
-This spins up a PostgreSQL 15 container with the database `javadropbox` on port `5432`.
-
-### 3. Run the Backend
-
-```bash
+# Run the backend
 ./gradlew bootRun
-```
 
-The Spring Boot server starts on **`http://localhost:8080`**. On first run, it creates a `JDB/` directory for file storage.
-
-**Custom directory:**
-```bash
-./gradlew bootRun --args='--directory=/path/to/your/files'
-```
-
-### 4. Run the Frontend
-
-```bash
+# In a separate terminal, run the frontend
 cd frontend
 npm install
 npm run dev
 ```
 
-The Vite dev server starts on **`http://localhost:5173`** and proxies API requests to the backend.
+</details>
 
-### 5. Initial Setup
+### 3. Initial Setup
 
 1. Navigate to `http://localhost:5173`
 2. You'll be redirected to the **setup page** — create your admin username and password
