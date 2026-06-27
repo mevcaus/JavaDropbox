@@ -1,0 +1,12 @@
+{
+  "name": "javadropbox-stack",
+  "version": "1.0.0",
+  "description": "Single-step start for JavaDropbox",
+  "scripts": {
+    "install-all": "npm install --prefix frontend",
+    "dev": "concurrently -c \"green,blue\" -n \"backend,frontend\" \"./gradlew bootRun\" \"npm run dev --prefix frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
