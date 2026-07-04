@@ -1,6 +1,6 @@
 # JavaDropbox
 
-> A lightweight, self-hosted file management solution built with Java and Spring Boot. Access, manage, and download your files from anywhere.
+> A lightweight, self-hosted file management solution built with Spring Boot and React. Access, manage, and download your files from anywhere.
 
 JavaDropbox is designed for:
 - **Developers and IT professionals** who want a private, self-hosted solution for managing project files or internal documentation.
@@ -16,95 +16,136 @@ In short, the main audience consists of users who value **control, security, and
     -   Download individual files directly.
     -   Download entire folders, which are automatically zipped on-the-fly.
 -   **Uploads:** Easily add files by dragging them into the browser or using a traditional file selector.
+-   **Folder Management:** Create new folders and navigate nested directories from the UI.
+-   **File Versioning & History:** Track changes to files and view their history (backed by PostgreSQL).
 -   **Configurable Directory:** Serve files from the default `JDB` subfolder or specify any directory on your system via a command-line argument.
--   **Springboot Security:** Authentication to restrict access to the file management interface.
+-   **Spring Security:** Single-admin authentication to restrict access to the file management interface.
 
-##  Tech Stack
+## Tech Stack
 
 -   **Backend:**
-    -   Java 21+
-    -   Spring Boot 3+ (Spring Web)
-    -   Thymeleaf
-    -   Spring Security
+    -   Java 21
+    -   Spring Boot 3.5 (Spring Web, Spring Security, Spring Data JPA, Spring Modulith)
+    -   PostgreSQL 15
 -   **Frontend:**
-    -   HTML5
-    -   CSS3 
-    -   Vanilla JavaScript (ES6+)
--   **Build Tool:**
-    -   Gradle
+    -   React 19 + Vite
+    -   Redux Toolkit, React Router
+    -   Tailwind CSS, axios
+-   **Build / Tooling:**
+    -   Gradle (wrapper included)
+    -   Docker (for the PostgreSQL database)
 
-##  Getting Started
+## Architecture
+
+The backend is a Spring Boot application that exposes a JSON API (under `/api`) plus
+`/setup`, `/login`, and `/logout` endpoints. The frontend is a separate React single-page
+app served by Vite during development, which proxies API/auth requests to the backend.
+File metadata, versions, and the single admin user are stored in PostgreSQL; the actual
+files live on disk in the configured serving directory (default: `./JDB`).
+
+## Getting Started
 
 Follow these instructions to get a local copy up and running.
 
 ### Prerequisites
 
-You must have a Java Development Kit (JDK) installed on your system.
--   [JDK Version 21 or higher](https://www.oracle.com/java/technologies/downloads/)
+-   **JDK 21** ([Temurin](https://adoptium.net/) or equivalent)
+-   **Docker** (Docker Desktop or compatible) — used to run PostgreSQL. The backend
+    auto-starts the database via Spring Boot's Docker Compose support, so Docker must be
+    running before you start the backend.
+-   **Node.js 20+** and npm — for the frontend.
 
-### Installation & Running
+### 1. Clone the repository
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/mevcaus/JavaDropBox.git
-    cd JavaDropBox
-    ```
+```bash
+git clone https://github.com/mevcaus/JavaDropbox.git
+cd JavaDropbox
+```
 
-2.  **Build the project:**
-    Use the Gradle wrapper to build the application. This will download all necessary dependencies.
-    ```bash
-    ./gradlew build
-    ```
+### 2. Run the backend (and database)
 
-3.  **Run the application:**
-    You have two options for running the server.
+The backend reads [`compose.yaml`](compose.yaml) and automatically starts a PostgreSQL
+container on first launch (via the `spring-boot-docker-compose` integration), so you do
+**not** need to start the database manually.
 
-    **Option A: Default Mode**
-    This will automatically create and serve files from a folder named `JDB` inside your project directory.
-    ```bash
-    ./gradlew bootRun
-    ```
+```bash
+./gradlew bootRun
+```
 
-    **Option B: Custom Directory Mode**
-    Use the `--args` flag to specify an absolute path to any directory you want to serve.
-    ```bash
-    ./gradlew bootRun --args='--directory=/path/to/your/files'
-    ```
-    *Example for Windows:*
-    ```powershell
-    ./gradlew bootRun --args='--directory=C:\Users\YourUser\Documents'
-    ```
+This starts the API on **http://localhost:8080** and creates/serves files from a `JDB`
+folder in the project directory.
 
-##  How to Use
+**Custom serving directory** — pass an absolute path to serve any directory:
 
-### Accessing the Web UI
+```bash
+./gradlew bootRun --args='--directory=/path/to/your/files'
+```
 
-1.  Once the server is running, open your web browser and navigate to:
-    **`http://localhost:8080`**
+> If you prefer to run PostgreSQL yourself instead of via Docker, start it with the
+> credentials in [`compose.yaml`](compose.yaml) (db `javadropbox`, user `postgres`,
+> password `password`, port `5432`) — these match
+> [`src/main/resources/application.properties`](src/main/resources/application.properties).
 
-2.  Upon first access it will ask you to setup a username and password for authentication.
+### 3. Run the frontend
 
-3.  After setting up your credentials, you will be redirected to the login screen. Use the credentials you just created to log in.
+In a second terminal:
 
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-> note: if you forget your credentials, you can delete the `users.properties` file located in the project directory to reset them.
+This starts the React app on **http://localhost:5173** and proxies API/auth calls to the
+backend on port 8080.
+
+## How to Use
+
+### First-time setup
+
+1.  With both servers running, open **http://localhost:5173**.
+2.  On the login screen, click **"Need to setup a first user?"** to open the setup page.
+3.  Create an admin username and password. You'll be redirected to the login screen.
+4.  Log in with the credentials you just created.
+
+> **Resetting credentials:** the admin account is stored in the `users` table in
+> PostgreSQL. To start over, either clear that table
+> (`TRUNCATE users RESTART IDENTITY CASCADE;`) or wipe the database volume entirely with
+> `docker compose down -v`. After that, the setup flow will be available again.
 
 ### Core Functionality
 
--   **Downloading:** Click directly on the name of any file or folder to start the download. Folders will be downloaded as a `.zip` file.
--   **Uploading:** Click the "Add Files" button. A modal will appear where you can either drag and drop files or click "Select Files" to open your system's file explorer.
--   **Deleting:** Click the trash can icon (🗑️) on the right side of any file or folder row. A confirmation pop-up will appear to prevent accidental deletion.
+-   **Downloading:** Click directly on the name of any file or folder to start the download. Folders are downloaded as a `.zip` file.
+-   **Uploading:** Click the "Add Files" button to drag and drop files or open your system's file explorer.
+-   **Creating folders:** Use the new-folder action to create empty directories.
+-   **Deleting:** Click the trash can icon (🗑️) on any row. A confirmation pop-up prevents accidental deletion.
+
+## Building for Production
+
+```bash
+# Backend: produces an executable jar in build/libs/
+./gradlew build
+
+# Frontend: produces static assets in frontend/dist/
+cd frontend && npm run build
+```
+
+## Running the Tests
+
+```bash
+./gradlew test
+```
+
+Tests run against an in-memory H2 database, so they do **not** require Docker or
+PostgreSQL.
 
 ## Future Enhancements
 
-Future plans for this project include:
 -   [ ] **File Previews:** Implement previews for common file types (images, PDFs, text files).
 -   [ ] **Search Functionality:** Add a search bar to quickly locate files and folders.
 -   [ ] **Sorting Options:** Allow users to sort files and folders by name, date, size, etc.
 -   [ ] **Upload to Subfolders:** Allow users to upload files directly into the currently expanded folder.
--   [ ] **Upload entire folders:** Allow users to upload folders directly into the currently expanded folder.
--   [ ] **Create New Folders:** Add a UI element to create new, empty directories.
--   [ ] **Desktop Folder Integration:** Create a desktop folder functionality that syncs a local folder with the server.
+-   [ ] **Desktop Folder Integration:** Sync a local folder with the server.
 
 ## License
 
