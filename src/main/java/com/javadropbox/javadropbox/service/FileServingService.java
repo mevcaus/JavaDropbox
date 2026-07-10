@@ -254,6 +254,16 @@ public class FileServingService {
         }
     }
 
+    public boolean pathExists(String relativePath) {
+        try {
+            Path fullPath = getServingDirectoryPath().resolve(relativePath).normalize();
+            validatePathSecurity(fullPath, relativePath);
+            return Files.exists(fullPath);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     public DownloadableResource getResourceForPath(String relativePath) throws IOException {
         Path rootPath = getServingDirectoryPath();
         Path fullPath = rootPath.resolve(relativePath).normalize();
