@@ -21,6 +21,14 @@ export default defineConfig({
           });
         },
       },
+      '/setup': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        // Only the POST that creates the admin account goes to the backend.
+        // GET /setup is a client-side route, so let Vite serve the SPA.
+        bypass: (req) => (req.method !== 'POST' ? '/index.html' : undefined),
+      },
       '/login': {
         target: 'http://localhost:8080',
         changeOrigin: true,

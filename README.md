@@ -255,7 +255,7 @@ JavaDropbox/
 | Tool | Version | Purpose |
 |------|---------|---------|
 | **JDK** | 21+ | [Download](https://www.oracle.com/java/technologies/downloads/) |
-| **Node.js** | 18+ | [Download](https://nodejs.org/) |
+| **Node.js** | 20.19+ or 22.12+ | [Download](https://nodejs.org/) |
 | **Docker** | Latest | [Download](https://www.docker.com/get-started) |
 
 ### 1. Clone the Repository
