@@ -1,4 +1,4 @@
-import { File, Folder, Download, Trash2, FileText, Image, Film, Music } from 'lucide-react';
+import { File, Folder, Download, Share2, Trash2, FileText, Image, Film, Music } from 'lucide-react';
 
 const FileIcon = ({ type, name }) => {
     if (type === 'DIRECTORY') return <Folder className="h-5 w-5 text-blue-500" />;
@@ -28,7 +28,7 @@ const formatSize = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-const FileTable = ({ files, onDelete, onDownload, onFolderClick }) => {
+const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
     if (!files || files.length === 0) {
         return <div className="text-center py-10 text-gray-500">No files found.</div>;
     }
@@ -106,6 +106,16 @@ const FileTable = ({ files, onDelete, onDownload, onFolderClick }) => {
                                     title="Download"
                                 >
                                     <Download className="h-5 w-5" />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onShare(file);
+                                    }}
+                                    className="text-blue-600 hover:text-blue-900 mr-4"
+                                    title="Share"
+                                >
+                                    <Share2 className="h-5 w-5" />
                                 </button>
                                 <button
                                     onClick={(e) => {

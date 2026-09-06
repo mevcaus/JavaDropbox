@@ -6,6 +6,7 @@ import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import CreateFolderModal from '../components/CreateFolderModal';
 import InfoModal from '../components/InfoModal';
+import ShareModal from '../components/ShareModal';
 import { Loader2, FolderPlus, ChevronDown, Upload as UploadIcon, HardDrive as HardDriveIcon, File as FileIcon } from 'lucide-react';
 import api from '../services/api';
 
@@ -18,6 +19,8 @@ const Dashboard = () => {
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
     const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+    const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [itemToShare, setItemToShare] = useState(null);
     const [isUploadDropdownOpen, setIsUploadDropdownOpen] = useState(false);
     // State for info modal
     const [infoModalState, setInfoModalState] = useState({ isOpen: false, title: '', message: '' });
@@ -89,6 +92,12 @@ const Dashboard = () => {
             // alert('Download failed');
             setInfoModalState({ isOpen: true, title: 'Error', message: 'Download failed. Please try again.' });
         }
+    };
+
+    const handleShare = (file) => {
+        const path = file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
+        setItemToShare({ name: file.name, isDirectory: file.isDirectory, path });
+        setIsShareModalOpen(true);
     };
 
     const showFeatureNotImplemented = (featureName) => {
@@ -191,6 +200,7 @@ const Dashboard = () => {
                 files={files}
                 onDelete={confirmDelete}
                 onDownload={handleDownload}
+                onShare={handleShare}
                 onFolderClick={handleFolderClick}
             />
 
@@ -212,6 +222,12 @@ const Dashboard = () => {
                 isOpen={isCreateFolderModalOpen}
                 onClose={() => setIsCreateFolderModalOpen(false)}
                 onCreate={handleExecuteCreateFolder}
+            />
+
+            <ShareModal
+                isOpen={isShareModalOpen}
+                onClose={() => setIsShareModalOpen(false)}
+                item={itemToShare}
             />
         </div>
     );

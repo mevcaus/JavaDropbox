@@ -54,9 +54,8 @@ public class SecurityConfig {
                                                 .requestMatchers(
                                                                 "/setup",
                                                                 "/login",
-                                                                "/setup",
-                                                                "/login",
-                                                                "/error")
+                                                                "/error",
+                                                                "/share/**")
                                                 .permitAll()
                                                 .anyRequest()
                                                 .authenticated())
