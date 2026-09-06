@@ -6,7 +6,7 @@ import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import CreateFolderModal from '../components/CreateFolderModal';
 import ShareModal from '../components/ShareModal';
-import { useToast } from '../contexts/ToastContext';
+import { useToast } from '../hooks/useToast';
 import { Loader2, FolderPlus, ChevronDown, Upload as UploadIcon, HardDrive as HardDriveIcon, File as FileIcon } from 'lucide-react';
 import api from '../services/api';
 
@@ -50,10 +50,12 @@ const Dashboard = () => {
     };
 
     const handleFileUpload = async (e) => {
-        if (e.target.files && e.target.files.length > 0) {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const count = files.length;
             try {
-                await dispatch(uploadFiles({ files: e.target.files, path: currentPath })).unwrap();
-                addToast(`Uploaded ${e.target.files.length} file(s) successfully.`, 'success');
+                await dispatch(uploadFiles({ files, path: currentPath })).unwrap();
+                addToast(`Uploaded ${count} file(s) successfully.`, 'success');
             } catch (err) {
                 const msg = typeof err === 'string' ? err : err.message || 'Failed to upload files.';
                 addToast(msg, 'error');

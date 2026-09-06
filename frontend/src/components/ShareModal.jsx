@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link2, Copy, Check, Loader2 } from 'lucide-react';
 import api from '../services/api';
-import { useToast } from '../contexts/ToastContext';
+import { useToast } from '../hooks/useToast';
 
 const EXPIRATION_OPTIONS = [
     { label: '15 minutes', minutes: 15 },
