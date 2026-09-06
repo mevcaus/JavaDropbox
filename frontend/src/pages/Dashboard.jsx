@@ -5,8 +5,8 @@ import FileTable from '../components/FileTable';
 import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import CreateFolderModal from '../components/CreateFolderModal';
-import InfoModal from '../components/InfoModal';
 import ShareModal from '../components/ShareModal';
+import { useToast } from '../contexts/ToastContext';
 import { Loader2, FolderPlus, ChevronDown, Upload as UploadIcon, HardDrive as HardDriveIcon, File as FileIcon } from 'lucide-react';
 import api from '../services/api';
 
@@ -22,8 +22,7 @@ const Dashboard = () => {
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
     const [itemToShare, setItemToShare] = useState(null);
     const [isUploadDropdownOpen, setIsUploadDropdownOpen] = useState(false);
-    // State for info modal
-    const [infoModalState, setInfoModalState] = useState({ isOpen: false, title: '', message: '' });
+    const { addToast } = useToast();
 
     useEffect(() => {
         dispatch(fetchFiles());
@@ -40,13 +39,25 @@ const Dashboard = () => {
 
     const handleExecuteCreateFolder = async (folderName) => {
         if (folderName) {
-            await dispatch(createDirectory({ path: currentPath, name: folderName }));
+            try {
+                await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
+                addToast(`Folder "${folderName}" created successfully.`, 'success');
+            } catch (err) {
+                const msg = typeof err === 'string' ? err : err.message || 'Failed to create folder.';
+                addToast(msg, 'error');
+            }
         }
     };
 
-    const handleFileUpload = (e) => {
+    const handleFileUpload = async (e) => {
         if (e.target.files && e.target.files.length > 0) {
-            dispatch(uploadFiles({ files: e.target.files, path: currentPath }));
+            try {
+                await dispatch(uploadFiles({ files: e.target.files, path: currentPath })).unwrap();
+                addToast(`Uploaded ${e.target.files.length} file(s) successfully.`, 'success');
+            } catch (err) {
+                const msg = typeof err === 'string' ? err : err.message || 'Failed to upload files.';
+                addToast(msg, 'error');
+            }
         }
         setIsUploadDropdownOpen(false);
     };
@@ -60,7 +71,13 @@ const Dashboard = () => {
     const handleExecuteDelete = async () => {
         if (itemToDelete) {
             const pathToDelete = itemToDelete.relativePath || (currentPath ? `${currentPath}/${itemToDelete.name}` : itemToDelete.name);
-            await dispatch(deleteItem(pathToDelete));
+            try {
+                await dispatch(deleteItem(pathToDelete)).unwrap();
+                addToast(`"${itemToDelete.name}" deleted successfully.`, 'success');
+            } catch (err) {
+                const msg = typeof err === 'string' ? err : err.message || 'Failed to delete item.';
+                addToast(msg, 'error');
+            }
             setIsDeleteModalOpen(false);
             setItemToDelete(null);
         }
@@ -89,8 +106,7 @@ const Dashboard = () => {
             link.remove();
         } catch (error) {
             console.error('Download failed', error);
-            // alert('Download failed');
-            setInfoModalState({ isOpen: true, title: 'Error', message: 'Download failed. Please try again.' });
+            addToast('Download failed. Please try again.', 'error');
         }
     };
 
@@ -101,16 +117,8 @@ const Dashboard = () => {
     };
 
     const showFeatureNotImplemented = (featureName) => {
-        setInfoModalState({
-            isOpen: true,
-            title: 'Coming Soon',
-            message: `${featureName} is not implemented yet. Stay tuned for updates!`
-        });
+        addToast(`${featureName} is not implemented yet. Stay tuned for updates!`, 'info');
         setIsUploadDropdownOpen(false);
-    };
-
-    const closeInfoModal = () => {
-        setInfoModalState((prev) => ({ ...prev, isOpen: false }));
     };
 
     if (loading) {
@@ -209,13 +217,6 @@ const Dashboard = () => {
                 onClose={() => setIsDeleteModalOpen(false)}
                 onConfirm={handleExecuteDelete}
                 itemName={itemToDelete?.name}
-            />
-
-            <InfoModal
-                isOpen={infoModalState.isOpen}
-                onClose={closeInfoModal}
-                title={infoModalState.title}
-                message={infoModalState.message}
             />
 
             <CreateFolderModal

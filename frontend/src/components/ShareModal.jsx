@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link2, Copy, Check, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { useToast } from '../contexts/ToastContext';
 
 const EXPIRATION_OPTIONS = [
     { label: '15 minutes', minutes: 15 },
@@ -15,6 +16,7 @@ const ShareModal = ({ isOpen, onClose, item }) => {
     const [error, setError] = useState(null);
     const [shareUrl, setShareUrl] = useState(null);
     const [copied, setCopied] = useState(false);
+    const { addToast } = useToast();
 
     // Reset state whenever a new item is shared
     useEffect(() => {
@@ -51,6 +53,7 @@ const ShareModal = ({ isOpen, onClose, item }) => {
         if (!shareUrl) return;
         await navigator.clipboard.writeText(shareUrl);
         setCopied(true);
+        addToast('Link copied to clipboard', 'success');
         setTimeout(() => setCopied(false), 2000);
     };
 
