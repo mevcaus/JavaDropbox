@@ -17,7 +17,6 @@ A **full-stack, self-hosted cloud storage platform** built from scratch — insp
 
 ## Table of Contents
 
-- [Demo](#demo)
 - [Architecture Overview](#architecture-overview)
 - [Key Features](#key-features)
 - [System Design Decisions](#system-design-decisions)
@@ -36,55 +35,48 @@ A **full-stack, self-hosted cloud storage platform** built from scratch — insp
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Client (Browser)                        │
-│                    React 19 + Redux Toolkit                    │
-│              Vite Dev Server (port 5173) + Proxy               │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │  HTTP (REST API)
-                           ▼
+│                         Client (Browser)                        │
+│                     React 19 + Redux Toolkit                    │
+│               Vite Dev Server (port 5173) + Proxy               │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │  HTTP (REST API)
+                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Spring Boot Application                     │
-│                        (port 8080)                             │
-│                                                                │
-│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐ │
-│  │   Security   │  │  Controllers  │  │   Exception Advice   │ │
-│  │   Filter     │──│  (REST API)   │──│   (Global Handler)   │ │
-│  │   Chain      │  │               │  │                      │ │
-│  └──────┬───────┘  └───────┬───────┘  └──────────────────────┘ │
-│         │                  │                                    │
-│         ▼                  ▼                                    │
-│  ┌──────────────┐  ┌───────────────┐                           │
-│  │  AuthService │  │FileServingServ│                           │
-│  │  (BCrypt +   │  │  (File I/O +  │                           │
-│  │  Sessions)   │  │  Versioning)  │                           │
-│  └──────┬───────┘  └──────┬┬───────┘                           │
-│         │                 ││                                    │
-│         ▼                 │▼                                    │
-│  ┌──────────────────────────────────────────────────┐          │
-│  │          Spring Data JPA Repositories            │          │
-│  │  UserRepo │ FileMetadataRepo │ FileVersionRepo   │          │
-│  │           │ FileHistoryRepo                      │          │
-│  └──────────────────────┬───────────────────────────┘          │
-└─────────────────────────┼───────────────────────────────────────┘
-                          │  JDBC
-                          ▼
-              ┌───────────────────────┐       ┌──────────────────┐
-              │   PostgreSQL 15       │       │   File System    │
-              │   (Docker Container)  │       │   (Serving Dir)  │
-              │                       │       │                  │
-              │  • users              │       │  • User files    │
-              │  • file_metadata      │       │  • .versions/    │
-              │  • file_versions      │       │    (snapshots)   │
-              │  • file_history       │       │                  │
-              └───────────────────────┘       └──────────────────┘
+│               Spring Boot Application  (port 8080)              │
+│                                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+│  │  SetupFilter +  │  │   Controllers   │  │    Exception    │  │
+│  │  Security Chain │  │    (REST API)   │  │      Advice     │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                       Service Layer                       │  │
+│  │    AuthService · FileServingService · ShareTokenService   │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                Spring Data JPA Repositories               │  │
+│  │      User · FileMetadata · FileVersion · FileHistory      │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │  JDBC
+                                 ▼
+  ┌────────────────────────────┐     ┌──────────────────────────┐
+  │       PostgreSQL 15        │     │       File System        │
+  │     (Docker Container)     │     │   (Serving Directory)    │
+  │                            │     │                          │
+  │   users · file_metadata    │     │        user files        │
+  │       file_versions        │     │   .versions/ snapshots   │
+  │        file_history        │     │                          │
+  └────────────────────────────┘     └──────────────────────────┘
 ```
 
 The system follows a **layered architecture** with clear separation of concerns:
 
 | Layer | Responsibility | Key Classes |
 |-------|---------------|-------------|
-| **Controller** | Request routing, input validation, HTTP response formatting | `WebController`, `FileVersionController`, `HistoryApi`, `LoginController` |
-| **Service** | Core business logic, file I/O, versioning, path security | `FileServingService`, `AuthService` |
+| **Controller** | Request routing, input validation, HTTP response formatting | `WebController`, `FileVersionController`, `HistoryApi`, `LoginController`, `ShareController` |
+| **Service** | Core business logic, file I/O, versioning, path security | `FileServingService`, `AuthService`, `ShareTokenService` |
 | **Repository** | Data access via Spring Data JPA | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `UserRepository` |
 | **Model** | JPA entities mapping to PostgreSQL tables | `User`, `FileMetadata`, `FileVersion`, `FileHistory` |
 | **DTO** | API response shaping, decoupling internal models from API contracts | `FileTreeNode`, `FileVersionDto`, `FileHistoryDto`, `DownloadableResource` |
@@ -116,6 +108,16 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **CORS configuration** — Explicitly configured allowed origins for the Vite dev server
 - **Session-based auth** with `JSESSIONID` cookie and automatic 401 interception on the frontend via Axios interceptors
 
+### Share Links
+- **Time-limited public links** — `POST /api/share` issues a stateless, HMAC-SHA256 signed JWT encoding the file path and expiry; no server-side token storage
+- **Public download** — `GET /share/{token}` validates signature and expiration, then streams the file through the same path-traversal-safe serving logic
+- **Bounded lifetime** — Expiration is capped at 7 days; links for nonexistent paths are rejected at creation
+- **Frontend** — Share icon in the file table opens a modal to pick an expiry and copy the generated link
+
+### API Documentation
+- **OpenAPI 3 spec** generated at runtime by springdoc from the actual Spring mappings, so it cannot drift from the code
+- **Swagger UI** at `/swagger-ui.html` — browse and execute every endpoint; reachable without authentication in dev, including before first-run setup
+
 ### Audit Trail
 - **Complete file history** — Every upload, delete, and folder creation is logged to the `file_history` table with timestamps, user attribution, and success/failure status
 - **Error tracking** — Failed operations are recorded with error messages for debugging
@@ -140,6 +142,9 @@ Folder downloads use `ZipOutputStream` writing to a `ByteArrayOutputStream` rath
 ### Why a Custom Setup Filter?
 Rather than shipping hardcoded credentials or requiring environment variables, the application detects first-run state (no users in the database) and redirects to a setup wizard. This is implemented as a servlet filter (`SetupFilter`) ordered before Spring Security's `UsernamePasswordAuthenticationFilter`, ensuring the setup flow is accessible without authentication.
 
+### Why Stateless JWT Share Links?
+Share links encode the file path and expiry in an HMAC-SHA256 signed JWT rather than storing tokens in a database table. The signature makes the link tamper-evident and the expiry self-enforcing, so no table needs cleaning up and no lookup happens on the download path. The tradeoff is that a link cannot be revoked before it expires — acceptable given the 7-day cap.
+
 ### Why Redux Toolkit Over React Context?
 With async thunks for file operations (upload, delete, fetch, create directory), Redux Toolkit provides structured side-effect management via `createAsyncThunk`, built-in loading/error states, and DevTools integration — capabilities that would require significant boilerplate with plain Context + useReducer.
 
@@ -153,7 +158,10 @@ With async thunks for file operations (upload, delete, fetch, create directory),
 | **Security** | Spring Security 6 | Authentication, authorization, CSRF, session management |
 | **ORM** | Spring Data JPA + Hibernate | Object-relational mapping, repository pattern |
 | **Database** | PostgreSQL 15 | Persistent storage for users, metadata, versions, history |
+| **Auth Tokens** | JJWT 0.12 | Signed, stateless share-link tokens (HMAC-SHA256) |
+| **API Docs** | springdoc-openapi 2.8 | OpenAPI 3 spec + Swagger UI generated from controllers |
 | **Testing** | JUnit 5, MockMvc, H2 (in-memory) | Integration tests with isolated test database |
+| **Code Style** | Spotless + google-java-format | Enforced formatting, ratcheted against `main` |
 | **Frontend** | React 19, Vite 7 | Component-based SPA with HMR |
 | **State Mgmt** | Redux Toolkit | Centralized state with async thunk side effects |
 | **HTTP Client** | Axios | API communication with interceptors for auth |
@@ -182,6 +190,7 @@ JavaDropbox/
 │   │   │   ├── InfoModal.jsx       #   Generic info/alert modal
 │   │   │   ├── Logo.jsx
 │   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
+│   │   │   ├── ShareModal.jsx      #   Share-link creation modal
 │   │   │   ├── Sidebar.jsx         #   Navigation sidebar with storage quota
 │   │   │   └── UploadModal.jsx     #   Drag-and-drop upload modal
 │   │   ├── features/               # Redux slices
@@ -211,6 +220,7 @@ JavaDropbox/
 │   │   ├── FileVersionController.java  # Version listing + restore endpoints
 │   │   ├── HistoryApi.java         # Audit log endpoint
 │   │   ├── LoginController.java    # Login/root page routing
+│   │   ├── ShareController.java    # Share-link creation + public download
 │   │   ├── CustomErrorController.java  # Custom error page
 │   │   └── FileUploadExceptionAdvice.java  # Global exception handler
 │   ├── dto/
@@ -232,17 +242,23 @@ JavaDropbox/
 │   │   └── FileHistoryRepository.java
 │   └── service/
 │       ├── FileServingService.java  # Core: file I/O, versioning, ZIP, security
+│       ├── ShareTokenService.java  # JWT signing/validation for share links
 │       └── AuthService.java        # User setup + lookup
 ├── src/test/
 │   ├── java/com/javadropbox/javadropbox/
 │   │   ├── SecurityIntegrationTests.java  # Auth, roles, session, content-type
 │   │   ├── SetupIntegrationTests.java     # First-run flow, filter redirect
+│   │   ├── ShareLinkIntegrationTests.java # Token issue/expiry/tamper, public download
+│   │   ├── SwaggerIntegrationTests.java   # Docs reachable pre- and post-setup
 │   │   └── JavaDropBoxApplicationTests.java
 │   └── resources/
 │       └── application.properties  # H2 in-memory DB for test isolation
-├── build.gradle                    # Dependencies, Spring Boot plugin
+├── build.gradle                    # Dependencies, Spring Boot plugin, Spotless
 ├── compose.yaml                    # PostgreSQL Docker service
 ├── Dockerfile                      # Multi-stage: Gradle build → JRE runtime
+├── package.json                    # Root: `concurrently` wrapper for start.sh
+├── start.sh                        # One-command start: DB + backend + frontend
+├── LICENSE
 └── README.md
 ```
 
@@ -261,8 +277,8 @@ JavaDropbox/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/mevcaus/JavaDropBox.git
-cd JavaDropBox
+git clone https://github.com/mevcaus/JavaDropbox.git
+cd JavaDropbox
 ```
 
 ### 2. Start Everything
@@ -332,6 +348,13 @@ All endpoints require authentication unless noted otherwise. For a live, interac
 | `GET` | `/api/files/{fileId}/versions` | List all versions of a file |
 | `POST` | `/api/files/{fileId}/versions/{version}/restore?mode=<OVERWRITE\|COPY>` | Restore a specific version |
 
+### Sharing
+
+| Method | Endpoint | Auth Required | Description |
+|--------|----------|:---:|-------------|
+| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Issue a signed, time-limited share link (max 7 days) |
+| `GET` | `/share/{token}` | ❌ | Download a shared file via its token |
+
 ### History
 
 | Method | Endpoint | Description |
@@ -355,11 +378,23 @@ The project uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 |-----------|----------------|
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access (USER/ADMIN), session logout, JSON content type verification |
 | `SetupIntegrationTests` | First-run redirect behavior, setup form validation (missing/empty fields), filter bypass for setup page, post-setup lockout |
+| `ShareLinkIntegrationTests` | Auth required to create links, 404 for missing paths, expiration bounds, expired/tampered token rejection, public download |
+| `SwaggerIntegrationTests` | Docs reachable with the setup filter active (pre- and post-setup), spec lists every tag and endpoint |
 
 ### Test Design Highlights
 - **Test isolation**: Each test class manages its own `@BeforeEach`/`@AfterEach` lifecycle, cleaning up users and metadata between runs to prevent test pollution
 - **H2 substitution**: Test `application.properties` swaps PostgreSQL for H2 with `create-drop` DDL, ensuring a clean schema per test run
 - **Setup filter control**: The `app.setup.filter.enabled` property allows tests to toggle the setup redirect behavior independently
+
+### Code Style
+
+Java is formatted with **google-java-format** via Spotless. `./gradlew build` fails on unformatted code, so run this before committing:
+
+```bash
+./gradlew spotlessApply
+```
+
+Formatting is ratcheted against `origin/main` — only files you actually touch are checked, so there is no mass-reformat of untouched code.
 
 ---
 
@@ -374,10 +409,11 @@ Push/PR to main
 ┌─────────────────────────────────┐
 │         Build Job               │
 │                                 │
-│  1. Checkout code               │
-│  2. Setup JDK 21 (Temurin)     │
+│  1. Checkout code (depth 0)     │
+│  2. Setup JDK 21 (Temurin)      │
 │  3. Start PostgreSQL service    │
 │  4. ./gradlew build             │
+│       └ includes spotlessCheck  │
 │  5. ./gradlew test              │
 └─────────────────────────────────┘
       │
@@ -398,7 +434,6 @@ Push/PR to main
 - [ ] **Search** — Full-text search across filenames and metadata
 - [ ] **Sorting** — Sort files by name, date, size, or type
 - [ ] **Folder Upload** — Upload entire directory structures
-- [ ] **Sharing** — Generate shareable links with optional expiry and passwords
 - [ ] **Desktop Sync Client** — Background daemon that syncs a local folder with the server
 - [ ] **Multi-user Support** — Role-based access control with per-user storage quotas
 - [ ] **S3-compatible Backend** — Pluggable storage backend for cloud deployment
