@@ -304,7 +304,7 @@ npm run dev
 
 ## API Reference
 
-All endpoints require authentication unless noted otherwise.
+All endpoints require authentication unless noted otherwise. For a live, interactive reference of all REST API endpoints, visit the [Swagger UI](http://localhost:8080/swagger-ui.html) locally while the backend is running.
 
 ### Authentication
 
