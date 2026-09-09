@@ -29,6 +29,45 @@ const formatSize = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// Rendering every match of a loose query over a deep tree would lock the browser up, so cap it
+const SEARCH_RESULT_LIMIT = 200;
+
+// Searching reaches into every folder below the one being viewed. The API already hands the whole
+// nested tree to the store, so this walks what is in memory rather than asking the server again.
+const collectMatches = (nodes, lowerQuery, matches = []) => {
+    for (const node of nodes) {
+        if (node.name.toLowerCase().includes(lowerQuery)) {
+            matches.push(node);
+        }
+        if (node.children && node.children.length > 0) {
+            collectMatches(node.children, lowerQuery, matches);
+        }
+    }
+    return matches;
+};
+
+const compareNodes = (a, b, { key, direction }) => {
+    // Folders always stay grouped ahead of files; the direction only reorders within a group
+    if (a.isDirectory && !b.isDirectory) return -1;
+    if (!a.isDirectory && b.isDirectory) return 1;
+
+    let aVal, bVal;
+    if (key === 'size') {
+        aVal = a.size || 0;
+        bVal = b.size || 0;
+    } else if (key === 'lastModified') {
+        aVal = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+        bVal = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+    } else {
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+    }
+
+    if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+    return 0;
+};
+
 const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
     const isActive = sortConfig.key === sortKey;
 
@@ -79,40 +118,22 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
         }));
     };
 
-    const processedFiles = useMemo(() => {
-        if (!files) return [];
-        let result = files;
+    const query = searchQuery.trim().toLowerCase();
 
-        if (searchQuery) {
-            const lowerQuery = searchQuery.toLowerCase();
-            result = result.filter(f => f.name.toLowerCase().includes(lowerQuery));
-        }
+    // Browsing lists just this folder; searching flattens every match below it into one list,
+    // each row labelled with its own path so you can tell which folder it came from.
+    const { visibleFiles, matchCount, truncated } = useMemo(() => {
+        if (!files) return { visibleFiles: [], matchCount: 0, truncated: false };
 
-        if (sortConfig.key) {
-            result = [...result].sort((a, b) => {
-                // Folders always stay grouped ahead of files; the direction only reorders within a group
-                if (a.isDirectory && !b.isDirectory) return -1;
-                if (!a.isDirectory && b.isDirectory) return 1;
+        const matched = query ? collectMatches(files, query) : files;
+        const sorted = [...matched].sort((a, b) => compareNodes(a, b, sortConfig));
 
-                let aVal, bVal;
-                if (sortConfig.key === 'name') {
-                    aVal = a.name.toLowerCase();
-                    bVal = b.name.toLowerCase();
-                } else if (sortConfig.key === 'size') {
-                    aVal = a.size || 0;
-                    bVal = b.size || 0;
-                } else if (sortConfig.key === 'lastModified') {
-                    aVal = a.lastModified ? new Date(a.lastModified).getTime() : 0;
-                    bVal = b.lastModified ? new Date(b.lastModified).getTime() : 0;
-                }
-
-                if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-                return 0;
-            });
-        }
-        return result;
-    }, [files, searchQuery, sortConfig]);
+        return {
+            visibleFiles: query ? sorted.slice(0, SEARCH_RESULT_LIMIT) : sorted,
+            matchCount: sorted.length,
+            truncated: Boolean(query) && sorted.length > SEARCH_RESULT_LIMIT,
+        };
+    }, [files, query, sortConfig]);
 
     if (!files || files.length === 0) {
         return <div className="text-center py-10 text-gray-500">No files found.</div>;
@@ -135,6 +156,14 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                 />
             </div>
 
+            {query && (
+                <p className="text-xs text-gray-500">
+                    {matchCount === 0
+                        ? 'No matches in this folder or the folders below it'
+                        : `${matchCount} ${matchCount === 1 ? 'match' : 'matches'} in this folder and below${truncated ? ` — showing the first ${SEARCH_RESULT_LIMIT}` : ''}`}
+                </p>
+            )}
+
             <div className="bg-white shadow overflow-hidden sm:rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -151,18 +180,18 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {processedFiles.length === 0 ? (
+                        {visibleFiles.length === 0 ? (
                             <tr>
                                 <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
                                     No files match your search.
                                 </td>
                             </tr>
                         ) : (
-                            processedFiles.map((file) => (
+                            visibleFiles.map((file) => (
                                 <tr
                                     key={file.relativePath || file.name}
                                     className={`group transition-colors ${file.isDirectory ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'}`}
-                                    onClick={() => file.isDirectory && onFolderClick(file.name)}
+                                    onClick={() => file.isDirectory && onFolderClick(file.relativePath)}
                                 >
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="flex items-center">
@@ -174,7 +203,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation(); // Prevent double trigger
-                                                            onFolderClick(file.name);
+                                                            onFolderClick(file.relativePath);
                                                         }}
                                                         className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
                                                     >

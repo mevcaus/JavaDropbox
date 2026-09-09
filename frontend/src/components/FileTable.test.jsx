@@ -7,17 +7,28 @@ afterEach(cleanup);
 
 // lastModified arrives from the backend already formatted as "MM/dd/yyyy hh:mm a"
 // (FileServingService.DATE_FORMATTER), so the fixtures use that exact shape.
-const ROOT_FILES = [
-    { name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '01/05/2026 09:00 AM', relativePath: 'Zebra Folder' },
-    { name: 'apples', isDirectory: true, size: 128, lastModified: '12/31/2025 11:59 PM', relativePath: 'apples' },
-    { name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '09/09/2026 02:38 PM', relativePath: 'notes.txt' },
-    { name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '03/04/2026 02:38 AM', relativePath: 'Big.zip' },
-    { name: 'tiny.md', isDirectory: false, size: 12, lastModified: '01/02/2026 12:05 AM', relativePath: 'tiny.md' },
-];
-
 const APPLES_FILES = [
     { name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '02/02/2026 10:00 AM', relativePath: 'apples/budget.xlsx' },
     { name: 'photo.png', isDirectory: false, size: 900, lastModified: '02/03/2026 10:00 AM', relativePath: 'apples/photo.png' },
+];
+
+const ROOT_FILES = [
+    {
+        name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '01/05/2026 09:00 AM', relativePath: 'Zebra Folder',
+        children: [
+            { name: 'deep.txt', isDirectory: false, size: 10, lastModified: '04/01/2026 08:00 AM', relativePath: 'Zebra Folder/deep.txt' },
+            {
+                name: 'nested', isDirectory: true, size: 20, lastModified: '04/02/2026 08:00 AM', relativePath: 'Zebra Folder/nested',
+                children: [
+                    { name: 'buried.log', isDirectory: false, size: 20, lastModified: '04/03/2026 08:00 AM', relativePath: 'Zebra Folder/nested/buried.log' },
+                ],
+            },
+        ],
+    },
+    { name: 'apples', isDirectory: true, size: 128, lastModified: '12/31/2025 11:59 PM', relativePath: 'apples', children: [...APPLES_FILES] },
+    { name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '09/09/2026 02:38 PM', relativePath: 'notes.txt' },
+    { name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '03/04/2026 02:38 AM', relativePath: 'Big.zip' },
+    { name: 'tiny.md', isDirectory: false, size: 12, lastModified: '01/02/2026 12:05 AM', relativePath: 'tiny.md' },
 ];
 
 const noopHandlers = {
@@ -37,6 +48,12 @@ const visibleOrder = () =>
         .getAllByRole('row')
         .slice(1)
         .map((row) => within(row).getAllByRole('cell')[0].querySelector('.ml-4').firstElementChild.textContent);
+
+const visiblePaths = () =>
+    screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].querySelector('.ml-4').lastElementChild.textContent);
 
 const header = (name) => screen.getByRole('button', { name });
 const columnHeader = (name) => screen.getByRole('columnheader', { name });
@@ -61,7 +78,8 @@ describe('FileTable search', () => {
 
         await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'P');
 
-        expect(visibleOrder()).toEqual(['apples', 'Big.zip']);
+        // Matches come from every level, folders first, then files by name
+        expect(visibleOrder()).toEqual(['apples', 'Big.zip', 'deep.txt', 'photo.png']);
     });
 
     it('reports when nothing matches instead of rendering an empty table', async () => {
@@ -77,10 +95,9 @@ describe('FileTable search', () => {
         const user = userEvent.setup();
         renderTable();
 
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'e');
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'nested');
 
-        const order = visibleOrder();
-        expect(order).toEqual(['apples', 'Zebra Folder', 'notes.txt']);
+        expect(visibleOrder()).toEqual(['nested']);
     });
 });
 
@@ -158,5 +175,58 @@ describe('FileTable folder navigation', () => {
 
         expect(columnHeader('Size')).toHaveAttribute('aria-sort', 'descending');
         expect(visibleOrder()).toEqual(['photo.png', 'budget.xlsx']);
+    });
+});
+
+describe('FileTable recursive search', () => {
+    it('finds files inside subfolders and labels each with its path', async () => {
+        const user = userEvent.setup();
+        renderTable();
+
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
+
+        expect(visibleOrder()).toEqual(['buried.log']);
+        expect(visiblePaths()).toEqual(['Zebra Folder/nested/buried.log']);
+    });
+
+    it('still returns folders whose own name matches, grouped ahead of files', async () => {
+        const user = userEvent.setup();
+        renderTable();
+
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'e');
+
+        const order = visibleOrder();
+        expect(order.slice(0, 3)).toEqual(['apples', 'nested', 'Zebra Folder']);
+        expect(order).toContain('buried.log');
+        expect(order).toContain('notes.txt');
+    });
+
+    it('reports how many matches were found below the current folder', async () => {
+        const user = userEvent.setup();
+        renderTable();
+
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
+
+        expect(screen.getByText('1 match in this folder and below')).toBeInTheDocument();
+    });
+
+    it('limits the search to the folder being viewed, not the whole tree', async () => {
+        const user = userEvent.setup();
+        render(<FileTable files={APPLES_FILES} currentPath="apples" {...noopHandlers} />);
+
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
+
+        expect(screen.getByText('No files match your search.')).toBeInTheDocument();
+    });
+
+    it('navigates by full path so a nested folder result opens the right folder', async () => {
+        const user = userEvent.setup();
+        const onFolderClick = vi.fn();
+        render(<FileTable files={ROOT_FILES} currentPath="" {...noopHandlers} onFolderClick={onFolderClick} />);
+
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'nested');
+        await user.click(screen.getByRole('button', { name: 'nested' }));
+
+        expect(onFolderClick).toHaveBeenCalledWith('Zebra Folder/nested');
     });
 });
