@@ -29,6 +29,36 @@ const formatSize = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
+    const isActive = sortConfig.key === sortKey;
+
+    return (
+        <th
+            scope="col"
+            aria-sort={isActive ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+            className="p-0 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+        >
+            {/* The button carries the cell padding so the whole header stays clickable, and is
+                focusable so the column can be sorted from the keyboard as well as the mouse. */}
+            <button
+                type="button"
+                onClick={() => onSort(sortKey)}
+                className="w-full flex items-center px-6 py-3 uppercase select-none hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-colors"
+            >
+                {label}
+                {isActive ? (
+                    sortConfig.direction === 'asc'
+                        ? <ChevronUp className="h-4 w-4 ml-1 text-gray-700" />
+                        : <ChevronDown className="h-4 w-4 ml-1 text-gray-700" />
+                ) : (
+                    // Placeholder keeps the header width stable as the arrow moves between columns
+                    <span className="h-4 w-4 ml-1" aria-hidden="true" />
+                )}
+            </button>
+        </th>
+    );
+};
+
 const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
@@ -51,6 +81,7 @@ const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
 
         if (sortConfig.key) {
             result = [...result].sort((a, b) => {
+                // Folders always stay grouped ahead of files; the direction only reorders within a group
                 if (a.isDirectory && !b.isDirectory) return -1;
                 if (!a.isDirectory && b.isDirectory) return 1;
 
@@ -74,15 +105,6 @@ const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
         return result;
     }, [files, searchQuery, sortConfig]);
 
-    const renderSortIcon = (columnKey) => {
-        if (sortConfig.key !== columnKey) {
-            return <span className="w-4 h-4 inline-block ml-1 opacity-0" />; // Invisible placeholder for layout stability
-        }
-        return sortConfig.direction === 'asc' ? 
-            <ChevronUp className="w-4 h-4 inline-block ml-1 text-gray-700" /> : 
-            <ChevronDown className="w-4 h-4 inline-block ml-1 text-gray-700" />;
-    };
-
     if (!files || files.length === 0) {
         return <div className="text-center py-10 text-gray-500">No files found.</div>;
     }
@@ -96,6 +118,7 @@ const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
                 </div>
                 <input
                     type="text"
+                    aria-label="Search files"
                     placeholder="Search files..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -107,36 +130,12 @@ const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th scope="col" 
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none group"
-                                onClick={() => handleSort('name')}
-                            >
-                                <div className="flex items-center">
-                                    Name
-                                    {renderSortIcon('name')}
-                                </div>
-                            </th>
-                            <th scope="col" 
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none group"
-                                onClick={() => handleSort('size')}
-                            >
-                                <div className="flex items-center">
-                                    Size
-                                    {renderSortIcon('size')}
-                                </div>
-                            </th>
+                            <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
+                            <SortableHeader label="Size" sortKey="size" sortConfig={sortConfig} onSort={handleSort} />
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Access
                             </th>
-                            <th scope="col" 
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none group"
-                                onClick={() => handleSort('lastModified')}
-                            >
-                                <div className="flex items-center">
-                                    Last Modified
-                                    {renderSortIcon('lastModified')}
-                                </div>
-                            </th>
+                            <SortableHeader label="Last Modified" sortKey="lastModified" sortConfig={sortConfig} onSort={handleSort} />
                             <th scope="col" className="relative px-6 py-3">
                                 <span className="sr-only">Actions</span>
                             </th>
