@@ -1,4 +1,5 @@
-import { File, Folder, Download, Share2, Trash2, FileText, Image, Film, Music } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { File, Folder, Download, Share2, Trash2, FileText, Image, Film, Music, Search, ChevronUp, ChevronDown } from 'lucide-react';
 
 const FileIcon = ({ type, name }) => {
     if (type === 'DIRECTORY') return <Folder className="h-5 w-5 text-blue-500" />;
@@ -29,109 +30,204 @@ const formatSize = (bytes) => {
 };
 
 const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+
+    const handleSort = (key) => {
+        setSortConfig((current) => ({
+            key,
+            direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+        }));
+    };
+
+    const processedFiles = useMemo(() => {
+        if (!files) return [];
+        let result = files;
+
+        if (searchQuery) {
+            const lowerQuery = searchQuery.toLowerCase();
+            result = result.filter(f => f.name.toLowerCase().includes(lowerQuery));
+        }
+
+        if (sortConfig.key) {
+            result = [...result].sort((a, b) => {
+                if (a.isDirectory && !b.isDirectory) return -1;
+                if (!a.isDirectory && b.isDirectory) return 1;
+
+                let aVal, bVal;
+                if (sortConfig.key === 'name') {
+                    aVal = a.name.toLowerCase();
+                    bVal = b.name.toLowerCase();
+                } else if (sortConfig.key === 'size') {
+                    aVal = a.size || 0;
+                    bVal = b.size || 0;
+                } else if (sortConfig.key === 'lastModified') {
+                    aVal = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+                    bVal = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+                }
+
+                if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return result;
+    }, [files, searchQuery, sortConfig]);
+
+    const renderSortIcon = (columnKey) => {
+        if (sortConfig.key !== columnKey) {
+            return <span className="w-4 h-4 inline-block ml-1 opacity-0" />; // Invisible placeholder for layout stability
+        }
+        return sortConfig.direction === 'asc' ? 
+            <ChevronUp className="w-4 h-4 inline-block ml-1 text-gray-700" /> : 
+            <ChevronDown className="w-4 h-4 inline-block ml-1 text-gray-700" />;
+    };
+
     if (!files || files.length === 0) {
         return <div className="text-center py-10 text-gray-500">No files found.</div>;
     }
 
     return (
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-            <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                    <tr>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Name
-                        </th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Size
-                        </th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Access
-                        </th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Last Modified
-                        </th>
-                        <th scope="col" className="relative px-6 py-3">
-                            <span className="sr-only">Actions</span>
-                        </th>
-                    </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                    {files.map((file) => (
-                        <tr
-                            key={file.relativePath || file.name}
-                            className={`group transition-colors ${file.isDirectory ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'}`}
-                            onClick={() => file.isDirectory && onFolderClick(file.name)}
-                        >
-                            <td className="px-6 py-4 whitespace-nowrap">
+        <div className="space-y-4">
+            {/* Search Input */}
+            <div className="relative w-full md:w-64">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-gray-400" />
+                </div>
+                <input
+                    type="text"
+                    placeholder="Search files..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="block w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out"
+                />
+            </div>
+
+            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th scope="col" 
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none group"
+                                onClick={() => handleSort('name')}
+                            >
                                 <div className="flex items-center">
-                                    <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center">
-                                        <FileIcon type={file.isDirectory ? 'DIRECTORY' : 'FILE'} name={file.name} />
-                                    </div>
-                                    <div className="ml-4">
-                                        {file.isDirectory ? (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation(); // Prevent double trigger
-                                                    onFolderClick(file.name);
-                                                }}
-                                                className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
-                                            >
-                                                {file.name}
-                                            </button>
-                                        ) : (
-                                            <div className="text-sm font-medium text-gray-900">{file.name}</div>
-                                        )}
-                                        <div className="text-xs text-gray-500">{file.relativePath}</div>
-                                    </div>
+                                    Name
+                                    {renderSortIcon('name')}
                                 </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {formatSize(file.size)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                    Only You
-                                </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {file.lastModified || '-'}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onDownload(file);
-                                    }}
-                                    className="text-indigo-600 hover:text-indigo-900 mr-4"
-                                    title="Download"
-                                >
-                                    <Download className="h-5 w-5" />
-                                </button>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onShare(file);
-                                    }}
-                                    className="text-blue-600 hover:text-blue-900 mr-4"
-                                    title="Share"
-                                >
-                                    <Share2 className="h-5 w-5" />
-                                </button>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onDelete(file);
-                                    }}
-                                    className="text-red-600 hover:text-red-900"
-                                    title="Delete"
-                                >
-                                    <Trash2 className="h-5 w-5" />
-                                </button>
-                            </td>
+                            </th>
+                            <th scope="col" 
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none group"
+                                onClick={() => handleSort('size')}
+                            >
+                                <div className="flex items-center">
+                                    Size
+                                    {renderSortIcon('size')}
+                                </div>
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Access
+                            </th>
+                            <th scope="col" 
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none group"
+                                onClick={() => handleSort('lastModified')}
+                            >
+                                <div className="flex items-center">
+                                    Last Modified
+                                    {renderSortIcon('lastModified')}
+                                </div>
+                            </th>
+                            <th scope="col" className="relative px-6 py-3">
+                                <span className="sr-only">Actions</span>
+                            </th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {processedFiles.length === 0 ? (
+                            <tr>
+                                <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
+                                    No files match your search.
+                                </td>
+                            </tr>
+                        ) : (
+                            processedFiles.map((file) => (
+                                <tr
+                                    key={file.relativePath || file.name}
+                                    className={`group transition-colors ${file.isDirectory ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'}`}
+                                    onClick={() => file.isDirectory && onFolderClick(file.name)}
+                                >
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="flex items-center">
+                                            <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center">
+                                                <FileIcon type={file.isDirectory ? 'DIRECTORY' : 'FILE'} name={file.name} />
+                                            </div>
+                                            <div className="ml-4">
+                                                {file.isDirectory ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation(); // Prevent double trigger
+                                                            onFolderClick(file.name);
+                                                        }}
+                                                        className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
+                                                    >
+                                                        {file.name}
+                                                    </button>
+                                                ) : (
+                                                    <div className="text-sm font-medium text-gray-900">{file.name}</div>
+                                                )}
+                                                <div className="text-xs text-gray-500">{file.relativePath}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {formatSize(file.size)}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                            Only You
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {file.lastModified || '-'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDownload(file);
+                                            }}
+                                            className="text-indigo-600 hover:text-indigo-900 mr-4"
+                                            title="Download"
+                                        >
+                                            <Download className="h-5 w-5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onShare(file);
+                                            }}
+                                            className="text-blue-600 hover:text-blue-900 mr-4"
+                                            title="Share"
+                                        >
+                                            <Share2 className="h-5 w-5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDelete(file);
+                                            }}
+                                            className="text-red-600 hover:text-red-900"
+                                            title="Delete"
+                                        >
+                                            <Trash2 className="h-5 w-5" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 };
