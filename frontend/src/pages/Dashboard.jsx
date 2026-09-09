@@ -32,9 +32,10 @@ const Dashboard = () => {
         dispatch(setCurrentPath(path));
     };
 
-    const handleFolderClick = (folderName) => {
-        const newPath = currentPath ? `${currentPath}/${folderName}` : folderName;
-        dispatch(setCurrentPath(newPath));
+    // FileTable hands back the folder's full path, which is what search results need: a nested
+    // match cannot be located by name alone.
+    const handleFolderClick = (folderPath) => {
+        dispatch(setCurrentPath(folderPath));
     };
 
     const handleExecuteCreateFolder = async (folderName) => {
@@ -208,6 +209,7 @@ const Dashboard = () => {
 
             <FileTable
                 files={files}
+                currentPath={currentPath}
                 onDelete={confirmDelete}
                 onDownload={handleDownload}
                 onShare={handleShare}

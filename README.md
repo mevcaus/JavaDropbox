@@ -126,6 +126,8 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **React 19** SPA with **Redux Toolkit** for global state management
 - **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu
 - **Smart file icons** — Context-aware icons based on file extension (images, video, audio, code, documents)
+- **File search** — Search box above the file table matches filenames (case-insensitive substring) across the open folder **and every folder beneath it**, flattening results into a list labelled with each match's full path; runs entirely client-side against the already-loaded tree, so no extra request is made
+- **Column sorting** — Name, Size, and Last Modified headers sort in either direction, keyboard-operable and annotated with `aria-sort`; folders stay grouped ahead of files in every ordering
 - **Storage quota indicator** — Visual progress bar showing disk usage
 - **Protected routes** — `MainLayout` guards routes via Redux auth state with redirect-to-login
 
@@ -160,7 +162,8 @@ With async thunks for file operations (upload, delete, fetch, create directory),
 | **Database** | PostgreSQL 15 | Persistent storage for users, metadata, versions, history |
 | **Auth Tokens** | JJWT 0.12 | Signed, stateless share-link tokens (HMAC-SHA256) |
 | **API Docs** | springdoc-openapi 2.8 | OpenAPI 3 spec + Swagger UI generated from controllers |
-| **Testing** | JUnit 5, MockMvc, H2 (in-memory) | Integration tests with isolated test database |
+| **Testing** | JUnit 5, MockMvc, H2 (in-memory) | Backend integration tests with isolated test database |
+| **Frontend Testing** | Vitest, Testing Library, jsdom | Component tests driving the real DOM with real user events |
 | **Code Style** | Spotless + google-java-format | Enforced formatting, ratcheted against `main` |
 | **Frontend** | React 19, Vite 7 | Component-based SPA with HMR |
 | **State Mgmt** | Redux Toolkit | Centralized state with async thunk side effects |
@@ -186,7 +189,8 @@ JavaDropbox/
 │   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
 │   │   │   ├── CreateFolderModal.jsx
 │   │   │   ├── DeleteConfirmationModal.jsx
-│   │   │   ├── FileTable.jsx       #   File listing with context-aware icons
+│   │   │   ├── FileTable.jsx       #   File listing with recursive search, column sorting, context-aware icons
+│   │   │   ├── FileTable.test.jsx  #   Vitest component tests for search and sorting
 │   │   │   ├── InfoModal.jsx       #   Generic info/alert modal
 │   │   │   ├── Logo.jsx
 │   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
@@ -365,14 +369,14 @@ All endpoints require authentication unless noted otherwise. For a live, interac
 
 ## Testing
 
-The project uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integration testing. Tests run against an **H2 in-memory database** for isolation.
+The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integration testing. Tests run against an **H2 in-memory database** for isolation.
 
 ```bash
-# Run all tests
+# Run all backend tests
 ./gradlew test
 ```
 
-### Test Coverage
+### Backend Test Coverage
 
 | Test Suite | What It Covers |
 |-----------|----------------|
@@ -385,6 +389,19 @@ The project uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 - **Test isolation**: Each test class manages its own `@BeforeEach`/`@AfterEach` lifecycle, cleaning up users and metadata between runs to prevent test pollution
 - **H2 substitution**: Test `application.properties` swaps PostgreSQL for H2 with `create-drop` DDL, ensuring a clean schema per test run
 - **Setup filter control**: The `app.setup.filter.enabled` property allows tests to toggle the setup redirect behavior independently
+
+### Frontend Tests
+
+Component tests run under **Vitest** in a **jsdom** environment using **Testing Library**. They render the real component and drive it with real user events (typing, clicking, keyboard) rather than mocking its internals, and assert against the rendered DOM.
+
+```bash
+cd frontend
+npm test
+```
+
+| Test Suite | What It Covers |
+|-----------|----------------|
+| `FileTable.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, and search clearing on folder navigation |
 
 ### Code Style
 
@@ -431,8 +448,7 @@ Push/PR to main
 ## Future Roadmap
 
 - [ ] **File Previews** — In-browser preview for images, PDFs, and text files
-- [ ] **Search** — Full-text search across filenames and metadata
-- [ ] **Sorting** — Sort files by name, date, size, or type
+- [ ] **Full-text Search** — Server-side search across file *contents* and metadata (filename search across the folder tree already works client-side)
 - [ ] **Folder Upload** — Upload entire directory structures
 - [ ] **Desktop Sync Client** — Background daemon that syncs a local folder with the server
 - [ ] **Multi-user Support** — Role-based access control with per-user storage quotas
