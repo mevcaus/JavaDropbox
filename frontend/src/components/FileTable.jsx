@@ -59,9 +59,18 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
     );
 };
 
-const FileTable = ({ files, onDelete, onDownload, onShare, onFolderClick }) => {
+const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+
+    // Clear the filter when the user navigates to a different folder: a query typed against one
+    // folder's contents would otherwise keep hiding the next folder's. Sort order is deliberately
+    // kept across navigation, the way desktop file managers behave.
+    const [pathAtLastRender, setPathAtLastRender] = useState(currentPath);
+    if (currentPath !== pathAtLastRender) {
+        setPathAtLastRender(currentPath);
+        setSearchQuery('');
+    }
 
     const handleSort = (key) => {
         setSortConfig((current) => ({

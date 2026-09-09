@@ -198,6 +198,7 @@ const Dashboard = () => {
 
             <FileTable
                 files={files}
+                currentPath={currentPath}
                 onDelete={confirmDelete}
                 onDownload={handleDownload}
                 onShare={handleShare}
