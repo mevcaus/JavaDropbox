@@ -126,7 +126,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **React 19** SPA with **Redux Toolkit** for global state management
 - **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu
 - **Smart file icons** — Context-aware icons based on file extension (images, video, audio, code, documents)
-- **File search** — Search box above the file table filters the open folder by filename (case-insensitive substring), entirely client-side against the already-loaded tree
+- **File search** — Search box above the file table matches filenames (case-insensitive substring) across the open folder **and every folder beneath it**, flattening results into a list labelled with each match's full path; runs entirely client-side against the already-loaded tree, so no extra request is made
 - **Column sorting** — Name, Size, and Last Modified headers sort in either direction, keyboard-operable and annotated with `aria-sort`; folders stay grouped ahead of files in every ordering
 - **Storage quota indicator** — Visual progress bar showing disk usage
 - **Protected routes** — `MainLayout` guards routes via Redux auth state with redirect-to-login
@@ -189,7 +189,7 @@ JavaDropbox/
 │   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
 │   │   │   ├── CreateFolderModal.jsx
 │   │   │   ├── DeleteConfirmationModal.jsx
-│   │   │   ├── FileTable.jsx       #   File listing with search, column sorting, context-aware icons
+│   │   │   ├── FileTable.jsx       #   File listing with recursive search, column sorting, context-aware icons
 │   │   │   ├── FileTable.test.jsx  #   Vitest component tests for search and sorting
 │   │   │   ├── InfoModal.jsx       #   Generic info/alert modal
 │   │   │   ├── Logo.jsx
@@ -401,7 +401,7 @@ npm test
 
 | Test Suite | What It Covers |
 |-----------|----------------|
-| `FileTable.test.jsx` | Default folders-before-files ordering, case-insensitive filename search and its empty state, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, and search clearing on folder navigation |
+| `FileTable.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, and search clearing on folder navigation |
 
 ### Code Style
 
@@ -448,7 +448,7 @@ Push/PR to main
 ## Future Roadmap
 
 - [ ] **File Previews** — In-browser preview for images, PDFs, and text files
-- [ ] **Full-text Search** — Server-side search across every folder and file metadata (the file table already filters the open folder by filename)
+- [ ] **Full-text Search** — Server-side search across file *contents* and metadata (filename search across the folder tree already works client-side)
 - [ ] **Folder Upload** — Upload entire directory structures
 - [ ] **Desktop Sync Client** — Background daemon that syncs a local folder with the server
 - [ ] **Multi-user Support** — Role-based access control with per-user storage quotas
