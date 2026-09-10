@@ -230,3 +230,87 @@ describe('FileTable recursive search', () => {
         expect(onFolderClick).toHaveBeenCalledWith('Zebra Folder/nested');
     });
 });
+
+describe('FileTable row actions', () => {
+    // A row renders the filename and its relativePath, so a name can appear twice in one row.
+    const rowFor = (name) =>
+        screen.getAllByRole('row').find((row) => within(row).queryAllByText(name).length > 0);
+
+    const actionButton = (name, action) =>
+        within(rowFor(name)).getByRole('button', { name: action });
+
+    it.each([
+        ['onDownload', 'Download'],
+        ['onShare', 'Share'],
+        ['onDelete', 'Delete'],
+    ])('passes the clicked file to %s', async (handlerName, action) => {
+        const user = userEvent.setup();
+        const handler = vi.fn();
+        renderTable({ [handlerName]: handler });
+
+        await user.click(actionButton('notes.txt', action));
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(handler).toHaveBeenCalledWith(ROOT_FILES.find((f) => f.name === 'notes.txt'));
+    });
+
+    it('passes the row that was clicked, not the first row in the table', async () => {
+        const user = userEvent.setup();
+        const onDownload = vi.fn();
+        renderTable({ onDownload });
+
+        await user.click(actionButton('Big.zip', 'Download'));
+
+        expect(onDownload).toHaveBeenCalledWith(ROOT_FILES.find((f) => f.name === 'Big.zip'));
+    });
+
+    // Folder rows navigate on click, and the action buttons sit inside that row. Without
+    // stopPropagation every share would also open the folder underneath it.
+    it.each([
+        ['onDownload', 'Download'],
+        ['onShare', 'Share'],
+        ['onDelete', 'Delete'],
+    ])('does not navigate into a folder when %s is clicked on its row', async (handlerName, action) => {
+        const user = userEvent.setup();
+        const handler = vi.fn();
+        const onFolderClick = vi.fn();
+        renderTable({ [handlerName]: handler, onFolderClick });
+
+        await user.click(actionButton('apples', action));
+
+        expect(handler).toHaveBeenCalledWith(ROOT_FILES.find((f) => f.name === 'apples'));
+        expect(onFolderClick).not.toHaveBeenCalled();
+    });
+
+    it('acts on the nested file a search surfaced, not a same-named row in this folder', async () => {
+        const user = userEvent.setup();
+        const onDelete = vi.fn();
+        renderTable({ onDelete });
+
+        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
+        await user.click(actionButton('buried.log', 'Delete'));
+
+        expect(onDelete).toHaveBeenCalledWith(
+            expect.objectContaining({ relativePath: 'Zebra Folder/nested/buried.log' }),
+        );
+    });
+
+    it('does not treat a click on a file row as folder navigation', async () => {
+        const user = userEvent.setup();
+        const onFolderClick = vi.fn();
+        renderTable({ onFolderClick });
+
+        await user.click(rowFor('notes.txt'));
+
+        expect(onFolderClick).not.toHaveBeenCalled();
+    });
+});
+
+describe('FileTable empty state', () => {
+    it('reports an empty folder rather than rendering a headerless table', () => {
+        render(<FileTable files={[]} currentPath="" {...noopHandlers} />);
+
+        expect(screen.getByText('No files found.')).toBeInTheDocument();
+        expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    });
+});
