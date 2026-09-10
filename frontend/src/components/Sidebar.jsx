@@ -4,7 +4,7 @@ import Logo from './Logo';
 import { useSelector } from 'react-redux';
 import { selectTotalSize } from '../features/filesSlice';
 
-const Sidebar = ({ onClose, onUploadClick, isCollapsed, toggleCollapse }) => {
+const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
     const totalSizeBytes = useSelector(selectTotalSize);
 
     // Constant quota for now (5GB)

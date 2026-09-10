@@ -7,7 +7,6 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
 
     useEffect(() => {
         if (isOpen) {
-            setFolderName('');
             // Focus input when modal opens
             setTimeout(() => {
                 inputRef.current?.focus();
@@ -15,11 +14,16 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
         }
     }, [isOpen]);
 
+    const handleClose = () => {
+        setFolderName('');
+        onClose();
+    };
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (folderName.trim()) {
             onCreate(folderName.trim());
-            onClose();
+            handleClose();
         }
     };
 
@@ -32,7 +36,7 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
                 <div
                     className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
                     aria-hidden="true"
-                    onClick={onClose}
+                    onClick={handleClose}
                 />
 
                 <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
@@ -42,7 +46,7 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
                         <button
                             type="button"
                             className="bg-white rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                            onClick={onClose}
+                            onClick={handleClose}
                         >
                             <span className="sr-only">Close</span>
                             <X className="h-6 w-6" aria-hidden="true" />
@@ -81,7 +85,7 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
                             <button
                                 type="button"
                                 className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm"
-                                onClick={onClose}
+                                onClick={handleClose}
                             >
                                 Cancel
                             </button>
