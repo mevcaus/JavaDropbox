@@ -11,7 +11,7 @@ export const loginUser = createAsyncThunk(
             params.append('username', username);
             params.append('password', password);
 
-            const response = await api.post('/login', params, {
+            await api.post('/login', params, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
@@ -31,7 +31,7 @@ export const loginUser = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk(
     'auth/logoutUser',
-    async (_, { rejectWithValue }) => {
+    async () => {
         try {
             await api.get('/logout');
         } catch (error) {
