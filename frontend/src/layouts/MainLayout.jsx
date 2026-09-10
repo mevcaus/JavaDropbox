@@ -1,20 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
-import UploadModal from '../components/UploadModal';
-import { Menu } from 'lucide-react';
 
 const MainLayout = () => {
     const { isAuthenticated } = useSelector((state) => state.auth);
-    // Get currentPath to pass to UploadModal so uploads go to the right folder
-    const { currentPath } = useSelector((state) => state.files);
 
     const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Desktop collapse state
-    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
     if (!isAuthenticated) {
         return <Navigate to="/login" state={{ from: location }} replace />;
@@ -38,10 +33,6 @@ const MainLayout = () => {
             }>
                 <Sidebar
                     onClose={() => setIsSidebarOpen(false)}
-                    onUploadClick={() => {
-                        setIsSidebarOpen(false); // Close sidebar on mobile
-                        setIsUploadModalOpen(true);
-                    }}
                     isCollapsed={isSidebarCollapsed}
                     toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                 />
@@ -54,12 +45,6 @@ const MainLayout = () => {
                     <Outlet />
                 </main>
             </div>
-
-            <UploadModal
-                isOpen={isUploadModalOpen}
-                onClose={() => setIsUploadModalOpen(false)}
-                currentPath={currentPath}
-            />
         </div>
     );
 };
