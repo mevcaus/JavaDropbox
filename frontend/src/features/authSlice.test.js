@@ -125,7 +125,7 @@ describe('authSlice', () => {
 
             await store.dispatch(fetchCurrentUser());
 
-            expect(api.get).toHaveBeenCalledWith('/api/me');
+            expect(api.get).toHaveBeenCalledWith('/api/me', { timeout: 8000 });
             expect(authState(store)).toMatchObject({
                 isInitialized: true,
                 isAuthenticated: true,
@@ -163,6 +163,21 @@ describe('authSlice', () => {
             expect(localStorage.getItem('user')).toBeNull();
         });
 
+        it('lifts the loading gate when the backend never answers', async () => {
+            // A dead database can stall the request until the pool times out; the app must not
+            // sit behind the spinner waiting for it
+            api.get.mockRejectedValueOnce(
+                Object.assign(new Error('timeout of 8000ms exceeded'), { code: 'ECONNABORTED' })
+            );
+
+            await store.dispatch(fetchCurrentUser());
+
+            expect(authState(store)).toMatchObject({
+                isInitialized: true,
+                isAuthenticated: false,
+            });
+        });
+
         it('marks the app initialised either way so the loading gate always lifts', async () => {
             expect(authState(store).isInitialized).toBe(false);
 
@@ -170,6 +185,43 @@ describe('authSlice', () => {
             await store.dispatch(fetchCurrentUser());
 
             expect(authState(store).isInitialized).toBe(true);
+        });
+    });
+
+    describe('error messages', () => {
+        it('does not render the server\'s html error page into the ui', async () => {
+            const html =
+                '<!doctype html><html><head><title>HTTP Status 500</title></head><body>' +
+                '<h1>HTTP Status 500</h1><pre>org.springframework.transaction.' +
+                'CannotCreateTransactionException: Could not open JPA EntityManager</pre>' +
+                '</body></html>';
+            api.post.mockRejectedValueOnce({ response: { status: 500, data: html } });
+
+            await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
+
+            const { error } = authState(store);
+            expect(error).not.toContain('<');
+            expect(error).not.toContain('Exception');
+            expect(error).toBe('The server is unavailable right now. Please try again.');
+        });
+
+        it('explains a rejected password rather than showing an empty body', async () => {
+            // The backend's failure handler sets 401 with no body at all
+            api.post.mockRejectedValueOnce({ response: { status: 401, data: '' } });
+
+            await store.dispatch(loginUser({ username: 'ada', password: 'wrong' }));
+
+            expect(authState(store).error).toBe('Invalid username or password.');
+        });
+
+        it('still prefers a real message from a json error body', async () => {
+            api.post.mockRejectedValueOnce({
+                response: { status: 400, data: { message: 'Account is locked' } },
+            });
+
+            await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
+
+            expect(authState(store).error).toBe('Account is locked');
         });
     });
 
