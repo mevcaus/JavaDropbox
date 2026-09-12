@@ -40,11 +40,30 @@ export const logoutUser = createAsyncThunk(
     }
 );
 
+export const fetchCurrentUser = createAsyncThunk(
+    'auth/fetchCurrentUser',
+    async (_, { rejectWithValue }) => {
+        try {
+            const response = await api.get('/api/me');
+            // When first-run setup is still pending the backend redirects /api/me to the setup
+            // page; the browser follows that redirect and the call resolves as a 200 of HTML.
+            // Only a real user payload counts as a session -- a 2xx on its own does not.
+            if (typeof response.data?.username !== 'string') {
+                return rejectWithValue('Not authenticated');
+            }
+            return response.data;
+        } catch (error) {
+            return rejectWithValue(error.response?.data || 'Not authenticated');
+        }
+    }
+);
+
 const authSlice = createSlice({
     name: 'auth',
     initialState: {
         user: localStorage.getItem('user') || null,
         isAuthenticated: !!localStorage.getItem('user'),
+        isInitialized: false,
         loading: false,
         error: null,
     },
@@ -79,6 +98,18 @@ const authSlice = createSlice({
             .addCase(logoutUser.fulfilled, (state) => {
                 state.user = null;
                 state.isAuthenticated = false;
+                localStorage.removeItem('user');
+            })
+            .addCase(fetchCurrentUser.fulfilled, (state, action) => {
+                state.isInitialized = true;
+                state.isAuthenticated = true;
+                state.user = action.payload.username;
+                localStorage.setItem('user', action.payload.username);
+            })
+            .addCase(fetchCurrentUser.rejected, (state) => {
+                state.isInitialized = true;
+                state.isAuthenticated = false;
+                state.user = null;
                 localStorage.removeItem('user');
             });
     },

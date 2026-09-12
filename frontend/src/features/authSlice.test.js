@@ -1,6 +1,12 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import authReducer, { clearUser, loginUser, logoutUser, setUser } from './authSlice';
+import authReducer, {
+    clearUser,
+    fetchCurrentUser,
+    loginUser,
+    logoutUser,
+    setUser,
+} from './authSlice';
 import api from '../services/api';
 
 vi.mock('../services/api');
@@ -110,6 +116,60 @@ describe('authSlice', () => {
             // The thunk swallows the error so a dead backend cannot strand the user logged in
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
+        });
+    });
+
+    describe('fetchCurrentUser', () => {
+        it('adopts the username the backend reports as the session', async () => {
+            api.get.mockResolvedValueOnce({ data: { username: 'ada' } });
+
+            await store.dispatch(fetchCurrentUser());
+
+            expect(api.get).toHaveBeenCalledWith('/api/me');
+            expect(authState(store)).toMatchObject({
+                isInitialized: true,
+                isAuthenticated: true,
+                user: 'ada',
+            });
+            expect(localStorage.getItem('user')).toBe('ada');
+        });
+
+        it('clears a stale cached session when the backend says 401', async () => {
+            store.dispatch(setUser('ada'));
+            api.get.mockRejectedValueOnce({ response: { status: 401, data: 'Unauthorized' } });
+
+            await store.dispatch(fetchCurrentUser());
+
+            // This is the dashboard-flash case: localStorage says signed in, the server disagrees
+            expect(authState(store)).toMatchObject({
+                isInitialized: true,
+                isAuthenticated: false,
+                user: null,
+            });
+            expect(localStorage.getItem('user')).toBeNull();
+        });
+
+        it('does not treat the setup-page redirect as a signed-in session', async () => {
+            // Pending first-run setup redirects /api/me to /setup, which resolves 200 with HTML
+            api.get.mockResolvedValueOnce({ data: '<!doctype html><title>Setup</title>' });
+
+            await store.dispatch(fetchCurrentUser());
+
+            expect(authState(store)).toMatchObject({
+                isInitialized: true,
+                isAuthenticated: false,
+                user: null,
+            });
+            expect(localStorage.getItem('user')).toBeNull();
+        });
+
+        it('marks the app initialised either way so the loading gate always lifts', async () => {
+            expect(authState(store).isInitialized).toBe(false);
+
+            api.get.mockRejectedValueOnce(new Error('Network Error'));
+            await store.dispatch(fetchCurrentUser());
+
+            expect(authState(store).isInitialized).toBe(true);
         });
     });
 
