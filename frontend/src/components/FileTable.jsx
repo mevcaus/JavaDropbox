@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { File, Folder, Download, Share2, Trash2, FileText, Image, Film, Music, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { formatDate, toTimestamp } from '../utils/date';
 
 const FileIcon = ({ type, name }) => {
     if (type === 'DIRECTORY') return <Folder className="h-5 w-5 text-blue-500" />;
@@ -56,8 +57,8 @@ const compareNodes = (a, b, { key, direction }) => {
         aVal = a.size || 0;
         bVal = b.size || 0;
     } else if (key === 'lastModified') {
-        aVal = a.lastModified ? new Date(a.lastModified).getTime() : 0;
-        bVal = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+        aVal = toTimestamp(a.lastModified);
+        bVal = toTimestamp(b.lastModified);
     } else {
         aVal = a.name.toLowerCase();
         bVal = b.name.toLowerCase();
@@ -225,7 +226,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {file.lastModified || '-'}
+                                        {formatDate(file.lastModified)}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
