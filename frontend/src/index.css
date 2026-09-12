@@ -7,3 +7,31 @@
     @apply bg-slate-50 text-slate-900;
   }
 }
+
+/* The steam layer of the logo mark. feTurbulence makes the wisps waver in place; the transform
+   adds a slow rise on top of it so the motion reads as smoke rather than a shimmer. */
+@keyframes jd-steam-rise {
+  0%,
+  100% {
+    transform: translateY(1px) scaleY(0.99);
+    opacity: 0.92;
+  }
+  50% {
+    transform: translateY(-2px) scaleY(1.02);
+    opacity: 1;
+  }
+}
+
+.jd-steam {
+  transform-origin: 50% 100%;
+  filter: url(#jd-smoke);
+  animation: jd-steam-rise 9s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jd-steam {
+    animation: none;
+    filter: none;
+  }
+}

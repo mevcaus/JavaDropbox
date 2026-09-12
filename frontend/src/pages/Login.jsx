@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { loginUser } from '../features/authSlice';
 import { Loader2 } from 'lucide-react';
-import logo from '../assets/logo/javadropbox-vertical-color.png';
+import AnimatedLogo from '../components/AnimatedLogo';
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -30,7 +30,7 @@ const Login = () => {
         <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-md w-full space-y-8">
                 <div className="text-center">
-                    <img src={logo} alt="JavaDropbox" className="mx-auto h-36 w-auto" />
+                    <AnimatedLogo />
                     <h2 className="mt-8 text-3xl font-extrabold text-gray-900">Sign in to your account</h2>
                 </div>
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
