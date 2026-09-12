@@ -1,17 +1,17 @@
 package com.javadropbox.javadropbox.config;
 
 import com.javadropbox.javadropbox.service.AuthService;
-import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 @Configuration
 @EnableWebSecurity
@@ -74,18 +74,34 @@ public class SecurityConfig {
                     .successHandler((req, res, auth) -> res.setStatus(200))
                     .failureHandler((req, res, exc) -> res.setStatus(401))
                     .permitAll())
-        .rememberMe(
-            rememberMe -> rememberMe.key(UUID.randomUUID().toString()).tokenValiditySeconds(60))
         .logout(
             logout ->
                 logout
                     .logoutUrl("/logout")
                     .logoutSuccessHandler((req, res, auth) -> res.setStatus(200))
                     .permitAll())
-        // -- DO NOT DO THIS IN PRODUCTION --
-        .csrf(AbstractHttpConfigurer::disable);
+        .csrf(
+            csrf ->
+                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                    .csrfTokenRequestHandler(csrfTokenRequestHandler()));
 
     return http.build();
+  }
+
+  /**
+   * Plain (non-BREACH-encoded) request handler so the value the SPA reads from the XSRF-TOKEN
+   * cookie is the same value the server expects back in the X-XSRF-TOKEN header.
+   *
+   * <p>Setting the request attribute name to null opts out of Spring Security's deferred token
+   * loading. Deferred loading only resolves the token when something actually reads it, so on a
+   * pure-JSON SPA that never renders a server-side form the CookieCsrfTokenRepository would never
+   * write the cookie -- leaving the browser with no token to send and every POST, including /login,
+   * rejected with 403.
+   */
+  private static CsrfTokenRequestAttributeHandler csrfTokenRequestHandler() {
+    CsrfTokenRequestAttributeHandler handler = new CsrfTokenRequestAttributeHandler();
+    handler.setCsrfRequestAttributeName(null);
+    return handler;
   }
 
   @Bean

@@ -1,6 +1,35 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../services/api';
 
+// The backend does not always fail with a JSON body -- an unreachable database, for instance,
+// produces Tomcat's HTML error page, stack trace and all. Rendering a response body straight into
+// the UI would put that on screen, so pick out something a person can actually read.
+const isHtmlDocument = (value) => /^\s*<(!doctype|html)/i.test(value);
+
+const readableError = (error, fallback) => {
+    const { status, data } = error.response ?? {};
+
+    if (data && typeof data === 'object') {
+        const message = data.error || data.message;
+        if (typeof message === 'string' && message.trim()) {
+            return message;
+        }
+    }
+
+    // A genuine message from the API is short and is not a document; anything longer is a dump.
+    if (typeof data === 'string' && data.trim() && !isHtmlDocument(data) && data.length <= 200) {
+        return data.trim();
+    }
+
+    if (status === 401) {
+        return 'Invalid username or password.';
+    }
+    if (status >= 500) {
+        return 'The server is unavailable right now. Please try again.';
+    }
+    return fallback;
+};
+
 // Async thunk for login
 export const loginUser = createAsyncThunk(
     'auth/loginUser',
@@ -23,8 +52,7 @@ export const loginUser = createAsyncThunk(
             return { username };
         } catch (error) {
             console.error('Login error details:', error.response);
-            // If 401, it throws
-            return rejectWithValue(error.response?.data || 'Login failed');
+            return rejectWithValue(readableError(error, 'Login failed'));
         }
     }
 );
@@ -40,11 +68,34 @@ export const logoutUser = createAsyncThunk(
     }
 );
 
+export const fetchCurrentUser = createAsyncThunk(
+    'auth/fetchCurrentUser',
+    async (_, { rejectWithValue }) => {
+        try {
+            // Bound the wait: the whole app sits behind a spinner until this settles, and an
+            // unreachable backend can otherwise take the better part of a minute to fail (a dead
+            // database stalls until the connection pool times out). Failing here just means the
+            // user lands on the login screen, so a short timeout is the safe way to give up.
+            const response = await api.get('/api/me', { timeout: 8000 });
+            // When first-run setup is still pending the backend redirects /api/me to the setup
+            // page; the browser follows that redirect and the call resolves as a 200 of HTML.
+            // Only a real user payload counts as a session -- a 2xx on its own does not.
+            if (typeof response.data?.username !== 'string') {
+                return rejectWithValue('Not authenticated');
+            }
+            return response.data;
+        } catch (error) {
+            return rejectWithValue(readableError(error, 'Not authenticated'));
+        }
+    }
+);
+
 const authSlice = createSlice({
     name: 'auth',
     initialState: {
         user: localStorage.getItem('user') || null,
         isAuthenticated: !!localStorage.getItem('user'),
+        isInitialized: false,
         loading: false,
         error: null,
     },
@@ -79,6 +130,18 @@ const authSlice = createSlice({
             .addCase(logoutUser.fulfilled, (state) => {
                 state.user = null;
                 state.isAuthenticated = false;
+                localStorage.removeItem('user');
+            })
+            .addCase(fetchCurrentUser.fulfilled, (state, action) => {
+                state.isInitialized = true;
+                state.isAuthenticated = true;
+                state.user = action.payload.username;
+                localStorage.setItem('user', action.payload.username);
+            })
+            .addCase(fetchCurrentUser.rejected, (state) => {
+                state.isInitialized = true;
+                state.isAuthenticated = false;
+                state.user = null;
                 localStorage.removeItem('user');
             });
     },

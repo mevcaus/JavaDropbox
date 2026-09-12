@@ -37,6 +37,9 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
+        // Only the POST that authenticates goes to the backend. GET /login is a client-side
+        // route, so let Vite serve the SPA -- forwarding it hits a stale Thymeleaf view and 500s.
+        bypass: (req) => (req.method !== 'POST' ? '/index.html' : undefined),
       },
       '/logout': {
         target: 'http://localhost:8080',

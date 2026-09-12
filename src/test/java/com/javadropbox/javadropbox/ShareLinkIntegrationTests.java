@@ -1,8 +1,17 @@
 package com.javadropbox.javadropbox;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.ShareTokenService;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,117 +27,118 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {
-        "app.setup.required=false",
-        "app.setup.filter.enabled=true"
-})
+@TestPropertySource(properties = {"app.setup.required=false", "app.setup.filter.enabled=true"})
 @DisplayName("Share Link Integration Tests")
 class ShareLinkIntegrationTests {
 
-    @TempDir
-    static Path servingDir;
+  @TempDir static Path servingDir;
 
-    @DynamicPropertySource
-    static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-        registry.add("javadropbox.serving.directory", () -> servingDir.toString());
+  @DynamicPropertySource
+  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
+    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
+  }
+
+  @Autowired private MockMvc mockMvc;
+
+  @Autowired private ShareTokenService shareTokenService;
+
+  @Autowired private UserRepository userRepository;
+
+  @Autowired private PasswordEncoder passwordEncoder;
+
+  @BeforeEach
+  void setUp() throws IOException {
+    if (userRepository.count() == 0) {
+      userRepository.save(new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN"));
     }
+    Files.writeString(servingDir.resolve("shared.txt"), "share me");
+  }
 
-    @Autowired
-    private MockMvc mockMvc;
+  @AfterEach
+  void tearDown() {
+    userRepository.deleteAll();
+  }
 
-    @Autowired
-    private ShareTokenService shareTokenService;
+  @Test
+  @DisplayName("Unauthenticated user cannot create a share link")
+  void unauthenticatedCannotCreateShareLink() throws Exception {
+    mockMvc
+        .perform(post("/api/share").param("path", "shared.txt").with(csrf()))
+        .andExpect(status().isUnauthorized());
+  }
 
-    @Autowired
-    private UserRepository userRepository;
+  @Test
+  @DisplayName("Authenticated user can create a share link for an existing file")
+  @WithMockUser(
+      username = "testuser",
+      roles = {"USER"})
+  void authenticatedUserCanCreateShareLink() throws Exception {
+    mockMvc
+        .perform(post("/api/share").param("path", "shared.txt").with(csrf()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.url").value(containsString("/share/")))
+        .andExpect(jsonPath("$.expiresAt").exists());
+  }
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+  @Test
+  @DisplayName("Creating a share link for a nonexistent path returns 404")
+  @WithMockUser(
+      username = "testuser",
+      roles = {"USER"})
+  void shareLinkForMissingPathReturns404() throws Exception {
+    mockMvc
+        .perform(post("/api/share").param("path", "nope.txt").with(csrf()))
+        .andExpect(status().isNotFound());
+  }
 
-    @BeforeEach
-    void setUp() throws IOException {
-        if (userRepository.count() == 0) {
-            userRepository.save(new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN"));
-        }
-        Files.writeString(servingDir.resolve("shared.txt"), "share me");
-    }
+  @Test
+  @DisplayName("Out-of-range expiration is rejected")
+  @WithMockUser(
+      username = "testuser",
+      roles = {"USER"})
+  void outOfRangeExpirationRejected() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/share")
+                .param("path", "shared.txt")
+                .param("expirationMinutes", "0")
+                .with(csrf()))
+        .andExpect(status().isBadRequest());
 
-    @AfterEach
-    void tearDown() {
-        userRepository.deleteAll();
-    }
+    mockMvc
+        .perform(
+            post("/api/share")
+                .param("path", "shared.txt")
+                .param("expirationMinutes", "999999")
+                .with(csrf()))
+        .andExpect(status().isBadRequest());
+  }
 
-    @Test
-    @DisplayName("Unauthenticated user cannot create a share link")
-    void unauthenticatedCannotCreateShareLink() throws Exception {
-        mockMvc.perform(post("/api/share").param("path", "shared.txt"))
-                .andExpect(status().isUnauthorized());
-    }
+  @Test
+  @DisplayName("A valid share link downloads the file without authentication")
+  void validTokenDownloadsWithoutAuth() throws Exception {
+    String token = shareTokenService.generateToken("shared.txt", 60);
 
-    @Test
-    @DisplayName("Authenticated user can create a share link for an existing file")
-    @WithMockUser(username = "testuser", roles = { "USER" })
-    void authenticatedUserCanCreateShareLink() throws Exception {
-        mockMvc.perform(post("/api/share").param("path", "shared.txt"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url").value(containsString("/share/")))
-                .andExpect(jsonPath("$.expiresAt").exists());
-    }
+    mockMvc
+        .perform(get("/share/" + token))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Disposition", containsString("shared.txt")))
+        .andExpect(content().string("share me"));
+  }
 
-    @Test
-    @DisplayName("Creating a share link for a nonexistent path returns 404")
-    @WithMockUser(username = "testuser", roles = { "USER" })
-    void shareLinkForMissingPathReturns404() throws Exception {
-        mockMvc.perform(post("/api/share").param("path", "nope.txt"))
-                .andExpect(status().isNotFound());
-    }
+  @Test
+  @DisplayName("An expired token is rejected")
+  void expiredTokenRejected() throws Exception {
+    String token = shareTokenService.generateToken("shared.txt", -1);
 
-    @Test
-    @DisplayName("Out-of-range expiration is rejected")
-    @WithMockUser(username = "testuser", roles = { "USER" })
-    void outOfRangeExpirationRejected() throws Exception {
-        mockMvc.perform(post("/api/share").param("path", "shared.txt").param("expirationMinutes", "0"))
-                .andExpect(status().isBadRequest());
+    mockMvc.perform(get("/share/" + token)).andExpect(status().isNotFound());
+  }
 
-        mockMvc.perform(post("/api/share").param("path", "shared.txt").param("expirationMinutes", "999999"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @DisplayName("A valid share link downloads the file without authentication")
-    void validTokenDownloadsWithoutAuth() throws Exception {
-        String token = shareTokenService.generateToken("shared.txt", 60);
-
-        mockMvc.perform(get("/share/" + token))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Content-Disposition", containsString("shared.txt")))
-                .andExpect(content().string("share me"));
-    }
-
-    @Test
-    @DisplayName("An expired token is rejected")
-    void expiredTokenRejected() throws Exception {
-        String token = shareTokenService.generateToken("shared.txt", -1);
-
-        mockMvc.perform(get("/share/" + token))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @DisplayName("A tampered or garbage token is rejected")
-    void garbageTokenRejected() throws Exception {
-        mockMvc.perform(get("/share/not-a-real-token"))
-                .andExpect(status().isNotFound());
-    }
+  @Test
+  @DisplayName("A tampered or garbage token is rejected")
+  void garbageTokenRejected() throws Exception {
+    mockMvc.perform(get("/share/not-a-real-token")).andExpect(status().isNotFound());
+  }
 }
