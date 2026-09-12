@@ -28,7 +28,7 @@ const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
         <div className="h-full flex flex-col bg-slate-900 text-white w-full">
             <div className="flex items-center justify-between h-20 flex-shrink-0 px-4 bg-slate-950 border-b border-slate-800 relative">
                 <div className="flex-1 flex items-center justify-center">
-                    <Logo collapsed={isCollapsed} textClassName="text-xl font-bold text-white" />
+                    <Logo collapsed={isCollapsed} variant="white" />
                 </div>
                 <button
                     onClick={toggleCollapse}
