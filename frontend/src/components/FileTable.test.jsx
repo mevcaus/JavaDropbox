@@ -5,30 +5,30 @@ import FileTable from './FileTable';
 
 afterEach(cleanup);
 
-// lastModified arrives from the backend already formatted as "MM/dd/yyyy hh:mm a"
-// (FileServingService.DATE_FORMATTER), so the fixtures use that exact shape.
+// lastModified arrives from the backend as absolute ISO-8601 instants, so the fixtures use
+// that exact shape, including the trailing Z.
 const APPLES_FILES = [
-    { name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '02/02/2026 10:00 AM', relativePath: 'apples/budget.xlsx' },
-    { name: 'photo.png', isDirectory: false, size: 900, lastModified: '02/03/2026 10:00 AM', relativePath: 'apples/photo.png' },
+    { name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '2026-02-02T10:00:00Z', relativePath: 'apples/budget.xlsx' },
+    { name: 'photo.png', isDirectory: false, size: 900, lastModified: '2026-02-03T10:00:00Z', relativePath: 'apples/photo.png' },
 ];
 
 const ROOT_FILES = [
     {
-        name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '01/05/2026 09:00 AM', relativePath: 'Zebra Folder',
+        name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '2026-01-05T09:00:00Z', relativePath: 'Zebra Folder',
         children: [
-            { name: 'deep.txt', isDirectory: false, size: 10, lastModified: '04/01/2026 08:00 AM', relativePath: 'Zebra Folder/deep.txt' },
+            { name: 'deep.txt', isDirectory: false, size: 10, lastModified: '2026-04-01T08:00:00Z', relativePath: 'Zebra Folder/deep.txt' },
             {
-                name: 'nested', isDirectory: true, size: 20, lastModified: '04/02/2026 08:00 AM', relativePath: 'Zebra Folder/nested',
+                name: 'nested', isDirectory: true, size: 20, lastModified: '2026-04-02T08:00:00Z', relativePath: 'Zebra Folder/nested',
                 children: [
-                    { name: 'buried.log', isDirectory: false, size: 20, lastModified: '04/03/2026 08:00 AM', relativePath: 'Zebra Folder/nested/buried.log' },
+                    { name: 'buried.log', isDirectory: false, size: 20, lastModified: '2026-04-03T08:00:00Z', relativePath: 'Zebra Folder/nested/buried.log' },
                 ],
             },
         ],
     },
-    { name: 'apples', isDirectory: true, size: 128, lastModified: '12/31/2025 11:59 PM', relativePath: 'apples', children: [...APPLES_FILES] },
-    { name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '09/09/2026 02:38 PM', relativePath: 'notes.txt' },
-    { name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '03/04/2026 02:38 AM', relativePath: 'Big.zip' },
-    { name: 'tiny.md', isDirectory: false, size: 12, lastModified: '01/02/2026 12:05 AM', relativePath: 'tiny.md' },
+    { name: 'apples', isDirectory: true, size: 128, lastModified: '2025-12-31T23:59:00Z', relativePath: 'apples', children: [...APPLES_FILES] },
+    { name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '2026-09-09T14:38:00Z', relativePath: 'notes.txt' },
+    { name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '2026-03-04T02:38:00Z', relativePath: 'Big.zip' },
+    { name: 'tiny.md', isDirectory: false, size: 12, lastModified: '2026-01-02T00:05:00Z', relativePath: 'tiny.md' },
 ];
 
 const noopHandlers = {
@@ -121,8 +121,24 @@ describe('FileTable sorting', () => {
 
         await user.click(header('Last Modified'));
 
-        // 12/31/2025 sorts before 01/05/2026, which a lexical string compare would get wrong
+        // 2025-12-31 sorts before 2026-01-05, so the column is ordered chronologically
+        // rather than by the formatted text the cell displays
         expect(visibleOrder()).toEqual(['apples', 'Zebra Folder', 'tiny.md', 'Big.zip', 'notes.txt']);
+    });
+
+    it('orders instants correctly when only some carry fractional seconds', async () => {
+        const user = userEvent.setup();
+        // The backend drops the fraction when an instant lands exactly on a second, so a list
+        // mixes both shapes. A lexical compare sorts "." before "Z" and would flip these.
+        const mixed = [
+            { name: 'later.txt', isDirectory: false, size: 1, lastModified: '2026-05-01T12:00:00.500Z', relativePath: 'later.txt' },
+            { name: 'earlier.txt', isDirectory: false, size: 1, lastModified: '2026-05-01T12:00:00Z', relativePath: 'earlier.txt' },
+        ];
+        render(<FileTable files={mixed} currentPath="" {...noopHandlers} />);
+
+        await user.click(header('Last Modified'));
+
+        expect(visibleOrder()).toEqual(['earlier.txt', 'later.txt']);
     });
 
     it('starts a newly selected column ascending rather than inheriting the previous direction', async () => {
