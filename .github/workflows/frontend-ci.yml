@@ -19,6 +19,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        # The logo assets are stored in lfs. Without this the checkout leaves
+        # 130-byte pointer files in their place, which still build successfully
+        # and ship a bundle with every logo broken.
+        lfs: true
 
     # Vite 7 and Vitest 5 only run on Node 20.19+ or 22.12+. Pin the floor here so
     # CI fails on the version line rather than on a confusing missing-export error.
