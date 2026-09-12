@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,8 +28,13 @@ import org.springframework.web.multipart.MultipartFile;
 @Tag(name = "Web", description = "Endpoints for file management, directory info, and setup")
 public class WebController {
 
-  @Autowired private FileServingService fileServingService;
-  @Autowired private AuthService authService;
+  private final FileServingService fileServingService;
+  private final AuthService authService;
+
+  public WebController(FileServingService fileServingService, AuthService authService) {
+    this.fileServingService = fileServingService;
+    this.authService = authService;
+  }
 
   /**
    * Handles login form submission.
