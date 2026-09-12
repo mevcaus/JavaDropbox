@@ -5,6 +5,11 @@ import { clearUser } from '../features/authSlice';
 const api = axios.create({
     baseURL: '', // Use relative path to leverage Vite proxy
     withCredentials: true, // Important for JSESSIONID cookies
+    // These match axios's defaults, but are stated explicitly because they are a contract with
+    // Spring Security's CookieCsrfTokenRepository -- axios reads the token Spring writes to the
+    // XSRF-TOKEN cookie and echoes it back in this header on every state-changing request.
+    xsrfCookieName: 'XSRF-TOKEN',
+    xsrfHeaderName: 'X-XSRF-TOKEN',
 });
 
 // Add response interceptor to drop the cached session when the backend says it is gone.
