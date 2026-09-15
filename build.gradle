@@ -21,6 +21,10 @@ repositories {
 
 ext {
 	set('springModulithVersion', "1.4.1")
+	// Ahead of the version the Spring Boot BOM manages (1.21.3), which pins the
+	// Docker API to v1.32. Docker Engine 29 raised its minimum to v1.40 and
+	// rejects that, so Testcontainers cannot reach the daemon on 29.x hosts.
+	set('testcontainersVersion', "1.21.4")
 }
 
 dependencies {
@@ -53,6 +57,7 @@ dependencies {
 dependencyManagement {
 	imports {
 		mavenBom "org.springframework.modulith:spring-modulith-bom:${springModulithVersion}"
+		mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
 	}
 }
 
