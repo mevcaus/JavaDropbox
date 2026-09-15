@@ -13,14 +13,39 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {"app.setup.required=true", "app.setup.filter.enabled=true"})
+@Testcontainers
 @DisplayName("Setup Integration Tests - Pre-Setup State")
 class SetupIntegrationTests {
+
+  // Runs against a real PostgreSQL 15 container -- the same major version as
+  // compose.yaml and production -- rather than the H2 default in
+  // src/test/resources/application.properties, so this class exercises the
+  // dialect the app actually ships against. The other integration tests stay
+  // on H2 for speed.
+  @Container
+  static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:15");
+
+  @DynamicPropertySource
+  static void overrideDatasource(DynamicPropertyRegistry registry) {
+    registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+    registry.add("spring.datasource.username", POSTGRES::getUsername);
+    registry.add("spring.datasource.password", POSTGRES::getPassword);
+    // The H2 driver and dialect are pinned in the test application.properties,
+    // so both need overriding here too or Hibernate would talk H2 to Postgres.
+    registry.add("spring.datasource.driverClassName", POSTGRES::getDriverClassName);
+    registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
+  }
 
   @Autowired private MockMvc mockMvc;
 
