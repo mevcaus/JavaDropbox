@@ -103,7 +103,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **Restore support** — Restore any previous version with two strategies:
   - `OVERWRITE` — Replace the current file (current version is snapshotted first)
   - `COPY` — Restore as a new file alongside the original
-- **Configurable retention** — Automatic pruning of old versions beyond a configurable limit (default: 10)
+- **Configurable retention** — Automatic pruning of old versions beyond a configurable limit, set via `javadropbox.versions.max-retained` in `application.properties` (default: 10)
 
 ### Security
 - **Spring Security** integration with form-based login and session management
