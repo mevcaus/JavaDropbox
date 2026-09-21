@@ -31,7 +31,6 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class FileServingService {
 
-  private static final int MAX_FILE_VERSIONS = 10;
   private static final String VERSIONS_DIR_NAME = ".versions";
   private static final String SECURITY_ALERT_MESSAGE =
       "SECURITY ALERT: Attempted path traversal to: ";
@@ -40,6 +39,9 @@ public class FileServingService {
 
   @Value("${javadropbox.serving.directory:#{systemProperties['user.dir']}}")
   private String servingDirectory;
+
+  @Value("${javadropbox.versions.max-retained:10}")
+  private int maxVersions;
 
   private final FileMetadataRepository fileMetadataRepository;
   private final FileHistoryRepository fileHistoryRepository;
@@ -450,8 +452,8 @@ public class FileServingService {
 
     List<FileVersion> versions =
         fileVersionRepository.findByFileMetadataOrderByVersionDesc(metadata);
-    if (versions.size() > MAX_FILE_VERSIONS) {
-      for (int i = MAX_FILE_VERSIONS; i < versions.size(); i++) {
+    if (versions.size() > maxVersions) {
+      for (int i = maxVersions; i < versions.size(); i++) {
         FileVersion oldVersion = versions.get(i);
         try {
           Files.deleteIfExists(versionsDir.resolve(oldVersion.getStoredFilename()));
