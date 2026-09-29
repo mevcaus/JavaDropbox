@@ -50,6 +50,13 @@ class DownloadIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private ShareTokenService shareTokens;
 
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+  @org.junit.jupiter.api.AfterEach
+  void tearDown() {
+    TestDatabase.wipe(jdbc);
+  }
+
   @BeforeEach
   void setUp() throws IOException {
     if (users.count() == 0) {

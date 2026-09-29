@@ -24,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"app.setup.filter.enabled=true", "app.setup.code=ABCDE-FGHJK"})
+@TestPropertySource(properties = {"app.setup.code=ABCDE-FGHJK"})
 @Testcontainers
 @DisplayName("Setup Integration Tests - Pre-Setup State")
 class SetupIntegrationTests {
@@ -55,13 +55,16 @@ class SetupIntegrationTests {
   @Autowired
   private com.javadropbox.javadropbox.repository.FileMetadataRepository fileMetadataRepository;
 
+  @Autowired private com.javadropbox.javadropbox.config.SetupFilter setupFilter;
+
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
   @org.junit.jupiter.api.BeforeEach
   void setUp() {
-    // Ensure setup IS required by clearing users
-    // Must clear dependent tables first to avoid foreign key violations
-    fileHistoryRepository.deleteAll();
-    fileMetadataRepository.deleteAll();
-    userRepository.deleteAll();
+    // The filter remembers that setup is done, which is true in production where accounts are
+    // never deleted, but these tests delete them to get back to a fresh install.
+    org.springframework.test.util.ReflectionTestUtils.setField(setupFilter, "setupComplete", false);
+    TestDatabase.wipe(jdbc);
   }
 
   // ------------------------------
@@ -210,6 +213,36 @@ class SetupIntegrationTests {
   // ------------------------------
   // Setup Filter Tests
   // ------------------------------
+
+  @Test
+  @DisplayName("The app shell and its assets load during setup so the setup page can render")
+  void appShellLoadsDuringSetup() throws Exception {
+    mockMvc.perform(get("/setup")).andExpect(forwardedUrl("/index.html"));
+    mockMvc.perform(get("/index.html")).andExpect(status().isOk());
+    mockMvc
+        .perform(get("/dashboard"))
+        .andExpect(status().is3xxRedirection())
+        .andExpect(redirectedUrl("/setup"));
+  }
+
+  @Test
+  @DisplayName("Once an account exists, a second setup attempt is a 409, not a redirect")
+  void setupAfterCompletionIsConflict() throws Exception {
+    userRepository.save(new com.javadropbox.javadropbox.model.User("admin", "hash", "ROLE_ADMIN"));
+
+    mockMvc
+        .perform(
+            post("/setup")
+                .with(csrf())
+                .param("code", "ABCDE-FGHJK")
+                .param("username", "second")
+                .param("password", "testpassword123"))
+        .andExpect(status().isConflict());
+    mockMvc
+        .perform(get("/setup"))
+        .andExpect(status().is3xxRedirection())
+        .andExpect(redirectedUrl("/login"));
+  }
 
   @Test
   @DisplayName("Non-existent endpoints should redirect to setup")

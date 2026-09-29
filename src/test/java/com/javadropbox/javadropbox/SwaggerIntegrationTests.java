@@ -15,12 +15,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"app.setup.filter.enabled=true"})
 @DisplayName("Swagger and OpenAPI Integration Tests")
 class SwaggerIntegrationTests {
 
@@ -30,9 +28,11 @@ class SwaggerIntegrationTests {
 
   @Autowired private PasswordEncoder passwordEncoder;
 
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
   @AfterEach
   void tearDown() {
-    userRepository.deleteAll();
+    TestDatabase.wipe(jdbc);
   }
 
   private void completeSetup() {
@@ -88,7 +88,7 @@ class SwaggerIntegrationTests {
         .andExpect(content().string(containsString("\"name\":\"Web\"")))
         .andExpect(content().string(containsString("\"name\":\"File Versions\"")))
         .andExpect(content().string(containsString("\"name\":\"History\"")))
-        .andExpect(content().string(containsString("\"name\":\"Login\"")))
+        .andExpect(content().string(containsString("\"name\":\"Setup\"")))
         .andExpect(content().string(containsString("\"name\":\"Share\"")))
         .andExpect(content().string(containsString("\"/api/files\"")))
         .andExpect(content().string(containsString("\"/api/upload\"")))
@@ -100,7 +100,6 @@ class SwaggerIntegrationTests {
         .andExpect(content().string(containsString("\"/api/share\"")))
         .andExpect(content().string(containsString("\"/share/{token}\"")))
         .andExpect(content().string(containsString("\"/api/files/{fileId}/versions\"")))
-        .andExpect(content().string(containsString("\"/setup\"")))
-        .andExpect(content().string(containsString("\"/login\"")));
+        .andExpect(content().string(containsString("\"/setup\"")));
   }
 }

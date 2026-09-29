@@ -14,12 +14,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"app.setup.required=false", "app.setup.filter.enabled=true"})
 @DisplayName("Security Integration Tests - Normal Operation")
 class SecurityIntegrationTests {
 
@@ -48,11 +46,11 @@ class SecurityIntegrationTests {
     }
   }
 
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
   @org.junit.jupiter.api.AfterEach
   void tearDown() {
-    fileHistoryRepository.deleteAll();
-    fileMetadataRepository.deleteAll();
-    userRepository.deleteAll();
+    TestDatabase.wipe(jdbc);
   }
 
   // ------------------------------
@@ -74,6 +72,28 @@ class SecurityIntegrationTests {
     mockMvc
         .perform(get("/api/files"))
         .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON));
+  }
+
+  @Test
+  @DisplayName("The app's client-side routes serve the app shell without a session")
+  void spaRoutesServeTheAppShell() throws Exception {
+    for (String route : new String[] {"/", "/login", "/dashboard"}) {
+      mockMvc.perform(get(route)).andExpect(status().isOk()).andExpect(forwardedUrl("/index.html"));
+    }
+    mockMvc
+        .perform(get("/index.html"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("<div id=\"root\">")));
+  }
+
+  @Test
+  @DisplayName("API errors come back as JSON, not a server-rendered error page")
+  @WithMockUser(username = "testuser")
+  void apiErrorsAreJson() throws Exception {
+    mockMvc
+        .perform(get("/api/download").param("path", "missing.txt"))
+        .andExpect(status().isNotFound())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON));
   }
 

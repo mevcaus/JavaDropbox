@@ -1,23 +1,35 @@
 package com.javadropbox.javadropbox.config;
 
+import com.javadropbox.javadropbox.controller.SpaController;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import java.util.List;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
   private static final String DEFAULT_ROLE = "ROLE_USER";
+
+  /** The built single-page app: its shell and assets load before anyone has signed in. */
+  private static final String[] SPA_ASSETS = {"/index.html", "/assets/**", "/favicon.png"};
 
   private final SetupFilter setupFilter;
   private final UserRepository userRepository;
@@ -41,18 +53,30 @@ public class SecurityConfig {
             .orElseThrow(() -> new UsernameNotFoundException("User not found"));
   }
 
+  // SetupFilter is a @Component so it can be injected above, which would also make Spring Boot
+  // register it as a servlet filter of its own; it belongs only in the security chain.
+  @Bean
+  public FilterRegistrationBean<SetupFilter> setupFilterRegistration(SetupFilter filter) {
+    FilterRegistrationBean<SetupFilter> registration = new FilterRegistrationBean<>(filter);
+    registration.setEnabled(false);
+    return registration;
+  }
+
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers(
+                auth.requestMatchers(HttpMethod.GET, SpaController.ROUTES)
+                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, SPA_ASSETS)
+                    .permitAll()
+                    .requestMatchers(
                         "/setup",
                         "/login",
                         "/error",
                         "/share/**",
-                        // Allow access to Swagger UI and OpenAPI docs without authentication in dev
                         "/swagger-ui.html",
                         "/swagger-ui/**",
                         "/v3/api-docs",
@@ -60,11 +84,9 @@ public class SecurityConfig {
                     .permitAll()
                     .anyRequest()
                     .authenticated())
+        // A JSON API: answer 401 rather than redirecting to a login page.
         .exceptionHandling(
-            ex ->
-                ex.authenticationEntryPoint(
-                    new org.springframework.security.web.authentication.HttpStatusEntryPoint(
-                        org.springframework.http.HttpStatus.UNAUTHORIZED)))
+            ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
         .formLogin(
             form ->
                 form.loginProcessingUrl("/login")
@@ -102,16 +124,13 @@ public class SecurityConfig {
   }
 
   @Bean
-  public org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource() {
-    org.springframework.web.cors.CorsConfiguration configuration =
-        new org.springframework.web.cors.CorsConfiguration();
-    configuration.setAllowedOrigins(
-        java.util.List.of("http://localhost:5173", "http://localhost:5174"));
-    configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-    configuration.setAllowedHeaders(java.util.List.of("*"));
+  public CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration configuration = new CorsConfiguration();
+    configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174"));
+    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    configuration.setAllowedHeaders(List.of("*"));
     configuration.setAllowCredentials(true);
-    org.springframework.web.cors.UrlBasedCorsConfigurationSource source =
-        new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
     return source;
   }

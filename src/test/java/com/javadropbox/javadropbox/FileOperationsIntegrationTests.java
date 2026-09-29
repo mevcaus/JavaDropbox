@@ -66,12 +66,11 @@ class FileOperationsIntegrationTests {
     users.save(new User("owner", "unused", "ROLE_ADMIN"));
   }
 
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
   @AfterEach
   void tearDown() throws IOException {
-    history.deleteAllInBatch();
-    versions.deleteAllInBatch();
-    metadata.deleteAllInBatch();
-    users.deleteAllInBatch();
+    TestDatabase.wipe(jdbc);
     try (Stream<Path> entries = Files.list(servingDir)) {
       for (Path entry : entries.toList()) {
         deleteTree(entry);

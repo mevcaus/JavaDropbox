@@ -49,6 +49,13 @@ class StoragePathSecurityTests {
 
   @Autowired private UserRepository userRepository;
 
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+  @org.junit.jupiter.api.AfterEach
+  void tearDown() {
+    TestDatabase.wipe(jdbc);
+  }
+
   @BeforeEach
   void setUp() throws IOException {
     if (userRepository.count() == 0) {

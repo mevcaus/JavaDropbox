@@ -24,12 +24,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"app.setup.required=false", "app.setup.filter.enabled=true"})
 @DisplayName("Share Link Integration Tests")
 class ShareLinkIntegrationTests {
 
@@ -56,9 +54,11 @@ class ShareLinkIntegrationTests {
     Files.writeString(servingDir.resolve("shared.txt"), "share me");
   }
 
+  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
   @AfterEach
   void tearDown() {
-    userRepository.deleteAll();
+    TestDatabase.wipe(jdbc);
   }
 
   @Test
