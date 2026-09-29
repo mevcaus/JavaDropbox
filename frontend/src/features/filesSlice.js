@@ -2,35 +2,19 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../services/api';
 import { clearUser, logoutUser } from './authSlice';
 
-const API_ENDPOINTS = {
-    FILES: '/api/files',
-    DIRECTORY_INFO: '/api/directory-info',
-    CREATE_DIRECTORY: '/api/create-directory',
-    UPLOAD: '/api/upload',
-    DELETE: '/api/delete'
-};
+// GET lists the tree, POST uploads into a folder, DELETE removes an item (see FileController).
+export const FILES_ENDPOINT = '/api/files';
+export const FOLDERS_ENDPOINT = '/api/folders';
+export const DOWNLOAD_ENDPOINT = '/api/files/download';
 
 export const fetchFiles = createAsyncThunk(
     'files/fetchFiles',
     async (_, { rejectWithValue }) => {
         try {
-            const response = await api.get(API_ENDPOINTS.FILES);
+            const response = await api.get(FILES_ENDPOINT);
             return response.data;
         } catch (error) {
             return rejectWithValue(error.response?.data || 'Failed to fetch files');
-        }
-    }
-);
-
-
-export const fetchDirectoryInfo = createAsyncThunk(
-    'files/fetchDirectoryInfo',
-    async (_, { rejectWithValue }) => {
-        try {
-            const response = await api.get(API_ENDPOINTS.DIRECTORY_INFO);
-            return response.data;
-        } catch (error) {
-            return rejectWithValue(error.response?.data || 'Failed to fetch directory info');
         }
     }
 );
@@ -43,7 +27,7 @@ export const createDirectory = createAsyncThunk(
             const formData = new FormData();
             formData.append('path', path);
             formData.append('name', name);
-            const response = await api.post(API_ENDPOINTS.CREATE_DIRECTORY, formData);
+            const response = await api.post(FOLDERS_ENDPOINT, formData);
             dispatch(fetchFiles());
             return response.data;
         } catch (error) {
@@ -65,7 +49,7 @@ export const uploadFiles = createAsyncThunk(
             const fileArray = Array.from(files);
             fileArray.forEach((file) => formData.append('files', file));
 
-            const response = await api.post(API_ENDPOINTS.UPLOAD, formData);
+            const response = await api.post(FILES_ENDPOINT, formData);
             dispatch(fetchFiles());
             return response.data;
         } catch (error) {
@@ -80,7 +64,7 @@ export const deleteItem = createAsyncThunk(
     'files/deleteItem',
     async (path, { rejectWithValue, dispatch }) => {
         try {
-            await api.delete(`${API_ENDPOINTS.DELETE}?path=${encodeURIComponent(path)}`);
+            await api.delete(FILES_ENDPOINT, { params: { path } });
             dispatch(fetchFiles());
             return path;
         } catch (error) {
@@ -92,7 +76,6 @@ export const deleteItem = createAsyncThunk(
 const initialState = {
     files: [],
     currentPath: '',
-    directoryInfo: null,
     loading: false,
     error: null,
 };
@@ -118,9 +101,6 @@ const filesSlice = createSlice({
             .addCase(fetchFiles.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.payload;
-            })
-            .addCase(fetchDirectoryInfo.fulfilled, (state, action) => {
-                state.directoryInfo = action.payload;
             })
             // Drop the previous session's tree so it is not on screen for whoever signs in next
             .addCase(logoutUser.fulfilled, () => initialState)

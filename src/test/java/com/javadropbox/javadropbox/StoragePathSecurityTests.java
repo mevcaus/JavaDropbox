@@ -70,7 +70,7 @@ class StoragePathSecurityTests {
   @DisplayName("deleting the root folder, under any spelling, is refused")
   void deletingRootIsRefused(String path) throws Exception {
     mockMvc
-        .perform(delete("/api/delete").param("path", path).with(csrf()))
+        .perform(delete("/api/files").param("path", path).with(csrf()))
         .andExpect(status().isBadRequest());
 
     assertThat(servingDir).isDirectory();
@@ -81,7 +81,9 @@ class StoragePathSecurityTests {
   @ValueSource(strings = {"../secret.txt", "a/../../secret.txt", "/etc/passwd"})
   @DisplayName("paths outside the serving directory are refused")
   void traversalIsRefused(String path) throws Exception {
-    mockMvc.perform(get("/api/download").param("path", path)).andExpect(status().isBadRequest());
+    mockMvc
+        .perform(get("/api/files/download").param("path", path))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -91,10 +93,10 @@ class StoragePathSecurityTests {
     Files.writeString(servingDir.resolve(".versions/keep.txt.v1"), "old");
 
     mockMvc
-        .perform(get("/api/download").param("path", ".versions/keep.txt.v1"))
+        .perform(get("/api/files/download").param("path", ".versions/keep.txt.v1"))
         .andExpect(status().isBadRequest());
     mockMvc
-        .perform(delete("/api/delete").param("path", ".versions").with(csrf()))
+        .perform(delete("/api/files").param("path", ".versions").with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(post("/api/share").param("path", ".versions/keep.txt.v1").with(csrf()))
@@ -110,7 +112,7 @@ class StoragePathSecurityTests {
     Files.writeString(servingDir.resolve(".javadropbox/share-jwt.key"), "key");
 
     mockMvc
-        .perform(get("/api/download").param("path", ".javadropbox/share-jwt.key"))
+        .perform(get("/api/files/download").param("path", ".javadropbox/share-jwt.key"))
         .andExpect(status().isBadRequest());
   }
 
@@ -130,7 +132,7 @@ class StoragePathSecurityTests {
     Files.createSymbolicLink(link, outsideDir);
 
     mockMvc
-        .perform(get("/api/download").param("path", "escape/secret.txt"))
+        .perform(get("/api/files/download").param("path", "escape/secret.txt"))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(get("/api/files"))
@@ -155,7 +157,7 @@ class StoragePathSecurityTests {
         new MockMultipartFile("files", "notes..v2.txt", "text/plain", "hello".getBytes());
 
     mockMvc
-        .perform(multipart("/api/upload").file(file).param("path", "").with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", "").with(csrf()))
         .andExpect(status().isOk());
 
     assertThat(servingDir.resolve("notes..v2.txt")).hasContent("hello");
@@ -168,7 +170,7 @@ class StoragePathSecurityTests {
     MockMultipartFile file = new MockMultipartFile("files", name, "text/plain", "x".getBytes());
 
     mockMvc
-        .perform(multipart("/api/upload").file(file).param("path", "").with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", "").with(csrf()))
         .andExpect(status().isBadRequest());
   }
 }

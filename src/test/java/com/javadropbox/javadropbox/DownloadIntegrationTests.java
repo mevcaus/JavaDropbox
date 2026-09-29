@@ -78,7 +78,7 @@ class DownloadIntegrationTests {
   void folderDownloadsAsZip() throws Exception {
     MockHttpServletResponse response =
         mockMvc
-            .perform(get("/api/download").param("path", "docs"))
+            .perform(get("/api/files/download").param("path", "docs"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("application/zip"))
             .andReturn()
@@ -113,7 +113,7 @@ class DownloadIntegrationTests {
 
     MockHttpServletResponse response =
         mockMvc
-            .perform(get("/api/download").param("path", name))
+            .perform(get("/api/files/download").param("path", name))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse();
@@ -126,7 +126,8 @@ class DownloadIntegrationTests {
   @DisplayName("file downloads support range requests, so they can be resumed")
   void fileDownloadSupportsRanges() throws Exception {
     mockMvc
-        .perform(get("/api/download").param("path", "docs/top.txt").header("Range", "bytes=1-2"))
+        .perform(
+            get("/api/files/download").param("path", "docs/top.txt").header("Range", "bytes=1-2"))
         .andExpect(status().isPartialContent())
         .andExpect(content().string("op"));
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { fetchFiles, deleteItem, setCurrentPath, selectCurrentFiles, createDirectory, uploadFiles } from '../features/filesSlice';
+import { fetchFiles, deleteItem, setCurrentPath, selectCurrentFiles, createDirectory, uploadFiles, DOWNLOAD_ENDPOINT } from '../features/filesSlice';
 import FileTable from '../components/FileTable';
 import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
@@ -89,7 +89,7 @@ const Dashboard = () => {
     const handleDownload = async (file) => {
         try {
             const path = file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
-            const response = await api.get(`/api/download?path=${encodeURIComponent(path)}`, {
+            const response = await api.get(`${DOWNLOAD_ENDPOINT}?path=${encodeURIComponent(path)}`, {
                 responseType: 'blob',
             });
 

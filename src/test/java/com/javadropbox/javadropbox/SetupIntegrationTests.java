@@ -80,7 +80,7 @@ class SetupIntegrationTests {
         .andExpect(redirectedUrl("/setup"));
 
     mockMvc
-        .perform(get("/api/directory-info"))
+        .perform(get("/api/storage"))
         .andExpect(status().is3xxRedirection())
         .andExpect(redirectedUrl("/setup"));
   }
@@ -257,7 +257,7 @@ class SetupIntegrationTests {
   @DisplayName("POST to non-setup endpoints should redirect to setup")
   void postToNonSetupEndpointRedirectsToSetup() throws Exception {
     mockMvc
-        .perform(post("/api/upload").with(csrf()))
+        .perform(post("/api/files").with(csrf()))
         .andExpect(status().is3xxRedirection())
         .andExpect(redirectedUrl("/setup"));
   }

@@ -92,7 +92,7 @@ class SecurityIntegrationTests {
   @WithMockUser(username = "testuser")
   void apiErrorsAreJson() throws Exception {
     mockMvc
-        .perform(get("/api/download").param("path", "missing.txt"))
+        .perform(get("/api/files/download").param("path", "missing.txt"))
         .andExpect(status().isNotFound())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON));
   }
@@ -108,7 +108,7 @@ class SecurityIntegrationTests {
     @Test
     @DisplayName("Unauthenticated user cannot access directory-info")
     void unauthenticatedUserCannotAccessDirectoryInfo() throws Exception {
-      mockMvc.perform(get("/api/directory-info")).andExpect(status().isUnauthorized());
+      mockMvc.perform(get("/api/storage")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -118,7 +118,7 @@ class SecurityIntegrationTests {
         roles = {"USER"})
     void authenticatedUserCanAccessDirectoryInfo() throws Exception {
       mockMvc
-          .perform(get("/api/directory-info"))
+          .perform(get("/api/storage"))
           .andExpect(status().isOk())
           .andExpect(content().contentType(MediaType.APPLICATION_JSON));
     }
@@ -191,7 +191,7 @@ class SecurityIntegrationTests {
         roles = {"USER"})
     void apiEndpointsReturnJson() throws Exception {
       mockMvc
-          .perform(get("/api/directory-info").accept(MediaType.APPLICATION_JSON))
+          .perform(get("/api/storage").accept(MediaType.APPLICATION_JSON))
           .andExpect(status().isOk())
           .andExpect(content().contentType(MediaType.APPLICATION_JSON));
     }

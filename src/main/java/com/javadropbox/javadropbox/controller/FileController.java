@@ -21,27 +21,30 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** File management endpoints. */
+/**
+ * Files and folders, addressed by their path relative to the storage root. Items with metadata also
+ * have an id, used by the version endpoints in {@link FileVersionController}.
+ */
 @RestController
-@Tag(name = "Web", description = "Endpoints for file management and directory info")
-public class WebController {
+@Tag(name = "Files", description = "Browse, upload, download, delete and create files and folders")
+public class FileController {
 
   private final FileService fileService;
   private final FileTreeService fileTreeService;
   private final StoragePaths storagePaths;
 
-  public WebController(
+  public FileController(
       FileService fileService, FileTreeService fileTreeService, StoragePaths storagePaths) {
     this.fileService = fileService;
     this.fileTreeService = fileTreeService;
     this.storagePaths = storagePaths;
   }
 
-  @GetMapping("/api/directory-info")
+  @GetMapping("/api/storage")
   @Operation(
-      summary = "Get directory info",
-      description = "Returns information about the root directory. Requires authentication.")
-  public Map<String, Object> getDirectoryInfo() {
+      summary = "Get storage info",
+      description = "Where files are stored and whether that directory is usable.")
+  public Map<String, Object> getStorageInfo() {
     Path root = storagePaths.root();
     return Map.of(
         "path", root.toString(),
@@ -53,51 +56,50 @@ public class WebController {
   @GetMapping("/api/files")
   @Operation(
       summary = "Get file tree",
-      description =
-          "Returns a hierarchical tree of all files and directories. Requires authentication.")
+      description = "The whole tree of files and folders, folders first, each sorted by name.")
   public List<FileTreeNode> getFileTree() {
     return fileTreeService.tree();
   }
 
-  @GetMapping("/api/download")
+  @GetMapping("/api/files/download")
   @Operation(
       summary = "Download a file or folder",
-      description =
-          "Downloads the file at the path, or a folder as a zip. Requires authentication.")
-  public ResponseEntity<Resource> downloadFileOrFolder(
-      @RequestParam String path, HttpServletResponse response) throws IOException {
+      description = "The file at the path, or a folder as a zip streamed as it is built.")
+  public ResponseEntity<Resource> download(@RequestParam String path, HttpServletResponse response)
+      throws IOException {
     return DownloadResponses.send(fileService.download(path), response);
   }
 
-  @PostMapping("/api/upload")
+  @PostMapping("/api/files")
   @Operation(
       summary = "Upload files",
       description =
-          "Uploads one or more files to the specified directory path. Requires authentication.")
-  public Map<String, String> uploadFiles(
+          "Stores one or more files in the folder at path (the root when empty). A file that"
+              + " already exists is replaced and its previous content kept as a version.")
+  public Map<String, String> upload(
       @RequestParam("files") MultipartFile[] files,
       @RequestParam(value = "path", defaultValue = "") String path)
       throws IOException {
     fileService.upload(files, path);
-    return Map.of("message", "Files uploaded successfully!");
+    return Map.of("message", "Uploaded " + files.length + (files.length == 1 ? " file" : " files"));
   }
 
-  @DeleteMapping("/api/delete")
+  @DeleteMapping("/api/files")
   @Operation(
-      summary = "Delete an item",
-      description = "Deletes the file or folder at the specified path. Requires authentication.")
-  public Map<String, String> deleteItem(@RequestParam String path) throws IOException {
+      summary = "Delete a file or folder",
+      description = "Deletes the item at path, a folder with everything in it, and its versions.")
+  public Map<String, String> delete(@RequestParam String path) throws IOException {
     fileService.delete(path);
-    return Map.of("message", "Item deleted successfully: " + path);
+    return Map.of("message", "Deleted " + path);
   }
 
-  @PostMapping("/api/create-directory")
+  @PostMapping("/api/folders")
   @Operation(
-      summary = "Create directory",
-      description = "Creates a new directory at the specified path. Requires authentication.")
-  public Map<String, String> createDirectory(@RequestParam String path, @RequestParam String name)
-      throws IOException {
+      summary = "Create a folder",
+      description = "Creates a folder called name inside the folder at path.")
+  public Map<String, String> createFolder(
+      @RequestParam(defaultValue = "") String path, @RequestParam String name) throws IOException {
     fileService.createFolder(path, name);
-    return Map.of("message", "Directory created successfully: " + name);
+    return Map.of("message", "Created folder " + name);
   }
 }

@@ -278,7 +278,7 @@ class FileOperationsIntegrationTests {
     createFolder("", "dup");
 
     mockMvc
-        .perform(post("/api/create-directory").param("path", "").param("name", "dup").with(csrf()))
+        .perform(post("/api/folders").param("path", "").param("name", "dup").with(csrf()))
         .andExpect(status().isConflict());
 
     assertThat(history.findAll())
@@ -293,7 +293,7 @@ class FileOperationsIntegrationTests {
     String name = "x".repeat(256);
 
     mockMvc
-        .perform(post("/api/create-directory").param("path", "").param("name", name).with(csrf()))
+        .perform(post("/api/folders").param("path", "").param("name", name).with(csrf()))
         .andExpect(status().isBadRequest());
 
     assertThat(servingDir.resolve("x".repeat(255))).doesNotExist();
@@ -313,7 +313,7 @@ class FileOperationsIntegrationTests {
   @DisplayName("deleting something that does not exist is a 404, not a 500")
   void deleteMissingIsNotFound() throws Exception {
     mockMvc
-        .perform(delete("/api/delete").param("path", "nope.txt").with(csrf()))
+        .perform(delete("/api/files").param("path", "nope.txt").with(csrf()))
         .andExpect(status().isNotFound());
   }
 
@@ -334,20 +334,19 @@ class FileOperationsIntegrationTests {
         new MockMultipartFile(
             "files", name, "text/plain", content.getBytes(StandardCharsets.UTF_8));
     mockMvc
-        .perform(multipart("/api/upload").file(file).param("path", folder).with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", folder).with(csrf()))
         .andExpect(status().isOk());
   }
 
   private void createFolder(String parent, String name) throws Exception {
     mockMvc
-        .perform(
-            post("/api/create-directory").param("path", parent).param("name", name).with(csrf()))
+        .perform(post("/api/folders").param("path", parent).param("name", name).with(csrf()))
         .andExpect(status().isOk());
   }
 
   private void deletePath(String path) throws Exception {
     mockMvc
-        .perform(delete("/api/delete").param("path", path).with(csrf()))
+        .perform(delete("/api/files").param("path", path).with(csrf()))
         .andExpect(status().isOk());
   }
 
