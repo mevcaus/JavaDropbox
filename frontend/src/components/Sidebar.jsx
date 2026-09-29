@@ -1,28 +1,14 @@
 import { NavLink } from 'react-router-dom';
-import { Folder, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Folder, HardDrive, ChevronLeft, ChevronRight } from 'lucide-react';
 import Logo from './Logo';
 import { useSelector } from 'react-redux';
 import { selectTotalSize } from '../features/filesSlice';
+import { formatSize } from '../utils/format';
 
 const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
     const totalSizeBytes = useSelector(selectTotalSize);
 
-    // Constant quota for now (5GB)
-    const QUOTA_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB
-    const usedPercentage = Math.min((totalSizeBytes / QUOTA_BYTES) * 100, 100);
-
-    const formatSize = (bytes) => {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    };
-
-    const navigation = [
-        { name: 'My Files', href: '/dashboard', icon: Folder },
-        { name: 'Recent', href: '/recent', icon: Clock },
-    ];
+    const navigation = [{ name: 'My Files', href: '/dashboard', icon: Folder }];
 
     return (
         <div className="h-full flex flex-col bg-slate-900 text-white w-full">
@@ -32,6 +18,7 @@ const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
                 </div>
                 <button
                     onClick={toggleCollapse}
+                    aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     className="absolute -right-3 top-8 bg-slate-800 rounded-full p-1 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors focus:outline-none hidden lg:block"
                 >
                     {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -64,22 +51,12 @@ const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
                 </nav>
             </div>
 
-            <div className="p-4 bg-slate-950">
-                {!isCollapsed ? (
-                    <>
-                        <div className="w-full bg-slate-800 rounded-full h-2.5 dark:bg-slate-700">
-                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${usedPercentage}%` }}></div>
-                        </div>
-                        <p className="mt-2 text-xs text-slate-400">{formatSize(totalSizeBytes)} of 5 GB used</p>
-                    </>
-                ) : (
-                    /* Small compact usage indicator or just hide it */
-                    <div className="flex flex-col items-center">
-                        <div className="w-2 bg-slate-800 rounded-full h-10 dark:bg-slate-700 relative overflow-hidden">
-                            <div className="bg-blue-600 w-full absolute bottom-0 rounded-full" style={{ height: `${usedPercentage}%` }}></div>
-                        </div>
-                    </div>
-                )}
+            {/* There is no quota to measure against, so this reports what is stored and nothing more. */}
+            <div className="p-4 bg-slate-950" title={`${formatSize(totalSizeBytes)} stored`}>
+                <div className={`flex items-center text-xs text-slate-400 ${isCollapsed ? 'justify-center' : ''}`}>
+                    <HardDrive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                    {!isCollapsed && <span className="ml-2">{formatSize(totalSizeBytes)} stored</span>}
+                </div>
             </div>
         </div>
     );

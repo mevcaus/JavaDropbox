@@ -177,6 +177,23 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
+  @DisplayName("versions are listed newest first, with their size in bytes and author")
+  void versionsAreListed() throws Exception {
+    upload("", "list.txt", "a");
+    upload("", "list.txt", "bb");
+    upload("", "list.txt", "ccc");
+
+    mockMvc
+        .perform(get("/api/files/" + idOf("list.txt") + "/versions"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].version").value(2))
+        .andExpect(jsonPath("$[0].size").value(2))
+        .andExpect(jsonPath("$[0].createdBy").value("owner"))
+        .andExpect(jsonPath("$[1].version").value(1))
+        .andExpect(jsonPath("$[1].size").value(1));
+  }
+
+  @Test
   @DisplayName("versions beyond the retention limit are pruned from the database and the disk")
   void oldVersionsArePruned() throws Exception {
     for (String content : List.of("1", "2", "3", "4")) {

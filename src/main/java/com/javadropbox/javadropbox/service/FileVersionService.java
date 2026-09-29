@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
+import com.javadropbox.javadropbox.dto.FileVersionDto;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.FileVersion;
@@ -40,11 +41,14 @@ public class FileVersionService {
     this.maxRetained = maxRetained;
   }
 
+  /** The stored versions of a file, newest first. */
   @Transactional(readOnly = true)
-  public List<FileVersion> list(Long fileId) {
+  public List<FileVersionDto> list(Long fileId) {
     FileMetadata file =
         files.findById(fileId).orElseThrow(() -> new NotFoundException("File not found"));
-    return versions.findByFileMetadataOrderByVersionDesc(file);
+    return versions.findByFileMetadataOrderByVersionDesc(file).stream()
+        .map(FileVersionDto::fromEntity)
+        .toList();
   }
 
   /**

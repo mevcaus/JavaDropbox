@@ -9,9 +9,6 @@ import { ToastProvider } from './contexts/ToastContext';
 import { fetchCurrentUser } from './features/authSlice';
 import { Loader2 } from 'lucide-react';
 
-// Placeholder for Dashboard until implemented
-// const Dashboard = () => <div className="p-4"><h2>Dashboard</h2><p>Files will be listed here.</p></div>;
-
 function App() {
   const dispatch = useDispatch();
   const { isInitialized } = useSelector((state) => state.auth);
@@ -38,7 +35,6 @@ function App() {
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
-            <Route path="recent" element={<div className="p-4">Recent Files Placeholder</div>} />
           </Route>
         </Routes>
       </BrowserRouter>

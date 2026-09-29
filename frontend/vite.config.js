@@ -13,17 +13,14 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
-        configure: (proxy) => {
-          proxy.on('error', (err) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req) => {
-            console.log('Sending Request to the Target:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req) => {
-            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
-          });
-        },
+      },
+      // Public share links. The backend builds them from the request's host, which changeOrigin
+      // rewrites to the backend's, so they point at :8080 directly; this entry makes a link that
+      // was opened through the dev server work too.
+      '/share': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
       },
       '/setup': {
         target: 'http://localhost:8080',
@@ -38,7 +35,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         // Only the POST that authenticates goes to the backend. GET /login is a client-side
-        // route, so let Vite serve the SPA -- forwarding it hits a stale Thymeleaf view and 500s.
+        // route, so let Vite serve the SPA with hot reload rather than the backend's built copy.
         bypass: (req) => (req.method !== 'POST' ? '/index.html' : undefined),
       },
       '/logout': {

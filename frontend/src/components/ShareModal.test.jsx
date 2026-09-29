@@ -96,6 +96,40 @@ describe('ShareModal', () => {
         expect(addToast).toHaveBeenCalledWith('Link copied to clipboard', 'success');
     });
 
+    it('falls back to selecting the link where the Clipboard API does not exist (plain http)', async () => {
+        const user = userEvent.setup();
+        api.post.mockResolvedValueOnce({ data: { url: SHARE_URL } });
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+        document.execCommand = vi.fn().mockReturnValue(true);
+        renderModal();
+
+        await user.click(generateButton());
+        await user.click(await screen.findByTitle(/Copy link/i));
+
+        expect(document.execCommand).toHaveBeenCalledWith('copy');
+        expect(screen.getByLabelText('Share link')).toHaveFocus();
+        expect(addToast).toHaveBeenCalledWith('Link copied to clipboard', 'success');
+    });
+
+    it('tells the user to copy by hand when no copy method works', async () => {
+        const user = userEvent.setup();
+        api.post.mockResolvedValueOnce({ data: { url: SHARE_URL } });
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+        document.execCommand = vi.fn().mockReturnValue(false);
+        renderModal();
+
+        await user.click(generateButton());
+        await user.click(await screen.findByTitle(/Copy link/i));
+
+        expect(addToast).toHaveBeenCalledWith(expect.stringMatching(/press Ctrl\+C/), 'info');
+    });
+
+    it('warns that a folder link also serves files added later', () => {
+        renderModal({ item: { ...FILE, isDirectory: true } });
+
+        expect(screen.getByText(/including files added later/i)).toBeInTheDocument();
+    });
+
     it('shows the server error and no link when generation fails', async () => {
         const user = userEvent.setup();
         api.post.mockRejectedValueOnce({ response: { data: { message: 'Path is outside the share root' } } });

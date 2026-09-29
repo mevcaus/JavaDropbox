@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../services/api';
 import { clearUser, logoutUser } from './authSlice';
+import { readableError } from '../utils/errors';
 
 // GET lists the tree, POST uploads into a folder, DELETE removes an item (see FileController).
 export const FILES_ENDPOINT = '/api/files';
@@ -14,7 +15,7 @@ export const fetchFiles = createAsyncThunk(
             const response = await api.get(FILES_ENDPOINT);
             return response.data;
         } catch (error) {
-            return rejectWithValue(error.response?.data || 'Failed to fetch files');
+            return rejectWithValue(readableError(error, 'Failed to load files.'));
         }
     }
 );
@@ -31,7 +32,7 @@ export const createDirectory = createAsyncThunk(
             dispatch(fetchFiles());
             return response.data;
         } catch (error) {
-            return rejectWithValue(error.response?.data || 'Failed to create directory');
+            return rejectWithValue(readableError(error, 'Failed to create folder.'));
         }
     }
 );
@@ -41,7 +42,6 @@ export const uploadFiles = createAsyncThunk(
     'files/uploadFiles',
     async ({ files, path }, { rejectWithValue, dispatch }) => {
         try {
-            console.log('uploadFiles thunk triggered', { files, path });
             const formData = new FormData();
             formData.append('path', path || '');
 
@@ -53,8 +53,7 @@ export const uploadFiles = createAsyncThunk(
             dispatch(fetchFiles());
             return response.data;
         } catch (error) {
-            console.error('Upload failed:', error);
-            return rejectWithValue(error.response?.data || 'Failed to upload files');
+            return rejectWithValue(readableError(error, 'Failed to upload files.'));
         }
     }
 );
@@ -68,7 +67,7 @@ export const deleteItem = createAsyncThunk(
             dispatch(fetchFiles());
             return path;
         } catch (error) {
-            return rejectWithValue(error.response?.data || 'Failed to delete item');
+            return rejectWithValue(readableError(error, 'Failed to delete item.'));
         }
     }
 );
@@ -77,6 +76,9 @@ const initialState = {
     files: [],
     currentPath: '',
     loading: false,
+    // Whether the tree has loaded at least once. Refreshes after an upload or delete keep showing
+    // the current tree instead of swapping the page for a spinner.
+    loaded: false,
     error: null,
 };
 
@@ -96,6 +98,7 @@ const filesSlice = createSlice({
             })
             .addCase(fetchFiles.fulfilled, (state, action) => {
                 state.loading = false;
+                state.loaded = true;
                 state.files = action.payload;
             })
             .addCase(fetchFiles.rejected, (state, action) => {

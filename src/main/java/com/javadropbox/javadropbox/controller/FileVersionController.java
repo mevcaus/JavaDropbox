@@ -34,7 +34,7 @@ public class FileVersionController {
       summary = "Get file versions",
       description = "Returns all versions of a specific file. Requires authentication.")
   public List<FileVersionDto> getFileVersions(@PathVariable Long fileId) {
-    return fileVersionService.list(fileId).stream().map(FileVersionDto::fromEntity).toList();
+    return fileVersionService.list(fileId);
   }
 
   @PostMapping("/{fileId}/versions/{version}/restore")
