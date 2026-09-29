@@ -1,6 +1,4 @@
 import axios from 'axios';
-import { store } from '../redux/store';
-import { clearUser } from '../features/authSlice';
 
 const api = axios.create({
     baseURL: '', // Use relative path to leverage Vite proxy
@@ -40,16 +38,22 @@ api.interceptors.request.use(async (config) => {
     return config;
 });
 
-// Add response interceptor to drop the cached session when the backend says it is gone.
+// What to do when the backend says the session is gone. The app registers this at startup
+// (see main.jsx) rather than this module importing the store: the store's slices import this
+// module, so importing the store here made the modules depend on each other's load order.
+let handleUnauthorized = () => {};
+
+export const setUnauthorizedHandler = (handler) => {
+    handleUnauthorized = handler;
+};
+
 // Only 401 means "no session" -- a 403 is an authenticated user being refused a specific action,
 // and signing them out over it would throw away a session that is still valid.
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response && error.response.status === 401) {
-            // Dispatch logout action or redirect to login
-            store.dispatch(clearUser());
-            console.error('Unauthorized access', error);
+        if (error.response?.status === 401) {
+            handleUnauthorized();
         }
         return Promise.reject(error);
     }

@@ -61,7 +61,9 @@ export const logoutUser = createAsyncThunk(
     'auth/logoutUser',
     async () => {
         try {
-            await api.get('/logout');
+            // Spring Security only accepts POST for logout while CSRF protection is on; a GET is
+            // a 404 that leaves the server session alive.
+            await api.post('/logout');
         } catch (error) {
             console.error(error);
         }

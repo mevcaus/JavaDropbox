@@ -98,18 +98,20 @@ describe('authSlice', () => {
     describe('logoutUser', () => {
         it('clears the session once the request resolves', async () => {
             store.dispatch(setUser('ada'));
-            api.get.mockResolvedValueOnce({});
+            api.post.mockResolvedValueOnce({});
 
             await store.dispatch(logoutUser());
 
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
-            expect(api.get).toHaveBeenCalledWith('/logout');
+            // POST, not GET: the backend only ends the session for a POST
+            expect(api.post).toHaveBeenCalledWith('/logout');
+            expect(api.get).not.toHaveBeenCalled();
         });
 
         it('still clears the session when the logout request fails', async () => {
             store.dispatch(setUser('ada'));
-            api.get.mockRejectedValueOnce(new Error('Network Error'));
+            api.post.mockRejectedValueOnce(new Error('Network Error'));
 
             await store.dispatch(logoutUser());
 

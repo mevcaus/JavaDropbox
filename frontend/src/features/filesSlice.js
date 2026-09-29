@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../services/api';
+import { clearUser, logoutUser } from './authSlice';
 
 const API_ENDPOINTS = {
     FILES: '/api/files',
@@ -88,15 +89,17 @@ export const deleteItem = createAsyncThunk(
     }
 );
 
+const initialState = {
+    files: [],
+    currentPath: '',
+    directoryInfo: null,
+    loading: false,
+    error: null,
+};
+
 const filesSlice = createSlice({
     name: 'files',
-    initialState: {
-        files: [],
-        currentPath: '',
-        directoryInfo: null,
-        loading: false,
-        error: null,
-    },
+    initialState,
     reducers: {
         setCurrentPath: (state, action) => {
             state.currentPath = action.payload;
@@ -118,7 +121,10 @@ const filesSlice = createSlice({
             })
             .addCase(fetchDirectoryInfo.fulfilled, (state, action) => {
                 state.directoryInfo = action.payload;
-            });
+            })
+            // Drop the previous session's tree so it is not on screen for whoever signs in next
+            .addCase(logoutUser.fulfilled, () => initialState)
+            .addCase(clearUser, () => initialState);
     },
 });
 
