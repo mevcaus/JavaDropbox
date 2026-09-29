@@ -1,7 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.DownloadableResource;
-import com.javadropbox.javadropbox.dto.FileItem;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.dto.Timestamps;
 import com.javadropbox.javadropbox.model.FileHistory;
@@ -31,14 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class FileServingService {
 
-  private static final String VERSIONS_DIR_NAME = ".versions";
-  private static final String SECURITY_ALERT_MESSAGE =
-      "SECURITY ALERT: Attempted path traversal to: ";
-  private static final String PATH_TRAVERSAL_ERROR = "Path Traversal Attempt Forbidden: ";
   private static final String FALLBACK_OWNER = "system";
-
-  @Value("${javadropbox.serving.directory:#{systemProperties['user.dir']}}")
-  private String servingDirectory;
 
   @Value("${javadropbox.versions.max-retained:10}")
   private int maxVersions;
@@ -47,135 +39,39 @@ public class FileServingService {
   private final FileHistoryRepository fileHistoryRepository;
   private final FileVersionRepository fileVersionRepository;
   private final AuthService authService;
+  private final StoragePaths storagePaths;
 
   public FileServingService(
       FileMetadataRepository fileMetadataRepository,
       FileHistoryRepository fileHistoryRepository,
       FileVersionRepository fileVersionRepository,
-      AuthService authService) {
+      AuthService authService,
+      StoragePaths storagePaths) {
     this.fileMetadataRepository = fileMetadataRepository;
     this.fileHistoryRepository = fileHistoryRepository;
     this.fileVersionRepository = fileVersionRepository;
     this.authService = authService;
-  }
-
-  private void validatePathSecurity(Path fullPath, String relativePath) throws IOException {
-    Path rootPath = getServingDirectoryPath();
-    if (!fullPath.startsWith(rootPath)) {
-      System.err.println(SECURITY_ALERT_MESSAGE + fullPath);
-      throw new IOException(PATH_TRAVERSAL_ERROR + relativePath);
-    }
+    this.storagePaths = storagePaths;
   }
 
   public String getServingDirectory() {
-    return servingDirectory;
-  }
-
-  public File getServingDirectoryFile() {
-    return new File(servingDirectory);
-  }
-
-  public Path getServingDirectoryPath() {
-    return Paths.get(servingDirectory);
+    return storagePaths.root().toString();
   }
 
   public boolean isValidDirectory() {
-    File dir = new File(servingDirectory);
-    return dir.exists() && dir.isDirectory();
+    return Files.isDirectory(storagePaths.root());
   }
 
   public boolean canRead() {
-    File dir = new File(servingDirectory);
-    return dir.canRead();
+    return Files.isReadable(storagePaths.root());
   }
 
   public boolean canWrite() {
-    File dir = new File(servingDirectory);
-    return dir.canWrite();
-  }
-
-  public String getDirectoryInfo() {
-    File dir = new File(servingDirectory);
-    StringBuilder info = new StringBuilder();
-
-    info.append("Directory: ").append(dir.getAbsolutePath()).append("\n");
-    info.append("Exists: ").append(dir.exists()).append("\n");
-    info.append("Readable: ").append(dir.canRead()).append("\n");
-    info.append("Writable: ").append(dir.canWrite()).append("\n");
-
-    if (dir.exists()) {
-      File[] files = dir.listFiles();
-      int fileCount = 0;
-      int dirCount = 0;
-
-      if (files != null) {
-        for (File file : files) {
-          if (file.isDirectory()) {
-            dirCount++;
-          } else {
-            fileCount++;
-          }
-        }
-      }
-
-      info.append("Files: ").append(fileCount).append("\n");
-      info.append("Directories: ").append(dirCount).append("\n");
-    }
-
-    return info.toString();
-  }
-
-  public List<FileItem> listFiles(String subpath) {
-    // Keeping FS as source of truth for listing for now
-    Path rootPath = getServingDirectoryPath();
-    Path currentPath;
-
-    if (subpath == null || subpath.isEmpty() || subpath.equals("/")) {
-      currentPath = rootPath;
-    } else {
-      currentPath = rootPath.resolve(subpath).normalize();
-    }
-
-    try {
-      validatePathSecurity(currentPath, subpath);
-    } catch (IOException e) {
-      return Collections.emptyList();
-    }
-
-    File currentDir = currentPath.toFile();
-    if (!currentDir.exists() || !currentDir.isDirectory() || !currentDir.canRead()) {
-      return Collections.emptyList();
-    }
-
-    File[] files = currentDir.listFiles();
-    if (files == null) {
-      return Collections.emptyList();
-    }
-
-    Arrays.sort(
-        files,
-        Comparator.comparing(File::isDirectory)
-            .reversed()
-            .thenComparing(File::getName, String.CASE_INSENSITIVE_ORDER));
-
-    List<FileItem> fileItems = new ArrayList<>();
-
-    if (!currentPath.equals(rootPath)) {
-      fileItems.add(new FileItem("..", true, 0));
-    }
-
-    for (File file : files) {
-      if (file.getName().startsWith(".")) {
-        continue;
-      }
-      fileItems.add(new FileItem(file.getName(), file.isDirectory(), file.length()));
-    }
-
-    return fileItems;
+    return Files.isWritable(storagePaths.root());
   }
 
   public List<FileTreeNode> getDirectoryTree() {
-    File rootDir = getServingDirectoryFile();
+    File rootDir = storagePaths.root().toFile();
     if (!isValidDirectory() || !canRead()) {
       return Collections.emptyList();
     }
@@ -191,7 +87,9 @@ public class FileServingService {
     List<FileTreeNode> nodes = new ArrayList<>();
 
     for (File file : files) {
-      if (file.getName().startsWith(".")) {
+      // Symlinks are skipped: one pointing outside the serving directory would expose it, and one
+      // pointing at an ancestor would recurse forever.
+      if (file.getName().startsWith(".") || Files.isSymbolicLink(file.toPath())) {
         continue;
       }
       String currentPath =
@@ -251,23 +149,16 @@ public class FileServingService {
     }
   }
 
+  /**
+   * @throws com.javadropbox.javadropbox.exception.BadRequestException for an invalid path or the
+   *     root, which can never be shared
+   */
   public boolean pathExists(String relativePath) {
-    try {
-      Path fullPath = getServingDirectoryPath().resolve(relativePath).normalize();
-      validatePathSecurity(fullPath, relativePath);
-      return Files.exists(fullPath);
-    } catch (IOException e) {
-      return false;
-    }
+    return Files.exists(storagePaths.resolveItem(relativePath).path());
   }
 
   public DownloadableResource getResourceForPath(String relativePath) throws IOException {
-    Path rootPath = getServingDirectoryPath();
-    Path fullPath = rootPath.resolve(relativePath).normalize();
-
-    if (!fullPath.startsWith(rootPath)) {
-      throw new IOException("Path Traversal Attempt Forbidden: " + relativePath);
-    }
+    Path fullPath = storagePaths.resolveItem(relativePath).path();
 
     File file = fullPath.toFile();
     if (!file.exists()) {
@@ -322,7 +213,14 @@ public class FileServingService {
 
   private void zipDirectory(File folder, String parentPath, ZipOutputStream zos)
       throws IOException {
-    for (File file : folder.listFiles()) {
+    File[] files = folder.listFiles();
+    if (files == null) {
+      throw new IOException("Could not list " + folder);
+    }
+    for (File file : files) {
+      if (Files.isSymbolicLink(file.toPath())) {
+        continue;
+      }
       if (file.isDirectory()) {
         zipDirectory(file, parentPath + "/" + file.getName(), zos);
         continue;
@@ -335,8 +233,8 @@ public class FileServingService {
   }
 
   public void saveUploadedFiles(MultipartFile[] files, String subpath) throws IOException {
-    Path destinationFolder = getServingDirectoryPath().resolve(subpath).normalize();
-    validatePathSecurity(destinationFolder, subpath);
+    StoragePaths.StoragePath folder = storagePaths.resolve(subpath);
+    Path destinationFolder = folder.path();
 
     if (!Files.exists(destinationFolder)) {
       Files.createDirectories(destinationFolder);
@@ -352,18 +250,9 @@ public class FileServingService {
       String originalFilename = file.getOriginalFilename();
 
       try {
-        if (originalFilename == null || originalFilename.contains("..")) {
-          throw new IOException("Invalid filename: " + originalFilename);
-        }
-
-        Path destinationFile = destinationFolder.resolve(originalFilename).normalize();
-
-        if (!destinationFile.getParent().equals(destinationFolder)) {
-          throw new IOException("Invalid destination path in filename: " + originalFilename);
-        }
-
-        String relativeFilePath =
-            subpath.isEmpty() ? originalFilename : subpath + "/" + originalFilename;
+        StoragePaths.StoragePath target = storagePaths.resolveChild(folder, originalFilename);
+        Path destinationFile = target.path();
+        String relativeFilePath = target.key();
         Optional<FileMetadata> existingMetadata =
             fileMetadataRepository.findByPath(relativeFilePath);
 
@@ -420,7 +309,7 @@ public class FileServingService {
 
   private void saveVersion(FileMetadata metadata, Path currentFilePath) throws IOException {
     File currentFile = currentFilePath.toFile();
-    Path versionsDir = getServingDirectoryPath().resolve(VERSIONS_DIR_NAME);
+    Path versionsDir = storagePaths.versionsDir();
     if (!Files.exists(versionsDir)) {
       Files.createDirectories(versionsDir);
     }
@@ -479,7 +368,7 @@ public class FileServingService {
             .findFirst()
             .orElseThrow(() -> new FileNotFoundException("Version not found"));
 
-    Path versionsDir = getServingDirectoryPath().resolve(VERSIONS_DIR_NAME);
+    Path versionsDir = storagePaths.versionsDir();
     Path versionPath = versionsDir.resolve(versionToRestore.getStoredFilename());
 
     if (!Files.exists(versionPath)) {
@@ -510,8 +399,7 @@ public class FileServingService {
         newRelativePath = newFilename;
       }
 
-      Path newFullPath = getServingDirectoryPath().resolve(newRelativePath).normalize();
-      validatePathSecurity(newFullPath, newRelativePath);
+      Path newFullPath = storagePaths.resolveItem(newRelativePath).path();
 
       Files.copy(versionPath, newFullPath, StandardCopyOption.REPLACE_EXISTING);
 
@@ -528,7 +416,7 @@ public class FileServingService {
 
     } else {
       // Restore as OVERWRITE
-      Path currentFilePath = getServingDirectoryPath().resolve(metadata.getPath());
+      Path currentFilePath = storagePaths.resolveItem(metadata.getPath()).path();
       File currentFile = currentFilePath.toFile();
 
       if (currentFile.exists()) {
@@ -548,13 +436,11 @@ public class FileServingService {
   }
 
   public void deleteItem(String relativePath) throws IOException {
-    Path fullPath = getServingDirectoryPath().resolve(relativePath).normalize();
     User currentUser = authService.getMainUser().orElse(null);
     String filename = "unknown";
 
     try {
-      validatePathSecurity(fullPath, relativePath);
-
+      Path fullPath = storagePaths.resolveItem(relativePath).path();
       File itemToDelete = fullPath.toFile();
       if (!itemToDelete.exists()) {
         throw new FileNotFoundException("Item not found: " + relativePath);
@@ -608,7 +494,8 @@ public class FileServingService {
   }
 
   private void deleteRecursively(File file) throws IOException {
-    if (file.isDirectory()) {
+    // Delete a symlink itself, never what it points to.
+    if (file.isDirectory() && !Files.isSymbolicLink(file.toPath())) {
       File[] entries = file.listFiles();
       if (entries != null) {
         for (File entry : entries) {
@@ -625,22 +512,9 @@ public class FileServingService {
     User currentUser = authService.getMainUser().orElse(null);
 
     try {
-      Path parentPath = getServingDirectoryPath().resolve(relativePath).normalize();
-      validatePathSecurity(parentPath, relativePath);
-
-      if (directoryName == null
-          || directoryName.trim().isEmpty()
-          || directoryName.contains("..")
-          || directoryName.contains("/")
-          || directoryName.contains("\\")) {
-        throw new IOException("Invalid directory name: " + directoryName);
-      }
-
-      Path newDirPath = parentPath.resolve(directoryName).normalize();
-
-      if (!newDirPath.getParent().equals(parentPath)) {
-        throw new IOException("Invalid directory path");
-      }
+      StoragePaths.StoragePath target =
+          storagePaths.resolveChild(storagePaths.resolve(relativePath), directoryName);
+      Path newDirPath = target.path();
 
       if (Files.exists(newDirPath)) {
         throw new IOException("Directory already exists: " + directoryName);
@@ -649,11 +523,8 @@ public class FileServingService {
       Files.createDirectories(newDirPath);
 
       try {
-        String fullRelativePath =
-            relativePath.isEmpty() ? directoryName : relativePath + "/" + directoryName;
-
         FileMetadata metadata =
-            new FileMetadata(fullRelativePath, directoryName, 0L, true, currentUser);
+            new FileMetadata(target.key(), directoryName, 0L, true, currentUser);
         FileMetadata savedMetadata = fileMetadataRepository.save(metadata);
 
         FileHistory history =
