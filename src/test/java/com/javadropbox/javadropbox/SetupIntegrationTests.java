@@ -28,23 +28,18 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @DisplayName("Setup Integration Tests - Pre-Setup State")
 class SetupIntegrationTests {
 
-  // Runs against a real PostgreSQL 15 container -- the same major version as
-  // compose.yaml and production -- rather than the H2 default in
+  // Runs against a real PostgreSQL container with the schema built by the
+  // Flyway migrations, rather than the H2 default in
   // src/test/resources/application.properties, so this class exercises the
-  // dialect the app actually ships against. The other integration tests stay
+  // database the app actually ships against. The other integration tests stay
   // on H2 for speed.
   @Container
-  static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:15");
+  static final PostgreSQLContainer<?> POSTGRES =
+      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
 
   @DynamicPropertySource
   static void overrideDatasource(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-    registry.add("spring.datasource.username", POSTGRES::getUsername);
-    registry.add("spring.datasource.password", POSTGRES::getPassword);
-    // The H2 driver and dialect are pinned in the test application.properties,
-    // so both need overriding here too or Hibernate would talk H2 to Postgres.
-    registry.add("spring.datasource.driverClassName", POSTGRES::getDriverClassName);
-    registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
+    PostgresTestSupport.register(registry, POSTGRES);
   }
 
   @Autowired private MockMvc mockMvc;

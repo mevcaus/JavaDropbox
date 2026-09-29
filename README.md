@@ -28,6 +28,7 @@ A **full-stack, self-hosted cloud storage platform** built from scratch — insp
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
+- [Database Migrations](#database-migrations)
 - [API Reference](#api-reference)
 - [Testing](#testing)
 - [CI/CD Pipeline](#cicd-pipeline)
@@ -164,10 +165,11 @@ With async thunks for file operations (upload, delete, fetch, create directory),
 | **Backend** | Java 21, Spring Boot 3.5 | REST API, dependency injection, auto-configuration |
 | **Security** | Spring Security 6 | Authentication, authorization, CSRF, session management |
 | **ORM** | Spring Data JPA + Hibernate | Object-relational mapping, repository pattern |
+| **Migrations** | Flyway | Versioned SQL schema migrations; Hibernate only validates |
 | **Database** | PostgreSQL 15 | Persistent storage for users, metadata, versions, history |
 | **Auth Tokens** | JJWT 0.12 | Signed, stateless share-link tokens (HMAC-SHA256) |
 | **API Docs** | springdoc-openapi 2.8 | OpenAPI 3 spec + Swagger UI generated from controllers |
-| **Testing** | JUnit 5, MockMvc, H2 (in-memory) | Backend integration tests with isolated test database |
+| **Testing** | JUnit 5, MockMvc, H2, Testcontainers | Backend integration tests on H2, plus real PostgreSQL for schema and setup tests |
 | **Frontend Testing** | Vitest, Testing Library, jsdom | Component tests driving the real DOM with real user events |
 | **Code Style** | Spotless + google-java-format | Enforced formatting, ratcheted against `main` |
 | **Frontend** | React 19, Vite 7 | Component-based SPA with HMR |
@@ -253,15 +255,20 @@ JavaDropbox/
 │       ├── FileServingService.java  # Core: file I/O, versioning, ZIP, security
 │       ├── ShareTokenService.java  # JWT signing/validation for share links
 │       └── AuthService.java        # User setup + lookup
+├── src/main/resources/
+│   ├── db/migration/               # Flyway migrations (V1__baseline.sql, ...)
+│   └── application.properties
 ├── src/test/
 │   ├── java/com/javadropbox/javadropbox/
 │   │   ├── SecurityIntegrationTests.java  # Auth, roles, session, content-type
 │   │   ├── SetupIntegrationTests.java     # First-run flow, filter redirect
 │   │   ├── ShareLinkIntegrationTests.java # Token issue/expiry/tamper, public download
 │   │   ├── SwaggerIntegrationTests.java   # Docs reachable pre- and post-setup
+│   │   ├── FlywayMigrationIntegrationTests.java # Migrations build an empty Postgres
+│   │   ├── FlywayBaselineIntegrationTests.java  # Pre-Flyway databases are adopted
 │   │   └── JavaDropBoxApplicationTests.java
 │   └── resources/
-│       └── application.properties  # H2 in-memory DB for test isolation
+│       └── application.properties  # H2 in-memory DB for test isolation, Flyway off
 ├── build.gradle                    # Dependencies, Spring Boot plugin, Spotless
 ├── compose.yaml                    # PostgreSQL Docker service
 ├── Dockerfile                      # Multi-stage: Gradle build → JRE runtime
@@ -327,6 +334,24 @@ npm run dev
 
 ---
 
+## Database Migrations
+
+The schema is owned by [Flyway](https://documentation.red-gate.com/flyway). Migrations live in `src/main/resources/db/migration` and run automatically on startup, before Hibernate starts. Hibernate runs with `ddl-auto=validate`: it checks that the entity classes match the migrated schema and refuses to start if they don't, but it never changes the database itself.
+
+**Adding a migration.** Any change to an entity's columns, tables or constraints needs a matching migration:
+
+1. Create `src/main/resources/db/migration/V<next number>__<what_it_does>.sql`, e.g. `V2__add_file_metadata_path_index.sql`. Write plain PostgreSQL.
+2. Update the entity to match.
+3. Run `./gradlew test`. The Flyway tests run every migration against a real PostgreSQL container and then validate the entities against the result, so a mismatch fails here instead of at startup.
+
+Never edit a migration once it has been merged. Flyway checksums applied migrations and refuses to start if one changes; fix mistakes with a new migration.
+
+**Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
+
+**Tests.** The H2 integration tests keep `ddl-auto=create-drop` with Flyway disabled, because the migrations are PostgreSQL SQL. Tests that need the real schema run against Testcontainers PostgreSQL through `PostgresTestSupport`, which applies the production Flyway and `ddl-auto` settings unchanged.
+
+---
+
 ## API Reference
 
 All endpoints require authentication unless noted otherwise. For a live, interactive reference of all REST API endpoints, visit the [Swagger UI](http://localhost:8080/swagger-ui.html) locally while the backend is running.
@@ -374,7 +399,7 @@ All endpoints require authentication unless noted otherwise. For a live, interac
 
 ## Testing
 
-The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integration testing. Tests run against an **H2 in-memory database** for isolation.
+The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integration testing. Most tests run against an **H2 in-memory database** for speed; the setup and schema tests run against **PostgreSQL via Testcontainers**, so Docker must be running.
 
 ```bash
 # Run all backend tests
@@ -389,10 +414,13 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `SetupIntegrationTests` | First-run redirect behavior, setup form validation (missing/empty fields), filter bypass for setup page, post-setup lockout |
 | `ShareLinkIntegrationTests` | Auth required to create links, 404 for missing paths, expiration bounds, expired/tampered token rejection, public download |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active (pre- and post-setup), spec lists every tag and endpoint |
+| `FlywayMigrationIntegrationTests` | Migrations build an empty PostgreSQL database, Hibernate runs in `validate` mode against it, identity columns work |
+| `FlywayBaselineIntegrationTests` | A pre-Flyway database built by `ddl-auto=update` is stamped as V1 rather than migrated, and still validates |
 
 ### Test Design Highlights
 - **Test isolation**: Each test class manages its own `@BeforeEach`/`@AfterEach` lifecycle, cleaning up users and metadata between runs to prevent test pollution
-- **H2 substitution**: Test `application.properties` swaps PostgreSQL for H2 with `create-drop` DDL, ensuring a clean schema per test run
+- **H2 substitution**: Test `application.properties` swaps PostgreSQL for H2 with `create-drop` DDL and Flyway disabled, ensuring a clean schema per test run
+- **Real PostgreSQL where it matters**: Schema and setup tests use a Testcontainers PostgreSQL 15 with the production Flyway settings, so the migrations are exercised on every build
 - **Setup filter control**: The `app.setup.filter.enabled` property allows tests to toggle the setup redirect behavior independently
 
 ### Frontend Tests
