@@ -1,9 +1,14 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.exception.BadRequestException;
+import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
+import java.io.IOException;
 import java.util.Map;
 import org.apache.tomcat.util.http.fileupload.impl.SizeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,6 +22,8 @@ public class ApiExceptionHandler {
 
   private static final String TOO_LARGE = "File too large! Maximum upload size exceeded.";
 
+  private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
   @ExceptionHandler(BadRequestException.class)
   public ResponseEntity<Map<String, String>> handleBadRequest(BadRequestException ex) {
     return message(HttpStatus.BAD_REQUEST, ex.getMessage());
@@ -25,6 +32,25 @@ public class ApiExceptionHandler {
   @ExceptionHandler(NotFoundException.class)
   public ResponseEntity<Map<String, String>> handleNotFound(NotFoundException ex) {
     return message(HttpStatus.NOT_FOUND, ex.getMessage());
+  }
+
+  @ExceptionHandler(ConflictException.class)
+  public ResponseEntity<Map<String, String>> handleConflict(ConflictException ex) {
+    return message(HttpStatus.CONFLICT, ex.getMessage());
+  }
+
+  // Two requests creating the same path at once: the unique constraint on the path lets one win.
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  public ResponseEntity<Map<String, String>> handleIntegrity(DataIntegrityViolationException ex) {
+    log.warn("Rejected a change that conflicts with the database", ex);
+    return message(HttpStatus.CONFLICT, "That conflicts with another change. Please try again.");
+  }
+
+  // Disk failures carry absolute paths and other server details; log them, don't return them.
+  @ExceptionHandler(IOException.class)
+  public ResponseEntity<Map<String, String>> handleIo(IOException ex) {
+    log.error("File operation failed", ex);
+    return message(HttpStatus.INTERNAL_SERVER_ERROR, "The file operation could not be completed.");
   }
 
   @ExceptionHandler(MaxUploadSizeExceededException.class)

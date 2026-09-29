@@ -35,6 +35,9 @@ public class StoragePaths {
   private static final Set<String> RESERVED_DIRS = Set.of(VERSIONS_DIR, INTERNAL_DIR);
   private static final String INVALID_PATH = "Invalid path";
 
+  /** The longest file or folder name most filesystems accept, and the width of the column. */
+  static final int MAX_NAME_LENGTH = 255;
+
   private static final Logger log = LoggerFactory.getLogger(StoragePaths.class);
 
   private final Path root;
@@ -114,6 +117,9 @@ public class StoragePaths {
         || name.contains("\\")
         || name.indexOf('\0') >= 0) {
       throw new BadRequestException("Invalid name: " + name);
+    }
+    if (name.length() > MAX_NAME_LENGTH) {
+      throw new BadRequestException("Names can be at most " + MAX_NAME_LENGTH + " characters");
     }
     return resolveItem(parent.isRoot() ? name : parent.key() + "/" + name);
   }

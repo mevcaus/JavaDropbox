@@ -30,6 +30,11 @@ public class AuthService {
     userRepository.save(user);
   }
 
+  /** The user file operations are attributed to, or null if there is none. */
+  public User currentUser() {
+    return getMainUser().orElse(null);
+  }
+
   // Helper to get the single user for now
   public Optional<User> getMainUser() {
     return userRepository.findAll().stream().findFirst();

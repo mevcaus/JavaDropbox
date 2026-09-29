@@ -1,8 +1,19 @@
 package com.javadropbox.javadropbox.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
+/** A previous version of a file, kept under the versions directory. */
 @Entity
 @Table(name = "file_versions")
 public class FileVersion {
@@ -11,13 +22,16 @@ public class FileVersion {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
+  // A version is meaningless without its file, so the database removes it with the file.
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "file_id", nullable = false)
+  @OnDelete(action = OnDeleteAction.CASCADE)
   private FileMetadata fileMetadata;
 
   @Column(nullable = false)
   private Integer version;
 
+  /** Location relative to the versions directory. */
   @Column(nullable = false)
   private String storedFilename;
 
@@ -29,9 +43,7 @@ public class FileVersion {
   @JoinColumn(name = "user_id")
   private User createdBy;
 
-  public FileVersion() {
-    this.createdAt = LocalDateTime.now();
-  }
+  protected FileVersion() {}
 
   public FileVersion(
       FileMetadata fileMetadata,
@@ -51,55 +63,27 @@ public class FileVersion {
     return id;
   }
 
-  public void setId(Long id) {
-    this.id = id;
-  }
-
   public FileMetadata getFileMetadata() {
     return fileMetadata;
-  }
-
-  public void setFileMetadata(FileMetadata fileMetadata) {
-    this.fileMetadata = fileMetadata;
   }
 
   public Integer getVersion() {
     return version;
   }
 
-  public void setVersion(Integer version) {
-    this.version = version;
-  }
-
   public String getStoredFilename() {
     return storedFilename;
-  }
-
-  public void setStoredFilename(String storedFilename) {
-    this.storedFilename = storedFilename;
   }
 
   public Long getSize() {
     return size;
   }
 
-  public void setSize(Long size) {
-    this.size = size;
-  }
-
   public User getCreatedBy() {
     return createdBy;
   }
 
-  public void setCreatedBy(User createdBy) {
-    this.createdBy = createdBy;
-  }
-
   public LocalDateTime getCreatedAt() {
     return createdAt;
-  }
-
-  public void setCreatedAt(LocalDateTime createdAt) {
-    this.createdAt = createdAt;
   }
 }
