@@ -12,7 +12,7 @@ Boot backend through Vite's dev proxy.
 
 ## Prerequisites
 
-- Node.js 20+ and npm
+- Node.js 20.19+ or 22.12+ and npm
 - The backend running on **http://localhost:8080** (see the [root README](../README.md))
 
 ## Development
@@ -22,9 +22,12 @@ npm install
 npm run dev
 ```
 
-The app runs on **http://localhost:5173**. Vite proxies `/api`, `/setup`, `/login`, and
-`/logout` to the backend on port 8080 (see [`vite.config.js`](vite.config.js)), so make
+The app runs on **http://localhost:5173**. Vite proxies `/api`, `/share`, `/setup`, `/login`,
+and `/logout` to the backend on port 8080 (see [`vite.config.js`](vite.config.js)), so make
 sure the backend is running first.
+
+In production the backend serves the built app itself: the Dockerfile runs `npm run build`
+and packs `dist/` into the jar (`./gradlew bootJar -PbundleFrontend`).
 
 ## Available scripts
 
@@ -34,6 +37,7 @@ sure the backend is running first.
 | `npm run build`   | Build production assets into `dist/`.  |
 | `npm run preview` | Preview the production build locally.  |
 | `npm run lint`    | Run ESLint over the project.           |
+| `npm test`        | Run the Vitest suite once.             |
 
 ## Project structure
 
@@ -43,6 +47,7 @@ src/
   features/     Redux slices (auth, files)
   layouts/      Shared page layout(s)
   pages/        Route-level pages (Login, Setup, Dashboard)
-  services/     axios instance and API helpers
+  services/     axios instance (CSRF priming, 401 handler hook)
   redux/        Store configuration
+  utils/        Formatting (dates, sizes) and readable error messages
 ```
