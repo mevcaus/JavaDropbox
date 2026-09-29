@@ -171,7 +171,7 @@ With async thunks for file operations (upload, delete, fetch, create directory),
 | **API Docs** | springdoc-openapi 2.8 | OpenAPI 3 spec + Swagger UI generated from controllers |
 | **Testing** | JUnit 5, MockMvc, H2, Testcontainers | Backend integration tests on H2, plus real PostgreSQL for schema and setup tests |
 | **Frontend Testing** | Vitest, Testing Library, jsdom | Component tests driving the real DOM with real user events |
-| **Code Style** | Spotless + google-java-format | Enforced formatting, ratcheted against `main` |
+| **Code Style** | Spotless + google-java-format | Formatting enforced on every Java file by the build |
 | **Frontend** | React 19, Vite 7 | Component-based SPA with HMR |
 | **State Mgmt** | Redux Toolkit | Centralized state with async thunk side effects |
 | **HTTP Client** | Axios | API communication with interceptors for auth |
@@ -444,7 +444,11 @@ Java is formatted with **google-java-format** via Spotless. `./gradlew build` fa
 ./gradlew spotlessApply
 ```
 
-Formatting is ratcheted against `origin/main` — only files you actually touch are checked, so there is no mass-reformat of untouched code.
+Every Java file under `src/` is checked. The codebase was reformatted in one commit when this was switched on; that commit is listed in `.git-blame-ignore-revs`, which GitHub's blame view honours automatically. To make local `git blame` skip it too:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
 
 ---
 
@@ -459,7 +463,7 @@ Push/PR to main
 ┌─────────────────────────────────┐
 │         Build Job               │
 │                                 │
-│  1. Checkout code (depth 0)     │
+│  1. Checkout code               │
 │  2. Setup JDK 21 (Temurin)      │
 │  3. Start PostgreSQL service    │
 │  4. ./gradlew build             │

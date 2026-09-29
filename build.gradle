@@ -75,9 +75,5 @@ spotless {
 	java {
 		googleJavaFormat('1.22.0')
 		target 'src/**/*.java'
-		// Only enforce formatting on files that differ from main, so this
-		// doesn't force a disruptive mass-reformat of the existing codebase --
-		// touch a file and it needs to be clean, leave it alone and it's fine.
-		ratchetFrom 'origin/main'
 	}
 }
