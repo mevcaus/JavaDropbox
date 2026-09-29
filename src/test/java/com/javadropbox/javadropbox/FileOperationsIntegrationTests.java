@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.javadropbox.javadropbox.model.FileHistory;
@@ -226,6 +227,31 @@ class FileOperationsIntegrationTests {
     assertThat(history.findAll())
         .extracting(h -> h.getUser().getId())
         .containsExactly(owner.getId());
+  }
+
+  // --- history -------------------------------------------------------------------
+
+  @Test
+  @DisplayName("the history is paged, newest first, with the page size capped")
+  void historyIsPaged() throws Exception {
+    createFolder("", "one");
+    createFolder("", "two");
+    createFolder("", "three");
+
+    mockMvc
+        .perform(get("/api/history").param("page", "0").param("size", "2"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(2))
+        .andExpect(jsonPath("$.items[0].filePath").value("three"))
+        .andExpect(jsonPath("$.totalItems").value(3))
+        .andExpect(jsonPath("$.totalPages").value(2));
+    mockMvc
+        .perform(get("/api/history").param("page", "1").param("size", "2"))
+        .andExpect(jsonPath("$.items[0].filePath").value("one"));
+    mockMvc
+        .perform(get("/api/history").param("size", "100000"))
+        .andExpect(jsonPath("$.size").value(200));
+    mockMvc.perform(get("/api/history").param("page", "-1")).andExpect(status().isBadRequest());
   }
 
   // --- failures ----------------------------------------------------------------
