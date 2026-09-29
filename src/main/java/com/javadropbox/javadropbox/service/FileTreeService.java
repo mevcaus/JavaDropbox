@@ -1,7 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.FileTreeNode;
-import com.javadropbox.javadropbox.dto.Timestamps;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import java.io.IOException;
@@ -87,8 +86,8 @@ public class FileTreeService {
     FileMetadata row = metadata.get(key);
     if (row != null) {
       node.setId(row.getId());
-      node.setCreatedDate(Timestamps.toInstant(row.getCreatedAt()));
-      node.setLastModified(Timestamps.toInstant(row.getUpdatedAt()));
+      node.setCreatedDate(row.getCreatedAt());
+      node.setLastModified(row.getUpdatedAt());
       node.setOwnerName(row.getOwner() != null ? row.getOwner().getUsername() : UNTRACKED_OWNER);
     } else {
       node.setCreatedDate(attributes.creationTime().toInstant());

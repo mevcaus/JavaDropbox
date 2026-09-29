@@ -17,7 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -107,7 +107,7 @@ public class FileService {
             StorageFiles.moveIntoPlace(scratch, target.path());
 
             file.setSize(size);
-            file.setUpdatedAt(LocalDateTime.now());
+            file.setUpdatedAt(Instant.now());
             history.recordSuccess(file, ChangeType.UPLOAD, user, null);
           });
     } finally {
@@ -214,7 +214,7 @@ public class FileService {
     }
 
     file.setSize(Files.size(live.path()));
-    file.setUpdatedAt(LocalDateTime.now());
+    file.setUpdatedAt(Instant.now());
     history.recordSuccess(file, ChangeType.RESTORE, user, "Restored version " + number);
   }
 
@@ -260,7 +260,7 @@ public class FileService {
     if (!Files.exists(target.path())) {
       throw new NotFoundException("Not found: " + target.key());
     }
-    files.markAccessed(target.key(), LocalDateTime.now());
+    files.markAccessed(target.key(), Instant.now());
 
     if (Files.isDirectory(target.path())) {
       return new Download.FolderDownload(target.path(), target.name() + ".zip");

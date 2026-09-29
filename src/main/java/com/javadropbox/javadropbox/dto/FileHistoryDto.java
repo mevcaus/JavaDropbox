@@ -19,7 +19,7 @@ public record FileHistoryDto(
         entity.getFilePath(),
         entity.getFilename(),
         entity.getChangeType(),
-        Timestamps.toInstant(entity.getTimestamp()),
+        entity.getTimestamp(),
         entity.getUser() != null ? entity.getUser().getUsername() : "Unknown",
         entity.isSuccess(),
         entity.getErrorMessage(),

@@ -10,7 +10,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /** What the app knows about one file or folder, keyed by its path relative to the storage root. */
 @Entity
@@ -42,9 +42,9 @@ public class FileMetadata {
   @JoinColumn(name = "user_id")
   private User owner;
 
-  private LocalDateTime createdAt;
-  private LocalDateTime updatedAt;
-  private LocalDateTime lastAccessed;
+  private Instant createdAt;
+  private Instant updatedAt;
+  private Instant lastAccessed;
 
   protected FileMetadata() {}
 
@@ -60,7 +60,7 @@ public class FileMetadata {
    * old one's owner, dates or version numbering.
    */
   public void startOver(Long size, Boolean isDirectory, User owner) {
-    LocalDateTime now = LocalDateTime.now();
+    Instant now = Instant.now();
     this.size = size;
     this.isDirectory = isDirectory;
     this.owner = owner;
@@ -98,19 +98,19 @@ public class FileMetadata {
     return owner;
   }
 
-  public LocalDateTime getCreatedAt() {
+  public Instant getCreatedAt() {
     return createdAt;
   }
 
-  public LocalDateTime getUpdatedAt() {
+  public Instant getUpdatedAt() {
     return updatedAt;
   }
 
-  public void setUpdatedAt(LocalDateTime updatedAt) {
+  public void setUpdatedAt(Instant updatedAt) {
     this.updatedAt = updatedAt;
   }
 
-  public LocalDateTime getLastAccessed() {
+  public Instant getLastAccessed() {
     return lastAccessed;
   }
 

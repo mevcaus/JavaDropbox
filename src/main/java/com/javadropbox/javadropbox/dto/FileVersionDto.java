@@ -15,7 +15,7 @@ public class FileVersionDto {
     dto.setId(entity.getId());
     dto.setVersion(entity.getVersion());
     dto.setSize(formatSize(entity.getSize()));
-    dto.setCreatedAt(Timestamps.toInstant(entity.getCreatedAt()));
+    dto.setCreatedAt(entity.getCreatedAt());
     dto.setCreatedBy(
         entity.getCreatedBy() != null ? entity.getCreatedBy().getUsername() : "Unknown");
     return dto;

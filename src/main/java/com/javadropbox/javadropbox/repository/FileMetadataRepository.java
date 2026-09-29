@@ -1,7 +1,7 @@
 package com.javadropbox.javadropbox.repository;
 
 import com.javadropbox.javadropbox.model.FileMetadata;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -23,5 +23,5 @@ public interface FileMetadataRepository extends JpaRepository<FileMetadata, Long
   @Modifying
   @Transactional
   @Query("update FileMetadata m set m.lastAccessed = :time where m.path = :path")
-  void markAccessed(String path, LocalDateTime time);
+  void markAccessed(String path, Instant time);
 }

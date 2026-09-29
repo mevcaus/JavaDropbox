@@ -9,7 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -37,7 +37,7 @@ public class FileVersion {
 
   private Long size;
 
-  private LocalDateTime createdAt;
+  private Instant createdAt;
 
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "user_id")
@@ -56,7 +56,7 @@ public class FileVersion {
     this.storedFilename = storedFilename;
     this.size = size;
     this.createdBy = createdBy;
-    this.createdAt = LocalDateTime.now();
+    this.createdAt = Instant.now();
   }
 
   public Long getId() {
@@ -83,7 +83,7 @@ public class FileVersion {
     return createdBy;
   }
 
-  public LocalDateTime getCreatedAt() {
+  public Instant getCreatedAt() {
     return createdAt;
   }
 }

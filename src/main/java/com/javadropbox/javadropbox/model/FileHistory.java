@@ -11,7 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -50,7 +50,7 @@ public class FileHistory {
   @Enumerated(EnumType.STRING)
   private ChangeType changeType;
 
-  private LocalDateTime timestamp;
+  private Instant timestamp;
 
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "user_id")
@@ -82,7 +82,7 @@ public class FileHistory {
     this.changeType = changeType;
     this.user = user;
     this.success = success;
-    this.timestamp = LocalDateTime.now();
+    this.timestamp = Instant.now();
   }
 
   public static FileHistory success(FileMetadata file, ChangeType changeType, User user) {
@@ -132,7 +132,7 @@ public class FileHistory {
     return changeType;
   }
 
-  public LocalDateTime getTimestamp() {
+  public Instant getTimestamp() {
     return timestamp;
   }
 
