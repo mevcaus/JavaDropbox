@@ -21,15 +21,6 @@ public class AuthService {
     return userRepository.count() == 0;
   }
 
-  public void setupUser(String username, String rawPassword) {
-    if (!isSetupRequired()) {
-      throw new RuntimeException("Setup already completed");
-    }
-    String encodedPassword = passwordEncoder.encode(rawPassword);
-    User user = new User(username, encodedPassword, "ROLE_USER");
-    userRepository.save(user);
-  }
-
   /** The user file operations are attributed to, or null if there is none. */
   public User currentUser() {
     return getMainUser().orElse(null);

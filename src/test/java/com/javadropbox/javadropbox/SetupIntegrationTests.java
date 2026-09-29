@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -23,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"app.setup.required=true", "app.setup.filter.enabled=true"})
+@TestPropertySource(properties = {"app.setup.filter.enabled=true", "app.setup.code=ABCDE-FGHJK"})
 @Testcontainers
 @DisplayName("Setup Integration Tests - Pre-Setup State")
 class SetupIntegrationTests {
@@ -96,17 +97,60 @@ class SetupIntegrationTests {
           .perform(
               post("/setup")
                   .with(csrf())
+                  .param("code", "ABCDE-FGHJK")
                   .param("username", "testadmin")
                   .param("password", "testpassword123"))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.message").value("Setup successful"));
+
+      assertThat(userRepository.findByUsername("testadmin"))
+          .hasValueSatisfying(u -> assertThat(u.getRole()).isEqualTo("ROLE_ADMIN"));
+    }
+
+    @Test
+    @DisplayName("The setup code is accepted without its dash and in lower case")
+    void setupCodeIsForgivingAboutFormatting() throws Exception {
+      mockMvc
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .param("code", "abcdefghjk")
+                  .param("username", "testadmin")
+                  .param("password", "testpassword123"))
+          .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("Setup without the code printed in the server log is refused")
+    void setupWithoutCodeIsRefused() throws Exception {
+      mockMvc
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .param("username", "intruder")
+                  .param("password", "testpassword123"))
+          .andExpect(status().isForbidden());
+      mockMvc
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .param("code", "WRONG-CODE0")
+                  .param("username", "intruder")
+                  .param("password", "testpassword123"))
+          .andExpect(status().isForbidden());
+
+      assertThat(userRepository.count()).isZero();
     }
 
     @Test
     @DisplayName("Setup form submission with missing username should show error")
     void setupWithMissingUsernameHandled() throws Exception {
       mockMvc
-          .perform(post("/setup").with(csrf()).param("password", "testpassword123"))
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .param("code", "ABCDE-FGHJK")
+                  .param("password", "testpassword123"))
           .andExpect(status().isBadRequest());
     }
 
@@ -114,15 +158,35 @@ class SetupIntegrationTests {
     @DisplayName("Setup form submission with missing password should show error")
     void setupWithMissingPasswordHandled() throws Exception {
       mockMvc
-          .perform(post("/setup").with(csrf()).param("username", "testadmin"))
+          .perform(
+              post("/setup").with(csrf()).param("code", "ABCDE-FGHJK").param("username", "admin"))
           .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("A password shorter than eight characters is refused")
+    void shortPasswordRefused() throws Exception {
+      mockMvc
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .param("code", "ABCDE-FGHJK")
+                  .param("username", "admin")
+                  .param("password", "short"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("Password must be at least 8 characters"));
     }
 
     @Test
     @DisplayName("Setup form submission with empty values should show error")
     void setupWithEmptyValuesHandled() throws Exception {
       mockMvc
-          .perform(post("/setup").with(csrf()).param("username", "").param("password", ""))
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .param("code", "ABCDE-FGHJK")
+                  .param("username", "")
+                  .param("password", ""))
           .andExpect(status().isBadRequest());
     }
   }

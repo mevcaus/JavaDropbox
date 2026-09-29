@@ -1,7 +1,6 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.FileTreeNode;
-import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileTreeService;
 import com.javadropbox.javadropbox.service.StoragePaths;
@@ -22,25 +21,20 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** File management endpoints and first-run setup. */
+/** File management endpoints. */
 @RestController
-@Tag(name = "Web", description = "Endpoints for file management, directory info, and setup")
+@Tag(name = "Web", description = "Endpoints for file management and directory info")
 public class WebController {
 
   private final FileService fileService;
   private final FileTreeService fileTreeService;
   private final StoragePaths storagePaths;
-  private final AuthService authService;
 
   public WebController(
-      FileService fileService,
-      FileTreeService fileTreeService,
-      StoragePaths storagePaths,
-      AuthService authService) {
+      FileService fileService, FileTreeService fileTreeService, StoragePaths storagePaths) {
     this.fileService = fileService;
     this.fileTreeService = fileTreeService;
     this.storagePaths = storagePaths;
-    this.authService = authService;
   }
 
   @GetMapping("/api/directory-info")
@@ -105,25 +99,5 @@ public class WebController {
       throws IOException {
     fileService.createFolder(path, name);
     return Map.of("message", "Directory created successfully: " + name);
-  }
-
-  @PostMapping("/setup")
-  @Operation(
-      summary = "Initial setup",
-      description =
-          "Creates the initial admin user. Allowed without authentication if setup is required.")
-  public ResponseEntity<?> processSetup(
-      @RequestParam String username, @RequestParam String password) {
-    if (username == null || username.trim().isEmpty()) {
-      return ResponseEntity.badRequest().body(Map.of("error", "Username required"));
-    }
-    if (password == null || password.trim().isEmpty()) {
-      return ResponseEntity.badRequest().body(Map.of("error", "Password required"));
-    }
-    if (authService.isSetupRequired()) {
-      authService.setupUser(username, password);
-      return ResponseEntity.ok(Map.of("message", "Setup successful"));
-    }
-    return ResponseEntity.badRequest().body(Map.of("error", "Setup already completed"));
   }
 }

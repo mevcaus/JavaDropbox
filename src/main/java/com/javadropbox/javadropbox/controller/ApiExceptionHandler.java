@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
+import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import java.io.IOException;
 import java.util.Map;
@@ -32,6 +33,11 @@ public class ApiExceptionHandler {
   @ExceptionHandler(NotFoundException.class)
   public ResponseEntity<Map<String, String>> handleNotFound(NotFoundException ex) {
     return message(HttpStatus.NOT_FOUND, ex.getMessage());
+  }
+
+  @ExceptionHandler(ForbiddenException.class)
+  public ResponseEntity<Map<String, String>> handleForbidden(ForbiddenException ex) {
+    return message(HttpStatus.FORBIDDEN, ex.getMessage());
   }
 
   @ExceptionHandler(ConflictException.class)
