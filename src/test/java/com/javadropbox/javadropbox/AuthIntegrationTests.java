@@ -114,6 +114,33 @@ class AuthIntegrationTests {
   }
 
   @Test
+  @DisplayName("Any account can log in, not just the first one in the table")
+  void secondAccountCanLogIn() throws Exception {
+    userRepository.save(new User("second", passwordEncoder.encode("password2"), "ROLE_USER"));
+    // The real cookie round trip rather than .with(csrf()), which would swap the shared
+    // CsrfFilter's repository and stop the cookie tests in this class seeing a cookie.
+    Cookie cookie =
+        mockMvc.perform(get("/api/me")).andReturn().getResponse().getCookie(CSRF_COOKIE);
+
+    mockMvc
+        .perform(
+            post("/login")
+                .param("username", "second")
+                .param("password", "password2")
+                .cookie(cookie)
+                .header(CSRF_HEADER, cookie.getValue()))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post("/login")
+                .param("username", "second")
+                .param("password", "password")
+                .cookie(cookie)
+                .header(CSRF_HEADER, cookie.getValue()))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   @DisplayName("An unauthenticated caller can obtain a token and log in with it")
   void loginAcceptsTokenFromCookie() throws Exception {
     // The SPA's boot call is the only request it makes before logging in, so the 401 it gets back

@@ -211,6 +211,24 @@ class FileOperationsIntegrationTests {
     assertThat(versions.findAll()).isEmpty();
   }
 
+  // --- attribution ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("changes are attributed to the signed-in user, not the first account")
+  void changesAreAttributedToTheSignedInUser() throws Exception {
+    users.deleteAllInBatch();
+    users.save(new User("first", "unused", "ROLE_ADMIN"));
+    User owner = users.save(new User("owner", "unused", "ROLE_USER"));
+
+    upload("", "mine.txt", "x");
+
+    assertThat(metadata.findByPath("mine.txt").orElseThrow().getOwner().getId())
+        .isEqualTo(owner.getId());
+    assertThat(history.findAll())
+        .extracting(h -> h.getUser().getId())
+        .containsExactly(owner.getId());
+  }
+
   // --- failures ----------------------------------------------------------------
 
   @Test

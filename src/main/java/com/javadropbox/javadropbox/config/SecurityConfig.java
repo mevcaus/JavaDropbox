@@ -1,6 +1,6 @@
 package com.javadropbox.javadropbox.config;
 
-import com.javadropbox.javadropbox.service.AuthService;
+import com.javadropbox.javadropbox.repository.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -17,31 +17,28 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 @EnableWebSecurity
 public class SecurityConfig {
 
-  private final SetupFilter setupFilter;
-  private final AuthService authService;
+  private static final String DEFAULT_ROLE = "ROLE_USER";
 
-  public SecurityConfig(SetupFilter setupFilter, AuthService authService) {
+  private final SetupFilter setupFilter;
+  private final UserRepository userRepository;
+
+  public SecurityConfig(SetupFilter setupFilter, UserRepository userRepository) {
     this.setupFilter = setupFilter;
-    this.authService = authService;
+    this.userRepository = userRepository;
   }
 
   @Bean
   public UserDetailsService userDetailsService() {
-    return username -> {
-      if (authService.isSetupRequired()) {
-        throw new UsernameNotFoundException("Setup not completed");
-      }
-      return authService
-          .getMainUser()
-          .filter(u -> u.getUsername().equals(username))
-          .map(
-              u ->
-                  User.withUsername(u.getUsername())
-                      .password(u.getPassword())
-                      .roles("USER")
-                      .build())
-          .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-    };
+    return username ->
+        userRepository
+            .findByUsername(username)
+            .map(
+                u ->
+                    User.withUsername(u.getUsername())
+                        .password(u.getPassword())
+                        .authorities(u.getRole() != null ? u.getRole() : DEFAULT_ROLE)
+                        .build())
+            .orElseThrow(() -> new UsernameNotFoundException("User not found"));
   }
 
   @Bean
