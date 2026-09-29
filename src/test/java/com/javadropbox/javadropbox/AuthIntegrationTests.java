@@ -1,9 +1,11 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -21,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -138,6 +141,53 @@ class AuthIntegrationTests {
                 .cookie(cookie)
                 .header(CSRF_HEADER, cookie.getValue()))
         .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("Repeated wrong passwords lock the address out, even with the right one")
+  void repeatedFailuresLockOut() throws Exception {
+    Cookie cookie =
+        mockMvc.perform(get("/api/me")).andReturn().getResponse().getCookie(CSRF_COOKIE);
+    // An address of its own: the limiter is shared by every test in this context.
+    RequestPostProcessor attacker =
+        request -> {
+          request.setRemoteAddr("192.0.2.66");
+          return request;
+        };
+
+    for (int i = 0; i < 5; i++) {
+      mockMvc
+          .perform(
+              post("/login")
+                  .with(attacker)
+                  .param("username", "testadmin")
+                  .param("password", "guess" + i)
+                  .cookie(cookie)
+                  .header(CSRF_HEADER, cookie.getValue()))
+          .andExpect(status().isUnauthorized());
+    }
+
+    mockMvc
+        .perform(
+            post("/login")
+                .with(attacker)
+                .param("username", "testadmin")
+                .param("password", "password")
+                .cookie(cookie)
+                .header(CSRF_HEADER, cookie.getValue()))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(header().exists("Retry-After"))
+        .andExpect(jsonPath("$.message", containsString("Try again in 15 minutes")));
+
+    // Someone else is unaffected.
+    mockMvc
+        .perform(
+            post("/login")
+                .param("username", "testadmin")
+                .param("password", "password")
+                .cookie(cookie)
+                .header(CSRF_HEADER, cookie.getValue()))
+        .andExpect(status().isOk());
   }
 
   @Test

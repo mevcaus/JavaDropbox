@@ -43,11 +43,17 @@ public class StoragePaths {
   private final Path root;
   private final Path realRoot;
 
-  public StoragePaths(
-      @Value("${javadropbox.serving.directory:#{systemProperties['user.dir']}}") String directory)
+  public StoragePaths(@Value("${javadropbox.serving.directory}") String directory)
       throws IOException {
     this.root = Path.of(directory).toAbsolutePath().normalize();
-    Files.createDirectories(root);
+    if (!Files.exists(root)) {
+      Files.createDirectories(root);
+      Files.writeString(
+          root.resolve("Welcome to JavaDropbox.txt"),
+          "This is your JavaDropbox storage folder. Anything you put here shows up in the web"
+              + " interface.\n");
+      log.info("Created the serving directory {}", root);
+    }
     this.realRoot = root.toRealPath();
   }
 

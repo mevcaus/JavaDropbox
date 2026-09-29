@@ -65,8 +65,24 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
+// Local runs use the dev profile (application-dev.properties) unless told otherwise.
 bootRun {
-    standardInput = System.in
+	environment 'SPRING_PROFILES_ACTIVE', System.getenv('SPRING_PROFILES_ACTIVE') ?: 'dev'
+}
+
+// ./gradlew bootJar -PbundleFrontend packs the built frontend (npm run build in
+// frontend/) into the jar, so the backend serves the app itself. The Dockerfile
+// does this.
+tasks.named('processResources') {
+	if (project.hasProperty('bundleFrontend')) {
+		def dist = file('frontend/dist')
+		doFirst {
+			if (!new File(dist, 'index.html').exists()) {
+				throw new GradleException("No frontend build in ${dist}; run npm run build in frontend/ first")
+			}
+		}
+		from(dist) { into 'static' }
+	}
 }
 
 spotless {

@@ -2,7 +2,9 @@ package com.javadropbox.javadropbox.config;
 
 import com.javadropbox.javadropbox.controller.SpaController;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import java.time.Clock;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,10 +35,20 @@ public class SecurityConfig {
 
   private final SetupFilter setupFilter;
   private final UserRepository userRepository;
+  private final List<String> allowedOrigins;
 
-  public SecurityConfig(SetupFilter setupFilter, UserRepository userRepository) {
+  public SecurityConfig(
+      SetupFilter setupFilter,
+      UserRepository userRepository,
+      @Value("${app.cors.allowed-origins:}") List<String> allowedOrigins) {
     this.setupFilter = setupFilter;
     this.userRepository = userRepository;
+    this.allowedOrigins = allowedOrigins.stream().filter(o -> !o.isBlank()).toList();
+  }
+
+  @Bean
+  public LoginAttemptLimiter loginAttemptLimiter() {
+    return new LoginAttemptLimiter(Clock.systemUTC());
   }
 
   @Bean
@@ -63,8 +75,11 @@ public class SecurityConfig {
   }
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  public SecurityFilterChain securityFilterChain(HttpSecurity http, LoginAttemptLimiter limiter)
+      throws Exception {
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(
+            new LoginThrottleFilter(limiter), UsernamePasswordAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
@@ -90,8 +105,16 @@ public class SecurityConfig {
         .formLogin(
             form ->
                 form.loginProcessingUrl("/login")
-                    .successHandler((req, res, auth) -> res.setStatus(200))
-                    .failureHandler((req, res, exc) -> res.setStatus(401))
+                    .successHandler(
+                        (req, res, auth) -> {
+                          limiter.recordSuccess(req.getRemoteAddr());
+                          res.setStatus(200);
+                        })
+                    .failureHandler(
+                        (req, res, exc) -> {
+                          limiter.recordFailure(req.getRemoteAddr());
+                          res.setStatus(401);
+                        })
                     .permitAll())
         .logout(
             logout ->
@@ -123,14 +146,18 @@ public class SecurityConfig {
     return handler;
   }
 
+  /** Cross-origin access for {@code app.cors.allowed-origins}; none at all when it is empty. */
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    if (allowedOrigins.isEmpty()) {
+      return source;
+    }
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174"));
+    configuration.setAllowedOrigins(allowedOrigins);
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));
     configuration.setAllowCredentials(true);
-    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
     return source;
   }
