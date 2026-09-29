@@ -5,7 +5,6 @@ import authReducer, {
     fetchCurrentUser,
     loginUser,
     logoutUser,
-    setUser,
 } from './authSlice';
 import api from '../services/api';
 
@@ -15,6 +14,8 @@ vi.mock('../services/api');
 // reducers rather than expecting a fresh store to re-read it.
 const makeStore = () => configureStore({ reducer: { auth: authReducer } });
 const authState = (store) => store.getState().auth;
+// Seeds a signed-in session the way a successful login leaves it.
+const signIn = (store, username) => store.dispatch(loginUser.fulfilled({ username }, 'seed'));
 
 describe('authSlice', () => {
     let store;
@@ -83,7 +84,7 @@ describe('authSlice', () => {
         });
 
         it('does not leave a failed login authenticated from a previous session', async () => {
-            store.dispatch(setUser('ada'));
+            signIn(store, 'ada');
             expect(authState(store).isAuthenticated).toBe(true);
 
             api.post.mockRejectedValueOnce({ response: { data: 'Invalid credentials' } });
@@ -97,19 +98,21 @@ describe('authSlice', () => {
 
     describe('logoutUser', () => {
         it('clears the session once the request resolves', async () => {
-            store.dispatch(setUser('ada'));
-            api.get.mockResolvedValueOnce({});
+            signIn(store, 'ada');
+            api.post.mockResolvedValueOnce({});
 
             await store.dispatch(logoutUser());
 
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
-            expect(api.get).toHaveBeenCalledWith('/logout');
+            // POST, not GET: the backend only ends the session for a POST
+            expect(api.post).toHaveBeenCalledWith('/logout');
+            expect(api.get).not.toHaveBeenCalled();
         });
 
         it('still clears the session when the logout request fails', async () => {
-            store.dispatch(setUser('ada'));
-            api.get.mockRejectedValueOnce(new Error('Network Error'));
+            signIn(store, 'ada');
+            api.post.mockRejectedValueOnce(new Error('Network Error'));
 
             await store.dispatch(logoutUser());
 
@@ -135,7 +138,7 @@ describe('authSlice', () => {
         });
 
         it('clears a stale cached session when the backend says 401', async () => {
-            store.dispatch(setUser('ada'));
+            signIn(store, 'ada');
             api.get.mockRejectedValueOnce({ response: { status: 401, data: 'Unauthorized' } });
 
             await store.dispatch(fetchCurrentUser());
@@ -226,15 +229,8 @@ describe('authSlice', () => {
     });
 
     describe('reducers', () => {
-        it('setUser authenticates and persists', () => {
-            store.dispatch(setUser('ada'));
-
-            expect(authState(store)).toMatchObject({ user: 'ada', isAuthenticated: true });
-            expect(localStorage.getItem('user')).toBe('ada');
-        });
-
         it('clearUser removes the persisted session', () => {
-            store.dispatch(setUser('ada'));
+            signIn(store, 'ada');
             store.dispatch(clearUser());
 
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });

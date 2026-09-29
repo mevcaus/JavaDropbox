@@ -20,21 +20,6 @@ jobs:
     permissions:
       contents: read
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: javadropbox
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
     - uses: actions/checkout@v4
     - name: Set up JDK 21
@@ -48,24 +33,27 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
 
+    # build runs the tests (the H2 suite and the Postgres ones through Testcontainers,
+    # which uses the runner's Docker) and the Spotless check.
     - name: Build with Gradle Wrapper
       run: ./gradlew build
 
-    - name: Run tests with Gradle Wrapper
-      run: ./gradlew test
-      env:
-        SPRING_DOCKER_COMPOSE_ENABLED: false
+  docker:
 
-    # NOTE: The Gradle Wrapper is the default and recommended way to run Gradle (https://docs.gradle.org/current/userguide/gradle_wrapper.html).
-    # If your project does not have the Gradle Wrapper configured, you can use the following configuration to run Gradle with a specified version.
-    #
-    # - name: Setup Gradle
-    #   uses: gradle/actions/setup-gradle@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
-    #   with:
-    #     gradle-version: '8.9'
-    #
-    # - name: Build with Gradle 8.9
-    #   run: gradle build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # The image bundles the frontend, whose logos are LFS objects.
+        lfs: true
+
+    # The image compose.yaml runs; building it catches a broken Dockerfile or a
+    # frontend bundle that no longer builds into the jar.
+    - name: Build the Docker image
+      run: docker build -t javadropbox:ci .
 
   dependency-submission:
 

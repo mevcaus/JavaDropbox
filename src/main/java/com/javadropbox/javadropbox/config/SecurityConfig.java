@@ -1,61 +1,97 @@
 package com.javadropbox.javadropbox.config;
 
-import com.javadropbox.javadropbox.service.AuthService;
+import com.javadropbox.javadropbox.controller.SpaController;
+import com.javadropbox.javadropbox.repository.UserRepository;
+import java.time.Clock;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
-  private final SetupFilter setupFilter;
-  private final AuthService authService;
+  private static final String DEFAULT_ROLE = "ROLE_USER";
 
-  public SecurityConfig(SetupFilter setupFilter, AuthService authService) {
+  /** The built single-page app: its shell and assets load before anyone has signed in. */
+  private static final String[] SPA_ASSETS = {"/index.html", "/assets/**", "/favicon.png"};
+
+  private final SetupFilter setupFilter;
+  private final UserRepository userRepository;
+  private final List<String> allowedOrigins;
+
+  public SecurityConfig(
+      SetupFilter setupFilter,
+      UserRepository userRepository,
+      @Value("${app.cors.allowed-origins:}") List<String> allowedOrigins) {
     this.setupFilter = setupFilter;
-    this.authService = authService;
+    this.userRepository = userRepository;
+    this.allowedOrigins = allowedOrigins.stream().filter(o -> !o.isBlank()).toList();
+  }
+
+  @Bean
+  public LoginAttemptLimiter loginAttemptLimiter() {
+    return new LoginAttemptLimiter(Clock.systemUTC());
   }
 
   @Bean
   public UserDetailsService userDetailsService() {
-    return username -> {
-      if (authService.isSetupRequired()) {
-        throw new UsernameNotFoundException("Setup not completed");
-      }
-      return authService
-          .getMainUser()
-          .filter(u -> u.getUsername().equals(username))
-          .map(
-              u ->
-                  User.withUsername(u.getUsername())
-                      .password(u.getPassword())
-                      .roles("USER")
-                      .build())
-          .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-    };
+    return username ->
+        userRepository
+            .findByUsername(username)
+            .map(
+                u ->
+                    User.withUsername(u.getUsername())
+                        .password(u.getPassword())
+                        .authorities(u.getRole() != null ? u.getRole() : DEFAULT_ROLE)
+                        .build())
+            .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+  }
+
+  // SetupFilter is a @Component so it can be injected above, which would also make Spring Boot
+  // register it as a servlet filter of its own; it belongs only in the security chain.
+  @Bean
+  public FilterRegistrationBean<SetupFilter> setupFilterRegistration(SetupFilter filter) {
+    FilterRegistrationBean<SetupFilter> registration = new FilterRegistrationBean<>(filter);
+    registration.setEnabled(false);
+    return registration;
   }
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  public SecurityFilterChain securityFilterChain(HttpSecurity http, LoginAttemptLimiter limiter)
+      throws Exception {
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(
+            new LoginThrottleFilter(limiter), UsernamePasswordAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers(
+                auth.requestMatchers(HttpMethod.GET, SpaController.ROUTES)
+                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, SPA_ASSETS)
+                    .permitAll()
+                    .requestMatchers(
                         "/setup",
                         "/login",
                         "/error",
                         "/share/**",
-                        // Allow access to Swagger UI and OpenAPI docs without authentication in dev
                         "/swagger-ui.html",
                         "/swagger-ui/**",
                         "/v3/api-docs",
@@ -63,16 +99,22 @@ public class SecurityConfig {
                     .permitAll()
                     .anyRequest()
                     .authenticated())
+        // A JSON API: answer 401 rather than redirecting to a login page.
         .exceptionHandling(
-            ex ->
-                ex.authenticationEntryPoint(
-                    new org.springframework.security.web.authentication.HttpStatusEntryPoint(
-                        org.springframework.http.HttpStatus.UNAUTHORIZED)))
+            ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
         .formLogin(
             form ->
                 form.loginProcessingUrl("/login")
-                    .successHandler((req, res, auth) -> res.setStatus(200))
-                    .failureHandler((req, res, exc) -> res.setStatus(401))
+                    .successHandler(
+                        (req, res, auth) -> {
+                          limiter.recordSuccess(req.getRemoteAddr());
+                          res.setStatus(200);
+                        })
+                    .failureHandler(
+                        (req, res, exc) -> {
+                          limiter.recordFailure(req.getRemoteAddr());
+                          res.setStatus(401);
+                        })
                     .permitAll())
         .logout(
             logout ->
@@ -104,17 +146,18 @@ public class SecurityConfig {
     return handler;
   }
 
+  /** Cross-origin access for {@code app.cors.allowed-origins}; none at all when it is empty. */
   @Bean
-  public org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource() {
-    org.springframework.web.cors.CorsConfiguration configuration =
-        new org.springframework.web.cors.CorsConfiguration();
-    configuration.setAllowedOrigins(
-        java.util.List.of("http://localhost:5173", "http://localhost:5174"));
-    configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-    configuration.setAllowedHeaders(java.util.List.of("*"));
+  public CorsConfigurationSource corsConfigurationSource() {
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    if (allowedOrigins.isEmpty()) {
+      return source;
+    }
+    CorsConfiguration configuration = new CorsConfiguration();
+    configuration.setAllowedOrigins(allowedOrigins);
+    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    configuration.setAllowedHeaders(List.of("*"));
     configuration.setAllowCredentials(true);
-    org.springframework.web.cors.UrlBasedCorsConfigurationSource source =
-        new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
     return source;
   }

@@ -1,34 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../services/api';
-
-// The backend does not always fail with a JSON body -- an unreachable database, for instance,
-// produces Tomcat's HTML error page, stack trace and all. Rendering a response body straight into
-// the UI would put that on screen, so pick out something a person can actually read.
-const isHtmlDocument = (value) => /^\s*<(!doctype|html)/i.test(value);
-
-const readableError = (error, fallback) => {
-    const { status, data } = error.response ?? {};
-
-    if (data && typeof data === 'object') {
-        const message = data.error || data.message;
-        if (typeof message === 'string' && message.trim()) {
-            return message;
-        }
-    }
-
-    // A genuine message from the API is short and is not a document; anything longer is a dump.
-    if (typeof data === 'string' && data.trim() && !isHtmlDocument(data) && data.length <= 200) {
-        return data.trim();
-    }
-
-    if (status === 401) {
-        return 'Invalid username or password.';
-    }
-    if (status >= 500) {
-        return 'The server is unavailable right now. Please try again.';
-    }
-    return fallback;
-};
+import { readableError } from '../utils/errors';
 
 // Async thunk for login
 export const loginUser = createAsyncThunk(
@@ -45,10 +17,7 @@ export const loginUser = createAsyncThunk(
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
             });
-            // The backend redirects to /dashboard on success, which returns 200 OK HTML
-            // We assume if 200 OK, we are logged in.
-            // Ideally, backend should return JSON. For now, we handle the HTML response or check a specific cookie if possible
-            // But since we are moving to standard API later, let's assume successful 200 means OK.
+            // The backend answers a successful login with an empty 200.
             return { username };
         } catch (error) {
             console.error('Login error details:', error.response);
@@ -61,7 +30,9 @@ export const logoutUser = createAsyncThunk(
     'auth/logoutUser',
     async () => {
         try {
-            await api.get('/logout');
+            // Spring Security only accepts POST for logout while CSRF protection is on; a GET is
+            // a 404 that leaves the server session alive.
+            await api.post('/logout');
         } catch (error) {
             console.error(error);
         }
@@ -100,11 +71,6 @@ const authSlice = createSlice({
         error: null,
     },
     reducers: {
-        setUser: (state, action) => {
-            state.user = action.payload;
-            state.isAuthenticated = true;
-            localStorage.setItem('user', action.payload);
-        },
         clearUser: (state) => {
             state.user = null;
             state.isAuthenticated = false;
@@ -147,5 +113,5 @@ const authSlice = createSlice({
     },
 });
 
-export const { setUser, clearUser } = authSlice.actions;
+export const { clearUser } = authSlice.actions;
 export default authSlice.reducer;

@@ -322,6 +322,27 @@ describe('FileTable row actions', () => {
     });
 });
 
+describe('FileTable versions action', () => {
+    it('offers version history only for tracked files', async () => {
+        const user = userEvent.setup();
+        const onVersions = vi.fn();
+        const tracked = { name: 'kept.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'kept.txt', id: 4 };
+        const untracked = { name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' };
+        render(<FileTable files={[tracked, untracked]} currentPath="" {...noopHandlers} onVersions={onVersions} />);
+
+        expect(screen.getAllByRole('button', { name: 'Versions' })).toHaveLength(1);
+        await user.click(screen.getByRole('button', { name: 'Versions' }));
+        expect(onVersions).toHaveBeenCalledWith(tracked);
+    });
+
+    it('no longer claims an access level it does not track', () => {
+        renderTable();
+
+        expect(screen.queryByText('Only You')).not.toBeInTheDocument();
+        expect(screen.queryByRole('columnheader', { name: /Access/i })).not.toBeInTheDocument();
+    });
+});
+
 describe('FileTable empty state', () => {
     it('reports an empty folder rather than rendering a headerless table', () => {
         render(<FileTable files={[]} currentPath="" {...noopHandlers} />);

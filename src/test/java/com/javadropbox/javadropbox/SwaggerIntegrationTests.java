@@ -14,13 +14,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"app.setup.filter.enabled=true"})
 @DisplayName("Swagger and OpenAPI Integration Tests")
 class SwaggerIntegrationTests {
 
@@ -30,9 +29,11 @@ class SwaggerIntegrationTests {
 
   @Autowired private PasswordEncoder passwordEncoder;
 
+  @Autowired private JdbcTemplate jdbc;
+
   @AfterEach
   void tearDown() {
-    userRepository.deleteAll();
+    TestDatabase.wipe(jdbc);
   }
 
   private void completeSetup() {
@@ -85,22 +86,19 @@ class SwaggerIntegrationTests {
     mockMvc
         .perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
-        .andExpect(content().string(containsString("\"name\":\"Web\"")))
+        .andExpect(content().string(containsString("\"name\":\"Files\"")))
         .andExpect(content().string(containsString("\"name\":\"File Versions\"")))
         .andExpect(content().string(containsString("\"name\":\"History\"")))
-        .andExpect(content().string(containsString("\"name\":\"Login\"")))
+        .andExpect(content().string(containsString("\"name\":\"Setup\"")))
         .andExpect(content().string(containsString("\"name\":\"Share\"")))
         .andExpect(content().string(containsString("\"/api/files\"")))
-        .andExpect(content().string(containsString("\"/api/upload\"")))
-        .andExpect(content().string(containsString("\"/api/download\"")))
-        .andExpect(content().string(containsString("\"/api/delete\"")))
-        .andExpect(content().string(containsString("\"/api/create-directory\"")))
-        .andExpect(content().string(containsString("\"/api/directory-info\"")))
+        .andExpect(content().string(containsString("\"/api/files/download\"")))
+        .andExpect(content().string(containsString("\"/api/folders\"")))
+        .andExpect(content().string(containsString("\"/api/storage\"")))
         .andExpect(content().string(containsString("\"/api/history\"")))
         .andExpect(content().string(containsString("\"/api/share\"")))
         .andExpect(content().string(containsString("\"/share/{token}\"")))
         .andExpect(content().string(containsString("\"/api/files/{fileId}/versions\"")))
-        .andExpect(content().string(containsString("\"/setup\"")))
-        .andExpect(content().string(containsString("\"/login\"")));
+        .andExpect(content().string(containsString("\"/setup\"")));
   }
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { File, Folder, Download, Share2, Trash2, FileText, Image, Film, Music, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { Folder, Download, Share2, Trash2, FileText, Image, Film, Music, Search, ChevronUp, ChevronDown, History } from 'lucide-react';
 import { formatDate, toTimestamp } from '../utils/date';
+import { formatSize } from '../utils/format';
 
 const FileIcon = ({ type, name }) => {
     if (type === 'DIRECTORY') return <Folder className="h-5 w-5 text-blue-500" />;
@@ -17,17 +18,9 @@ const FileIcon = ({ type, name }) => {
     if (['mp3', 'wav', 'ogg'].includes(ext)) return <Music className="h-5 w-5 text-green-500" />;
 
     // Code
-    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'java', 'py', 'c', 'cpp'].includes(ext)) return <FileText className="h-5 w-5 text-yellow-500" />; // Or specific Code icon if available in Lucide, 'Code' is available
+    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'java', 'py', 'c', 'cpp'].includes(ext)) return <FileText className="h-5 w-5 text-yellow-500" />;
 
     return <FileText className="h-5 w-5 text-gray-500" />;
-};
-
-const formatSize = (bytes) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
 // Rendering every match of a loose query over a deep tree would lock the browser up, so cap it
@@ -99,7 +92,7 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
     );
 };
 
-const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick }) => {
+const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick, onVersions }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
@@ -171,9 +164,6 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                         <tr>
                             <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
                             <SortableHeader label="Size" sortKey="size" sortConfig={sortConfig} onSort={handleSort} />
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Access
-                            </th>
                             <SortableHeader label="Last Modified" sortKey="lastModified" sortConfig={sortConfig} onSort={handleSort} />
                             <th scope="col" className="relative px-6 py-3">
                                 <span className="sr-only">Actions</span>
@@ -183,7 +173,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                     <tbody className="bg-white divide-y divide-gray-200">
                         {visibleFiles.length === 0 ? (
                             <tr>
-                                <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
+                                <td colSpan="4" className="px-6 py-10 text-center text-gray-500">
                                     No files match your search.
                                 </td>
                             </tr>
@@ -221,14 +211,23 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                         {formatSize(file.size)}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                            Only You
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         {formatDate(file.lastModified)}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {/* Revealed on hover, and whenever one of the buttons has keyboard focus. */}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                        {onVersions && file.id && !file.isDirectory && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onVersions(file);
+                                                }}
+                                                className="text-gray-500 hover:text-gray-800 mr-4"
+                                                title="Versions"
+                                                aria-label="Versions"
+                                            >
+                                                <History className="h-5 w-5" />
+                                            </button>
+                                        )}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -236,6 +235,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                             }}
                                             className="text-indigo-600 hover:text-indigo-900 mr-4"
                                             title="Download"
+                                            aria-label="Download"
                                         >
                                             <Download className="h-5 w-5" />
                                         </button>
@@ -246,6 +246,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                             }}
                                             className="text-blue-600 hover:text-blue-900 mr-4"
                                             title="Share"
+                                            aria-label="Share"
                                         >
                                             <Share2 className="h-5 w-5" />
                                         </button>
@@ -256,6 +257,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                             }}
                                             className="text-red-600 hover:text-red-900"
                                             title="Delete"
+                                            aria-label="Delete"
                                         >
                                             <Trash2 className="h-5 w-5" />
                                         </button>

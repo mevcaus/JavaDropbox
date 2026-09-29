@@ -1,238 +1,188 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { fetchFiles, deleteItem, setCurrentPath, selectCurrentFiles, createDirectory, uploadFiles } from '../features/filesSlice';
+import {
+    fetchFiles,
+    deleteItem,
+    setCurrentPath,
+    selectCurrentFiles,
+    createDirectory,
+    uploadFiles,
+    DOWNLOAD_ENDPOINT,
+} from '../features/filesSlice';
 import FileTable from '../components/FileTable';
 import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import CreateFolderModal from '../components/CreateFolderModal';
 import ShareModal from '../components/ShareModal';
+import VersionHistoryModal from '../components/VersionHistoryModal';
 import { useToast } from '../hooks/useToast';
-import { Loader2, FolderPlus, ChevronDown, Upload as UploadIcon, HardDrive as HardDriveIcon, File as FileIcon } from 'lucide-react';
-import api from '../services/api';
+import { Loader2, FolderPlus, Upload as UploadIcon } from 'lucide-react';
+
+// Search results carry their own relativePath; a plain row in this folder may not.
+const pathOf = (file, currentPath) =>
+    file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
 
 const Dashboard = () => {
     const dispatch = useDispatch();
     const files = useSelector(selectCurrentFiles);
-    const { loading, error, currentPath } = useSelector((state) => state.files);
-
-    // State for deletion modal
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    const [itemToDelete, setItemToDelete] = useState(null);
-    const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
-    const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-    const [itemToShare, setItemToShare] = useState(null);
-    const [isUploadDropdownOpen, setIsUploadDropdownOpen] = useState(false);
+    const { loading, loaded, error, currentPath } = useSelector((state) => state.files);
     const { addToast } = useToast();
+
+    const [itemToDelete, setItemToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+    const [itemToShare, setItemToShare] = useState(null);
+    const [versionsFile, setVersionsFile] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     useEffect(() => {
         dispatch(fetchFiles());
     }, [dispatch]);
 
+    // FileTable hands back the folder's full path, which is what search results need: a nested
+    // match cannot be located by name alone.
     const handleNavigate = (path) => {
         dispatch(setCurrentPath(path));
     };
 
-    // FileTable hands back the folder's full path, which is what search results need: a nested
-    // match cannot be located by name alone.
-    const handleFolderClick = (folderPath) => {
-        dispatch(setCurrentPath(folderPath));
-    };
-
-    const handleExecuteCreateFolder = async (folderName) => {
-        if (folderName) {
-            try {
-                await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
-                addToast(`Folder "${folderName}" created successfully.`, 'success');
-            } catch (err) {
-                const msg = typeof err === 'string' ? err : err.message || 'Failed to create folder.';
-                addToast(msg, 'error');
-            }
+    const handleCreateFolder = async (folderName) => {
+        try {
+            await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
+            addToast(`Folder "${folderName}" created successfully.`, 'success');
+        } catch (err) {
+            addToast(err, 'error');
         }
     };
 
     const handleFileUpload = async (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const count = files.length;
-            try {
-                await dispatch(uploadFiles({ files, path: currentPath })).unwrap();
-                addToast(`Uploaded ${count} file(s) successfully.`, 'success');
-            } catch (err) {
-                const msg = typeof err === 'string' ? err : err.message || 'Failed to upload files.';
-                addToast(msg, 'error');
-            }
+        const input = e.target;
+        const selected = Array.from(input.files ?? []);
+        // Clear the input so choosing the same file again still fires a change event.
+        input.value = '';
+        if (selected.length === 0) return;
+
+        setIsUploading(true);
+        try {
+            await dispatch(uploadFiles({ files: selected, path: currentPath })).unwrap();
+            addToast(`Uploaded ${selected.length} ${selected.length === 1 ? 'file' : 'files'} successfully.`, 'success');
+        } catch (err) {
+            addToast(err, 'error');
+        } finally {
+            setIsUploading(false);
         }
-        setIsUploadDropdownOpen(false);
     };
 
-    // Open modal
-    const confirmDelete = (file) => {
-        setItemToDelete(file);
-        setIsDeleteModalOpen(true);
-    };
-
-    const handleExecuteDelete = async () => {
-        if (itemToDelete) {
-            const pathToDelete = itemToDelete.relativePath || (currentPath ? `${currentPath}/${itemToDelete.name}` : itemToDelete.name);
-            try {
-                await dispatch(deleteItem(pathToDelete)).unwrap();
-                addToast(`"${itemToDelete.name}" deleted successfully.`, 'success');
-            } catch (err) {
-                const msg = typeof err === 'string' ? err : err.message || 'Failed to delete item.';
-                addToast(msg, 'error');
-            }
-            setIsDeleteModalOpen(false);
+    const handleDelete = async () => {
+        if (!itemToDelete) return;
+        setIsDeleting(true);
+        try {
+            await dispatch(deleteItem(pathOf(itemToDelete, currentPath))).unwrap();
+            addToast(`"${itemToDelete.name}" deleted successfully.`, 'success');
+        } catch (err) {
+            addToast(err, 'error');
+        } finally {
+            setIsDeleting(false);
             setItemToDelete(null);
         }
     };
 
-    const handleDownload = async (file) => {
-        try {
-            const path = file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
-            const response = await api.get(`/api/download?path=${encodeURIComponent(path)}`, {
-                responseType: 'blob',
-            });
-
-            const blob = new Blob([response.data], { type: response.headers['content-type'] });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-
-            let filename = file.name;
-            if (file.isDirectory) {
-                filename += '.zip';
-            }
-
-            link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-        } catch (error) {
-            console.error('Download failed', error);
-            addToast('Download failed. Please try again.', 'error');
-        }
+    // A plain link rather than fetching the file into memory: the browser streams it to disk, so
+    // a large file or folder zip never has to fit in the tab. The session cookie goes with it.
+    const handleDownload = (file) => {
+        const link = document.createElement('a');
+        link.href = `${DOWNLOAD_ENDPOINT}?path=${encodeURIComponent(pathOf(file, currentPath))}`;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
     };
 
     const handleShare = (file) => {
-        const path = file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
-        setItemToShare({ name: file.name, isDirectory: file.isDirectory, path });
-        setIsShareModalOpen(true);
+        setItemToShare({ name: file.name, isDirectory: file.isDirectory, path: pathOf(file, currentPath) });
     };
 
-    const showFeatureNotImplemented = (featureName) => {
-        addToast(`${featureName} is not implemented yet. Stay tuned for updates!`, 'info');
-        setIsUploadDropdownOpen(false);
-    };
-
-    if (loading) {
+    if (loading && !loaded) {
         return (
             <div className="flex items-center justify-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500" aria-label="Loading files" />
             </div>
         );
     }
 
-    if (error) {
-        return <div className="text-red-500 text-center py-4">Error loading files: {error.message || JSON.stringify(error)}</div>;
+    if (error && !loaded) {
+        return <div className="text-red-500 text-center py-4">Error loading files: {error}</div>;
     }
 
     return (
         <div>
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
                 <h1 className="text-2xl font-semibold text-gray-900">My Files</h1>
                 <div className="flex space-x-3">
-                    {/* Upload Dropdown */}
-                    <div className="relative">
-                        <button
-                            onClick={() => setIsUploadDropdownOpen(!isUploadDropdownOpen)}
-                            className="flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-sm transition-colors"
-                        >
-                            <UploadIcon className="h-4 w-4 mr-2" />
-                            Upload
-                            <ChevronDown className="h-4 w-4 ml-2" />
-                        </button>
-
-                        {isUploadDropdownOpen && (
-                            <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
-                                <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-                                    <label className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 cursor-pointer" role="menuitem">
-                                        <FileIcon className="h-4 w-4 mr-2 text-gray-500" />
-                                        <span className="ml-2">File</span>
-                                        <input type="file" className="hidden" multiple onChange={handleFileUpload} />
-                                    </label>
-                                    <button
-                                        className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 text-left"
-                                        role="menuitem"
-                                        onClick={() => showFeatureNotImplemented("Folder upload")}
-                                    >
-                                        <FolderPlus className="h-4 w-4 mr-2 text-blue-500" />
-                                        Folder
-                                    </button>
-                                    <button
-                                        className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 text-left"
-                                        role="menuitem"
-                                        onClick={() => showFeatureNotImplemented("Google Drive import")}
-                                    >
-                                        <span className="mr-2 font-bold text-green-600">G</span> Google Drive
-                                    </button>
-                                    <button
-                                        className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 text-left"
-                                        role="menuitem"
-                                        onClick={() => showFeatureNotImplemented("OneDrive import")}
-                                    >
-                                        <span className="mr-2 font-bold text-blue-600">O</span> OneDrive
-                                    </button>
-                                </div>
-                            </div>
+                    <label
+                        className={`flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 shadow-sm transition-colors ${
+                            isUploading ? 'opacity-50 cursor-wait' : 'cursor-pointer'
+                        }`}
+                    >
+                        {isUploading ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
+                        ) : (
+                            <UploadIcon className="h-4 w-4 mr-2" aria-hidden="true" />
                         )}
-                    </div>
+                        {isUploading ? 'Uploading…' : 'Upload'}
+                        <input
+                            type="file"
+                            className="sr-only"
+                            multiple
+                            disabled={isUploading}
+                            onChange={handleFileUpload}
+                        />
+                    </label>
 
                     <button
                         onClick={() => setIsCreateFolderModalOpen(true)}
                         className="flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-sm transition-colors"
                     >
-                        <FolderPlus className="h-4 w-4 mr-2" />
+                        <FolderPlus className="h-4 w-4 mr-2" aria-hidden="true" />
                         New Folder
-                    </button>
-
-                    <button
-                        className="flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm transition-colors"
-                        onClick={() => showFeatureNotImplemented("Desktop App installer")}
-                    >
-                        <HardDriveIcon className="h-4 w-4 mr-2" />
-                        Install App
                     </button>
                 </div>
             </div>
 
             <Breadcrumbs currentPath={currentPath} onNavigate={handleNavigate} />
 
+            {error && <p className="mb-4 text-sm text-red-500">Could not refresh the file list: {error}</p>}
+
             <FileTable
                 files={files}
                 currentPath={currentPath}
-                onDelete={confirmDelete}
+                onDelete={setItemToDelete}
                 onDownload={handleDownload}
                 onShare={handleShare}
-                onFolderClick={handleFolderClick}
+                onVersions={setVersionsFile}
+                onFolderClick={handleNavigate}
             />
 
             <DeleteConfirmationModal
-                isOpen={isDeleteModalOpen}
-                onClose={() => setIsDeleteModalOpen(false)}
-                onConfirm={handleExecuteDelete}
+                isOpen={itemToDelete !== null}
+                onClose={() => setItemToDelete(null)}
+                onConfirm={handleDelete}
                 itemName={itemToDelete?.name}
+                isDeleting={isDeleting}
             />
 
             <CreateFolderModal
                 isOpen={isCreateFolderModalOpen}
                 onClose={() => setIsCreateFolderModalOpen(false)}
-                onCreate={handleExecuteCreateFolder}
+                onCreate={handleCreateFolder}
             />
 
-            <ShareModal
-                isOpen={isShareModalOpen}
-                onClose={() => setIsShareModalOpen(false)}
-                item={itemToShare}
+            <ShareModal isOpen={itemToShare !== null} onClose={() => setItemToShare(null)} item={itemToShare} />
+
+            <VersionHistoryModal
+                isOpen={versionsFile !== null}
+                onClose={() => setVersionsFile(null)}
+                file={versionsFile}
+                onRestored={() => dispatch(fetchFiles())}
             />
         </div>
     );

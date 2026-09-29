@@ -1,22 +1,27 @@
 package com.javadropbox.javadropbox.controller;
 
-import com.javadropbox.javadropbox.dto.DownloadableResource;
-import com.javadropbox.javadropbox.service.FileServingService;
+import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.exception.BadRequestException;
+import com.javadropbox.javadropbox.exception.NotFoundException;
+import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.ShareTokenService;
 import io.jsonwebtoken.JwtException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
@@ -33,12 +38,11 @@ public class ShareController {
   private static final long MAX_EXPIRATION_MINUTES = 7 * 24 * 60;
 
   private final ShareTokenService shareTokenService;
-  private final FileServingService fileServingService;
+  private final FileService fileService;
 
-  public ShareController(
-      ShareTokenService shareTokenService, FileServingService fileServingService) {
+  public ShareController(ShareTokenService shareTokenService, FileService fileService) {
     this.shareTokenService = shareTokenService;
-    this.fileServingService = fileServingService;
+    this.fileService = fileService;
   }
 
   @PostMapping("/api/share")
@@ -58,7 +62,7 @@ public class ShareController {
                   "message", "expirationMinutes must be between 1 and " + MAX_EXPIRATION_MINUTES));
     }
 
-    if (!fileServingService.pathExists(path)) {
+    if (!fileService.exists(path)) {
       return ResponseEntity.notFound().build();
     }
 
@@ -82,7 +86,8 @@ public class ShareController {
   @Operation(
       summary = "Download shared file",
       description = "Downloads a file using a share token. Publicly accessible.")
-  public ResponseEntity<Resource> downloadSharedFile(@PathVariable String token) {
+  public ResponseEntity<Resource> downloadSharedFile(
+      @PathVariable String token, HttpServletResponse response) throws IOException {
     String path;
     try {
       path = shareTokenService.resolvePath(token);
@@ -90,16 +95,14 @@ public class ShareController {
       return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
+    // The link may name something that has since been deleted, or (for a token minted before
+    // the root was refused) the root itself; either way there is nothing to hand out.
+    Download download;
     try {
-      DownloadableResource downloadable = fileServingService.getResourceForPath(path);
-      return ResponseEntity.ok()
-          .contentType(MediaType.parseMediaType(downloadable.contentType()))
-          .header(
-              HttpHeaders.CONTENT_DISPOSITION,
-              "attachment; filename=\"" + downloadable.filename() + "\"")
-          .body(downloadable.resource());
-    } catch (IOException e) {
+      download = fileService.download(path);
+    } catch (NotFoundException | BadRequestException e) {
       return ResponseEntity.notFound().build();
     }
+    return DownloadResponses.send(download, response);
   }
 }

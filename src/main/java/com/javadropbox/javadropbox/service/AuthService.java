@@ -2,36 +2,33 @@ package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import java.util.Optional;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuthService {
 
   private final UserRepository userRepository;
-  private final PasswordEncoder passwordEncoder;
 
-  public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+  public AuthService(UserRepository userRepository) {
     this.userRepository = userRepository;
-    this.passwordEncoder = passwordEncoder;
   }
 
   public boolean isSetupRequired() {
     return userRepository.count() == 0;
   }
 
-  public void setupUser(String username, String rawPassword) {
-    if (!isSetupRequired()) {
-      throw new RuntimeException("Setup already completed");
+  /**
+   * The signed-in user, whom file operations are attributed to, or null for an anonymous request
+   * (e.g. a share-link download) or a principal with no account row.
+   */
+  public User currentUser() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
+      return null;
     }
-    String encodedPassword = passwordEncoder.encode(rawPassword);
-    User user = new User(username, encodedPassword, "ROLE_USER");
-    userRepository.save(user);
-  }
-
-  // Helper to get the single user for now
-  public Optional<User> getMainUser() {
-    return userRepository.findAll().stream().findFirst();
+    return userRepository.findByUsername(auth.getName()).orElse(null);
   }
 }
