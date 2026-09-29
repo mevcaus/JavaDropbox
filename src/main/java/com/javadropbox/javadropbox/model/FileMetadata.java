@@ -14,121 +14,121 @@ import java.time.LocalDateTime;
 @Table(name = "file_metadata")
 public class FileMetadata {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
 
-    private String path; // Relative path
-    private String filename; // Added filename for easier searching
-    private Long size;
-    private Boolean isDirectory;
+  private String path; // Relative path
+  private String filename; // Added filename for easier searching
+  private Long size;
+  private Boolean isDirectory;
 
-    private Integer currentVersion = 1;
+  private Integer currentVersion = 1;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    private User owner;
+  @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "user_id")
+  private User owner;
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
-    private LocalDateTime lastAccessed;
+  private LocalDateTime createdAt;
+  private LocalDateTime updatedAt;
+  private LocalDateTime lastAccessed;
 
-    public FileMetadata() {
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
-        this.lastAccessed = LocalDateTime.now();
-    }
+  public FileMetadata() {
+    this.createdAt = LocalDateTime.now();
+    this.updatedAt = LocalDateTime.now();
+    this.lastAccessed = LocalDateTime.now();
+  }
 
-    public FileMetadata(String path, String filename, Long size, Boolean isDirectory, User owner) {
-        this.path = path;
-        this.filename = filename;
-        this.size = size;
-        this.isDirectory = isDirectory;
-        this.owner = owner;
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
-        this.lastAccessed = LocalDateTime.now();
-    }
+  public FileMetadata(String path, String filename, Long size, Boolean isDirectory, User owner) {
+    this.path = path;
+    this.filename = filename;
+    this.size = size;
+    this.isDirectory = isDirectory;
+    this.owner = owner;
+    this.createdAt = LocalDateTime.now();
+    this.updatedAt = LocalDateTime.now();
+    this.lastAccessed = LocalDateTime.now();
+  }
 
-    // Getters and Setters
+  // Getters and Setters
 
-    public Long getId() {
-        return id;
-    }
+  public Long getId() {
+    return id;
+  }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+  public void setId(Long id) {
+    this.id = id;
+  }
 
-    public String getPath() {
-        return path;
-    }
+  public String getPath() {
+    return path;
+  }
 
-    public void setPath(String path) {
-        this.path = path;
-    }
+  public void setPath(String path) {
+    this.path = path;
+  }
 
-    public String getFilename() {
-        return filename;
-    }
+  public String getFilename() {
+    return filename;
+  }
 
-    public void setFilename(String filename) {
-        this.filename = filename;
-    }
+  public void setFilename(String filename) {
+    this.filename = filename;
+  }
 
-    public Long getSize() {
-        return size;
-    }
+  public Long getSize() {
+    return size;
+  }
 
-    public void setSize(Long size) {
-        this.size = size;
-    }
+  public void setSize(Long size) {
+    this.size = size;
+  }
 
-    public Boolean getIsDirectory() {
-        return isDirectory;
-    }
+  public Boolean getIsDirectory() {
+    return isDirectory;
+  }
 
-    public void setIsDirectory(Boolean directory) {
-        isDirectory = directory;
-    }
+  public void setIsDirectory(Boolean directory) {
+    isDirectory = directory;
+  }
 
-    public User getOwner() {
-        return owner;
-    }
+  public User getOwner() {
+    return owner;
+  }
 
-    public void setOwner(User owner) {
-        this.owner = owner;
-    }
+  public void setOwner(User owner) {
+    this.owner = owner;
+  }
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
+  public LocalDateTime getCreatedAt() {
+    return createdAt;
+  }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
+  public void setCreatedAt(LocalDateTime createdAt) {
+    this.createdAt = createdAt;
+  }
 
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
+  public LocalDateTime getUpdatedAt() {
+    return updatedAt;
+  }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
+  public void setUpdatedAt(LocalDateTime updatedAt) {
+    this.updatedAt = updatedAt;
+  }
 
-    public LocalDateTime getLastAccessed() {
-        return lastAccessed;
-    }
+  public LocalDateTime getLastAccessed() {
+    return lastAccessed;
+  }
 
-    public void setLastAccessed(LocalDateTime lastAccessed) {
-        this.lastAccessed = lastAccessed;
-    }
+  public void setLastAccessed(LocalDateTime lastAccessed) {
+    this.lastAccessed = lastAccessed;
+  }
 
-    public Integer getCurrentVersion() {
-        return currentVersion;
-    }
+  public Integer getCurrentVersion() {
+    return currentVersion;
+  }
 
-    public void setCurrentVersion(Integer currentVersion) {
-        this.currentVersion = currentVersion;
-    }
+  public void setCurrentVersion(Integer currentVersion) {
+    this.currentVersion = currentVersion;
+  }
 }
