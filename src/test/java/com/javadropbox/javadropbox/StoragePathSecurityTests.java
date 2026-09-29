@@ -16,6 +16,7 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -49,9 +51,9 @@ class StoragePathSecurityTests {
 
   @Autowired private UserRepository userRepository;
 
-  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @Autowired private JdbcTemplate jdbc;
 
-  @org.junit.jupiter.api.AfterEach
+  @AfterEach
   void tearDown() {
     TestDatabase.wipe(jdbc);
   }

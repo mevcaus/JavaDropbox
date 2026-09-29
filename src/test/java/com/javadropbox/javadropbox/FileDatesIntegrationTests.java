@@ -18,6 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -53,7 +54,7 @@ class FileDatesIntegrationTests {
     Files.writeString(servingDir.resolve("testfile.txt"), "hello world");
   }
 
-  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @Autowired private JdbcTemplate jdbc;
 
   @AfterEach
   void tearDown() {

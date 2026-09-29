@@ -13,11 +13,13 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -50,9 +53,9 @@ class DownloadIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private ShareTokenService shareTokens;
 
-  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @Autowired private JdbcTemplate jdbc;
 
-  @org.junit.jupiter.api.AfterEach
+  @AfterEach
   void tearDown() {
     TestDatabase.wipe(jdbc);
   }
@@ -67,7 +70,7 @@ class DownloadIntegrationTests {
     Files.writeString(servingDir.resolve("docs/nested/deep.txt"), "deep");
     Files.writeString(outsideDir.resolve("secret.txt"), "secret");
     Path link = servingDir.resolve("docs/escape");
-    if (!Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+    if (!Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
       Files.createSymbolicLink(link, outsideDir);
     }
   }

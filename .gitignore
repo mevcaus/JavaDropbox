@@ -39,3 +39,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Root dev tooling (concurrently, from package.json)
+/node_modules/

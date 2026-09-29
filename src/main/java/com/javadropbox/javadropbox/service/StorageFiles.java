@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
@@ -19,7 +20,7 @@ final class StorageFiles {
    * followed, so a link inside the folder cannot take files outside it down with it.
    */
   static void deleteRecursively(Path path) throws IOException {
-    if (!Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+    if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
       Files.deleteIfExists(path);
       return;
     }

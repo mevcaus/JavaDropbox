@@ -6,17 +6,25 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.javadropbox.javadropbox.config.SetupFilter;
+import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.repository.FileHistoryRepository;
+import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AuthService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -47,23 +55,21 @@ class SetupIntegrationTests {
 
   @Autowired private AuthService authService;
 
-  @Autowired private com.javadropbox.javadropbox.repository.UserRepository userRepository;
+  @Autowired private UserRepository userRepository;
 
-  @Autowired
-  private com.javadropbox.javadropbox.repository.FileHistoryRepository fileHistoryRepository;
+  @Autowired private FileHistoryRepository fileHistoryRepository;
 
-  @Autowired
-  private com.javadropbox.javadropbox.repository.FileMetadataRepository fileMetadataRepository;
+  @Autowired private FileMetadataRepository fileMetadataRepository;
 
-  @Autowired private com.javadropbox.javadropbox.config.SetupFilter setupFilter;
+  @Autowired private SetupFilter setupFilter;
 
-  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @Autowired private JdbcTemplate jdbc;
 
-  @org.junit.jupiter.api.BeforeEach
+  @BeforeEach
   void setUp() {
     // The filter remembers that setup is done, which is true in production where accounts are
     // never deleted, but these tests delete them to get back to a fresh install.
-    org.springframework.test.util.ReflectionTestUtils.setField(setupFilter, "setupComplete", false);
+    ReflectionTestUtils.setField(setupFilter, "setupComplete", false);
     TestDatabase.wipe(jdbc);
   }
 
@@ -228,7 +234,7 @@ class SetupIntegrationTests {
   @Test
   @DisplayName("Once an account exists, a second setup attempt is a 409, not a redirect")
   void setupAfterCompletionIsConflict() throws Exception {
-    userRepository.save(new com.javadropbox.javadropbox.model.User("admin", "hash", "ROLE_ADMIN"));
+    userRepository.save(new User("admin", "hash", "ROLE_ADMIN"));
 
     mockMvc
         .perform(

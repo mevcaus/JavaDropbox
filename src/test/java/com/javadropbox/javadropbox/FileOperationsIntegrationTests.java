@@ -25,8 +25,10 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
+import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -67,7 +70,7 @@ class FileOperationsIntegrationTests {
     users.save(new User("owner", "unused", "ROLE_ADMIN"));
   }
 
-  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @Autowired private JdbcTemplate jdbc;
 
   @AfterEach
   void tearDown() throws IOException {
@@ -156,7 +159,7 @@ class FileOperationsIntegrationTests {
     assertThat(history.findAll())
         .filteredOn(h -> h.getChangeType() == ChangeType.RESTORE)
         .extracting(FileHistory::getDetails, FileHistory::getErrorMessage)
-        .contains(org.assertj.core.groups.Tuple.tuple("Restored version 1", null));
+        .contains(Tuple.tuple("Restored version 1", null));
   }
 
   @Test
@@ -301,7 +304,7 @@ class FileOperationsIntegrationTests {
     assertThat(history.findAll())
         .filteredOn(h -> !h.isSuccess())
         .extracting(FileHistory::getChangeType, FileHistory::getFilePath)
-        .containsExactly(org.assertj.core.groups.Tuple.tuple(ChangeType.CREATE_FOLDER, "dup"));
+        .containsExactly(Tuple.tuple(ChangeType.CREATE_FOLDER, "dup"));
   }
 
   @Test
@@ -392,7 +395,7 @@ class FileOperationsIntegrationTests {
 
   private static void deleteTree(Path path) throws IOException {
     try (Stream<Path> walk = Files.walk(path)) {
-      for (Path p : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+      for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
         Files.delete(p);
       }
     }

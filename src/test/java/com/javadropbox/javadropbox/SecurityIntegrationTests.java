@@ -4,7 +4,14 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.repository.FileHistoryRepository;
+import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AuthService;
+import org.hamcrest.Matchers;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -12,6 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,30 +34,26 @@ class SecurityIntegrationTests {
 
   @Autowired private AuthService authService;
 
-  @Autowired private com.javadropbox.javadropbox.repository.UserRepository userRepository;
+  @Autowired private UserRepository userRepository;
 
-  @Autowired
-  private com.javadropbox.javadropbox.repository.FileHistoryRepository fileHistoryRepository;
+  @Autowired private FileHistoryRepository fileHistoryRepository;
 
-  @Autowired
-  private com.javadropbox.javadropbox.repository.FileMetadataRepository fileMetadataRepository;
+  @Autowired private FileMetadataRepository fileMetadataRepository;
 
-  @Autowired private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+  @Autowired private PasswordEncoder passwordEncoder;
 
-  @org.junit.jupiter.api.BeforeEach
+  @BeforeEach
   void setUp() {
     // Ensure setup is NOT required by creating a user
     if (userRepository.count() == 0) {
-      com.javadropbox.javadropbox.model.User user =
-          new com.javadropbox.javadropbox.model.User(
-              "testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN");
+      User user = new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN");
       userRepository.save(user);
     }
   }
 
-  @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @Autowired private JdbcTemplate jdbc;
 
-  @org.junit.jupiter.api.AfterEach
+  @AfterEach
   void tearDown() {
     TestDatabase.wipe(jdbc);
   }
@@ -84,7 +89,7 @@ class SecurityIntegrationTests {
     mockMvc
         .perform(get("/index.html"))
         .andExpect(status().isOk())
-        .andExpect(content().string(org.hamcrest.Matchers.containsString("<div id=\"root\">")));
+        .andExpect(content().string(Matchers.containsString("<div id=\"root\">")));
   }
 
   @Test
