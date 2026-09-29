@@ -1,6 +1,6 @@
 package com.javadropbox.javadropbox.controller;
 
-import com.javadropbox.javadropbox.dto.DownloadableResource;
+import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.service.FileService;
@@ -9,14 +9,13 @@ import io.jsonwebtoken.JwtException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
@@ -83,8 +82,8 @@ public class ShareController {
   @Operation(
       summary = "Download shared file",
       description = "Downloads a file using a share token. Publicly accessible.")
-  public ResponseEntity<Resource> downloadSharedFile(@PathVariable String token)
-      throws IOException {
+  public ResponseEntity<Resource> downloadSharedFile(
+      @PathVariable String token, HttpServletResponse response) throws IOException {
     String path;
     try {
       path = shareTokenService.resolvePath(token);
@@ -94,17 +93,12 @@ public class ShareController {
 
     // The link may name something that has since been deleted, or (for a token minted before
     // the root was refused) the root itself; either way there is nothing to hand out.
-    DownloadableResource downloadable;
+    Download download;
     try {
-      downloadable = fileService.download(path);
+      download = fileService.download(path);
     } catch (NotFoundException | BadRequestException e) {
       return ResponseEntity.notFound().build();
     }
-    return ResponseEntity.ok()
-        .contentType(MediaType.parseMediaType(downloadable.contentType()))
-        .header(
-            HttpHeaders.CONTENT_DISPOSITION,
-            "attachment; filename=\"" + downloadable.filename() + "\"")
-        .body(downloadable.resource());
+    return DownloadResponses.send(download, response);
   }
 }

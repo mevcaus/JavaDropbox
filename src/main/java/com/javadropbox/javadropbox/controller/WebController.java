@@ -1,6 +1,5 @@
 package com.javadropbox.javadropbox.controller;
 
-import com.javadropbox.javadropbox.dto.DownloadableResource;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FileService;
@@ -8,14 +7,13 @@ import com.javadropbox.javadropbox.service.FileTreeService;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -72,15 +70,9 @@ public class WebController {
       summary = "Download a file or folder",
       description =
           "Downloads the file at the path, or a folder as a zip. Requires authentication.")
-  public ResponseEntity<Resource> downloadFileOrFolder(@RequestParam String path)
-      throws IOException {
-    DownloadableResource downloadable = fileService.download(path);
-    return ResponseEntity.ok()
-        .contentType(MediaType.parseMediaType(downloadable.contentType()))
-        .header(
-            HttpHeaders.CONTENT_DISPOSITION,
-            "attachment; filename=\"" + downloadable.filename() + "\"")
-        .body(downloadable.resource());
+  public ResponseEntity<Resource> downloadFileOrFolder(
+      @RequestParam String path, HttpServletResponse response) throws IOException {
+    return DownloadResponses.send(fileService.download(path), response);
   }
 
   @PostMapping("/api/upload")

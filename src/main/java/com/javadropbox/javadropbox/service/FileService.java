@@ -1,6 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
-import com.javadropbox.javadropbox.dto.DownloadableResource;
+import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
@@ -10,8 +10,6 @@ import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -23,10 +21,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -257,11 +251,11 @@ public class FileService {
   }
 
   /**
-   * The downloadable content at a path: the file itself, or a zip of a folder.
+   * The downloadable content at a path: the file itself, or a folder to be zipped.
    *
    * @throws NotFoundException if nothing is there
    */
-  public DownloadableResource download(String path) throws IOException {
+  public Download download(String path) throws IOException {
     StoragePath target = storagePaths.resolveItem(path);
     if (!Files.exists(target.path())) {
       throw new NotFoundException("Not found: " + target.key());
@@ -269,11 +263,11 @@ public class FileService {
     files.markAccessed(target.key(), LocalDateTime.now());
 
     if (Files.isDirectory(target.path())) {
-      return zip(target);
+      return new Download.FolderDownload(target.path(), target.name() + ".zip");
     }
     String contentType = Files.probeContentType(target.path());
-    return new DownloadableResource(
-        new UrlResource(target.path().toUri()),
+    return new Download.FileDownload(
+        target.path(),
         target.name(),
         contentType != null ? contentType : "application/octet-stream");
   }
@@ -281,35 +275,6 @@ public class FileService {
   /** Whether something exists at a path. Refuses the root, which can never be shared. */
   public boolean exists(String path) {
     return Files.exists(storagePaths.resolveItem(path).path());
-  }
-
-  private DownloadableResource zip(StoragePath folder) throws IOException {
-    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    try (ZipOutputStream zip = new ZipOutputStream(buffer)) {
-      addToZip(folder.path(), folder.name(), zip);
-    }
-    return new DownloadableResource(
-        new InputStreamResource(new ByteArrayInputStream(buffer.toByteArray())),
-        folder.name() + ".zip",
-        "application/zip");
-  }
-
-  private void addToZip(Path folder, String prefix, ZipOutputStream zip) throws IOException {
-    try (var entries = Files.newDirectoryStream(folder)) {
-      for (Path entry : entries) {
-        if (Files.isSymbolicLink(entry)) {
-          continue;
-        }
-        String name = prefix + "/" + entry.getFileName();
-        if (Files.isDirectory(entry)) {
-          addToZip(entry, name, zip);
-        } else {
-          zip.putNextEntry(new ZipEntry(name));
-          Files.copy(entry, zip);
-          zip.closeEntry();
-        }
-      }
-    }
   }
 
   /**
