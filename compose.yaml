@@ -4,11 +4,37 @@ services:
     environment:
       POSTGRES_DB: javadropbox
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      # Fine for local development. For anything else, set POSTGRES_PASSWORD.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
-      - "5432:5432"
+      # Local connections only: the app reaches it over the compose network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d javadropbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The whole app in one container. Behind the "app" profile so ./gradlew bootRun,
+  # which starts this file for its database, does not start it too:
+  #   docker compose --profile app up --build
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/javadropbox
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "8080:8080"
+    volumes:
+      - javadropbox-data:/data
 
 volumes:
   postgres-data:
+  javadropbox-data:
