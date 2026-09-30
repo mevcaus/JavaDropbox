@@ -435,6 +435,8 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | Test Suite | What It Covers |
 |-----------|----------------|
 | `FileOperationsIntegrationTests` | Delete-then-recreate, folder deletes removing child rows and versions, restore in place and as a copy (twice), versions kept per path, pruning, untracked files versioned before replace, failed uploads keeping the old content, failures recorded despite rollback, attribution to the signed-in user, 404s, history paging |
+| `FileIntegrityIntegrationTests` | On PostgreSQL: concurrent replaces, restores and deletes of one file, the disk put back when a replace or restore fails before, after or at commit, folder deletes in a fixed number of statements |
+| `MultipartErrorIntegrationTests` | On a real Tomcat: a server fault storing an upload is a 500, a malformed upload a 400 |
 | `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, the reserved `.versions`/`.javadropbox` directories, single-segment upload names |
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items or the root |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
@@ -444,8 +446,10 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
 | `FlywayMigrationIntegrationTests` / `FlywayBaselineIntegrationTests` | Migrations build an empty PostgreSQL database, and a pre-Flyway database is adopted; Hibernate validates both |
+| `FlywayFileVersionMigrationTests` | V4 drops duplicate version rows before making versions unique; V5 lets deletes find history rows through an index |
 | `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant under UTC, region and offset-style (`GMT+01:00`) JVM zones |
 | `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup-code rotation, lockout timing, command-line shorthands |
+| `FileVersionServiceTests`, `ApiExceptionHandlerTests` | A negative retention limit stops startup; statuses for lost races and for upload parsing failures |
 
 ### Test Design Highlights
 - **Test isolation**: Test classes with the same configuration share one Spring context and database, so each wipes every table after a test through `TestDatabase.wipe`
