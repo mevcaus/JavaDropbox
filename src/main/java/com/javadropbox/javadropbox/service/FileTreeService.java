@@ -58,14 +58,20 @@ public class FileTreeService {
     try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
       for (Path entry : entries) {
         String name = entry.getFileName().toString();
-        // Hidden entries include the app's own directories. Symlinks are skipped: one pointing
-        // outside the serving directory would expose it, one pointing at an ancestor would loop.
-        if (name.startsWith(".") || Files.isSymbolicLink(entry)) {
+        // Hidden entries include the app's own directories.
+        if (name.startsWith(".")) {
           continue;
         }
         String childKey = key.isEmpty() ? name : key + "/" + name;
         try {
-          nodes.add(node(entry, name, childKey, metadata));
+          // Read once without following links, so the entry checked is the entry listed.
+          BasicFileAttributes attributes =
+              Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+          // Symlinks are skipped: one pointing outside the serving directory would expose it, one
+          // pointing at an ancestor would loop.
+          if (!attributes.isSymbolicLink()) {
+            nodes.add(node(entry, attributes, name, childKey, metadata));
+          }
         } catch (IOException e) {
           log.warn("Skipping {} in the file tree: {}", entry, e.toString());
         }
@@ -77,10 +83,12 @@ public class FileTreeService {
     return nodes;
   }
 
-  private FileTreeNode node(Path entry, String name, String key, Map<String, FileMetadata> metadata)
-      throws IOException {
-    BasicFileAttributes attributes =
-        Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+  private FileTreeNode node(
+      Path entry,
+      BasicFileAttributes attributes,
+      String name,
+      String key,
+      Map<String, FileMetadata> metadata) {
     FileTreeNode node = new FileTreeNode(name, attributes.isDirectory(), attributes.size(), key);
 
     FileMetadata row = metadata.get(key);

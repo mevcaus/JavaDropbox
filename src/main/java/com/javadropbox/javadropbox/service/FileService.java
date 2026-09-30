@@ -102,7 +102,7 @@ public class FileService {
             FileMetadata file =
                 replacing ? existingOrNew(target, size, user) : claim(target, false, size, user);
             if (replacing) {
-              versions.archive(file, target.path(), user);
+              versions.archive(file, StoragePaths.recheck(target.path()), user);
             }
             StorageFiles.moveIntoPlace(scratch, target.path());
 
@@ -158,7 +158,7 @@ public class FileService {
       inTransaction(
           () -> {
             FileMetadata folder = claim(target, true, 0, user);
-            Files.createDirectory(target.path());
+            Files.createDirectory(StoragePaths.recheck(target.path()));
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
           });
     } catch (IOException | RuntimeException e) {
@@ -206,7 +206,7 @@ public class FileService {
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
       if (Files.exists(live.path())) {
-        versions.archive(file, live.path(), user);
+        versions.archive(file, StoragePaths.recheck(live.path()), user);
       }
       StorageFiles.moveIntoPlace(scratch, live.path());
     } finally {
@@ -223,7 +223,7 @@ public class FileService {
     StoragePath parent = storagePaths.resolve(parentKey(file.getPath()));
     StoragePath target = freeCopyName(parent, file.getFilename(), number);
     Files.createDirectories(parent.path());
-    Files.copy(source, target.path());
+    Files.copy(source, StoragePaths.recheck(target.path()));
 
     FileMetadata copy = claim(target, false, Files.size(target.path()), user);
     history.recordSuccess(

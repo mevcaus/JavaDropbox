@@ -23,6 +23,10 @@ import org.springframework.stereotype.Component;
  *   <li>it never reaches the directories the app keeps its own data in ({@link #RESERVED_DIRS}),
  *       under any letter case.
  * </ul>
+ *
+ * <p>A resolved path is built on the real serving directory, so no part of it is a symlink. Code
+ * about to touch the disk calls {@link #recheck} to confirm that is still true, since a folder can
+ * be swapped for a link between the check and the use.
  */
 @Component
 public class StoragePaths {
@@ -99,7 +103,7 @@ public class StoragePaths {
     if (isReserved(realRelative)) {
       throw new BadRequestException(INVALID_PATH);
     }
-    return new StoragePath(candidate, toKey(relative));
+    return new StoragePath(realRoot.resolve(relative), toKey(relative));
   }
 
   /**
@@ -134,9 +138,22 @@ public class StoragePaths {
     return resolveItem(parent.isRoot() ? name : parent.key() + "/" + name);
   }
 
-  /** The storage key (forward-slash relative path) for a path already known to be inside root. */
-  public String keyOf(Path path) {
-    return toKey(root.relativize(path.toAbsolutePath().normalize()));
+  /**
+   * Checks again, right before a resolved path is used, that no part of it has been replaced by a
+   * symlink since it was resolved.
+   *
+   * @param path a {@link StoragePath#path()}, or a folder along one
+   * @return {@code path}, for use inline
+   * @throws BadRequestException if part of the path is now a symlink
+   */
+  public static Path recheck(Path path) {
+    for (Path part = path; part != null; part = part.getParent()) {
+      if (Files.isSymbolicLink(part)) {
+        log.warn("Rejected path that became a symlink after it was checked: {}", path);
+        throw new BadRequestException(INVALID_PATH);
+      }
+    }
+    return path;
   }
 
   // A case-insensitive filesystem (macOS, Windows) treats ".VERSIONS" as ".versions".
@@ -186,7 +203,7 @@ public class StoragePaths {
   /**
    * A validated location inside the serving directory.
    *
-   * @param path the absolute filesystem path
+   * @param path the absolute filesystem path, inside the real serving directory
    * @param key the path relative to the serving directory with forward slashes, {@code ""} for the
    *     root. This is the form stored in the database and shown to clients.
    */
