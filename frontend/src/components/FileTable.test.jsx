@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FileTable from './FileTable';
+import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
 afterEach(cleanup);
 
@@ -362,6 +363,13 @@ describe('FileTable on narrow touch screens', () => {
         // A bare opacity-0 would apply on phones too, where nothing ever hovers.
         expect(classesOf(actionsCell)).not.toContain('opacity-0');
         expect(classesOf(actionsCell)).toContain('[@media(hover:hover)]:opacity-0');
+    });
+});
+
+describe('FileTable keyboard focus', () => {
+    it('shows where focus is on every control, folder names included', () => {
+        const { container } = renderTable();
+        expect(controlsWithoutFocusIndicator(container)).toEqual([]);
     });
 });
 

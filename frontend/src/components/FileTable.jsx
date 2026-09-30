@@ -198,7 +198,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                             e.stopPropagation(); // Prevent double trigger
                                                             onFolderClick(file.relativePath);
                                                         }}
-                                                        className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
+                                                        className="rounded-sm text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                                     >
                                                         {file.name}
                                                     </button>

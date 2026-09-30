@@ -10,10 +10,11 @@ const Breadcrumbs = ({ currentPath, onNavigate }) => {
     const parts = currentPath ? currentPath.split('/').filter(Boolean) : [];
 
     return (
-        <nav className="flex items-center text-sm text-gray-500 mb-4 overflow-x-auto whitespace-nowrap">
+        // The padding leaves room for the focus rings, which the scrolling container would clip.
+        <nav className="flex items-center text-sm text-gray-500 -mx-1 p-1 mb-3 overflow-x-auto whitespace-nowrap">
             <button
                 onClick={() => onNavigate('')}
-                className="flex items-center hover:text-blue-600 transition-colors focus:outline-none"
+                className="flex items-center rounded-sm hover:text-blue-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             >
                 <Home className="h-4 w-4 mr-1" />
                 Home
@@ -33,7 +34,7 @@ const Breadcrumbs = ({ currentPath, onNavigate }) => {
                         ) : (
                             <button
                                 onClick={() => onNavigate(path)}
-                                className="hover:text-blue-600 transition-colors focus:outline-none"
+                                className="rounded-sm hover:text-blue-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                             >
                                 {part}
                             </button>
