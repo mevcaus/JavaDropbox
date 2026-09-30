@@ -24,6 +24,23 @@ describe('readableError', () => {
         });
     });
 
+    describe('a json error body', () => {
+        it('prefers the specific message over the generic status text', () => {
+            const error = { response: { status: 400, data: { error: 'Bad Request', message: 'Name is too long' } } };
+            expect(readableError(error, 'fallback')).toBe('Name is too long');
+        });
+
+        it('falls back to the status text when there is no message', () => {
+            const error = { response: { status: 403, data: { status: 403, error: 'Forbidden', path: '/api/files' } } };
+            expect(readableError(error, 'fallback')).toBe('Forbidden');
+        });
+
+        it('ignores a blank message', () => {
+            const error = { response: { status: 400, data: { error: 'Bad Request', message: '  ' } } };
+            expect(readableError(error, 'fallback')).toBe('Bad Request');
+        });
+    });
+
     it('explains a 5xx without a body', () => {
         expect(readableError({ response: { status: 503, data: '' } }, 'fallback')).toBe(
             'The server is unavailable right now. Please try again.',

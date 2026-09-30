@@ -17,9 +17,11 @@ export const readableError = (
 ) => {
     const { status, data } = error?.response ?? {};
 
+    // The API's own errors carry a specific `message`; Spring's default error body adds only the
+    // generic status text in `error` ("Bad Request"), which is the last resort.
     if (data && typeof data === 'object') {
-        const message = data.error || data.message;
-        if (typeof message === 'string' && message.trim()) {
+        const message = [data.message, data.error].find((value) => typeof value === 'string' && value.trim());
+        if (message) {
             return message;
         }
     }
