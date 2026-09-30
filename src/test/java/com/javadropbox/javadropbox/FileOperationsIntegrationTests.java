@@ -370,6 +370,18 @@ class FileOperationsIntegrationTests {
     mockMvc.perform(get("/api/history").param("page", "-1")).andExpect(status().isBadRequest());
   }
 
+  @Test
+  @DisplayName("a history page too far out to address is a 400, not a 500")
+  void historyPageBeyondReachIsRefused() throws Exception {
+    mockMvc
+        .perform(get("/api/history").param("page", "100000000").param("size", "200"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(get("/api/history").param("page", "10000000").param("size", "200"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items").isEmpty());
+  }
+
   // --- failures ----------------------------------------------------------------
 
   @Test

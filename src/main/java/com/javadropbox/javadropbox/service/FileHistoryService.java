@@ -44,11 +44,14 @@ public class FileHistoryService {
     if (page < 0 || size < 1) {
       throw new BadRequestException("page must be 0 or more and size at least 1");
     }
+    int pageSize = Math.min(size, MAX_PAGE_SIZE);
+    // The query's offset is an int; a page beyond it could never hold anything anyway.
+    if ((long) page * pageSize > Integer.MAX_VALUE) {
+      throw new BadRequestException("page is out of range");
+    }
     PageRequest request =
         PageRequest.of(
-            page,
-            Math.min(size, MAX_PAGE_SIZE),
-            Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id")));
+            page, pageSize, Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id")));
     Page<FileHistory> result = repository.findAll(request);
     return new HistoryPage(
         result.getContent().stream().map(FileHistoryDto::fromEntity).toList(),
