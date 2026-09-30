@@ -16,6 +16,7 @@ import CreateFolderModal from '../components/CreateFolderModal';
 import ShareModal from '../components/ShareModal';
 import VersionHistoryModal from '../components/VersionHistoryModal';
 import { useToast } from '../hooks/useToast';
+import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
 import { Loader2, FolderPlus, Upload as UploadIcon } from 'lucide-react';
 
 // Search results carry their own relativePath; a plain row in this folder may not.
@@ -53,9 +54,16 @@ const Dashboard = () => {
 
     const handleFileUpload = async (e) => {
         const input = e.target;
-        const selected = Array.from(input.files ?? []);
+        const chosen = Array.from(input.files ?? []);
         // Clear the input so choosing the same file again still fires a change event.
         input.value = '';
+
+        const skipped = chosen.filter((file) => startsWithDot(file.name));
+        if (skipped.length > 0) {
+            const names = skipped.map((file) => file.name).join(', ');
+            addToast(`${names} ${skipped.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`, 'error');
+        }
+        const selected = chosen.filter((file) => !startsWithDot(file.name));
         if (selected.length === 0) return;
 
         setIsUploading(true);

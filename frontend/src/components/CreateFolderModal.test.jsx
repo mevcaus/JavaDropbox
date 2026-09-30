@@ -76,6 +76,18 @@ describe('CreateFolderModal', () => {
         expect(nameInput()).toHaveValue('');
     });
 
+    it('explains that a name cannot start with a dot instead of sending it', async () => {
+        const user = userEvent.setup();
+        const { onCreate, onClose } = renderModal();
+
+        await user.type(nameInput(), '.config');
+        await user.click(screen.getByRole('button', { name: 'Create' }));
+
+        expect(screen.getByRole('alert')).toHaveTextContent('Names cannot start with a dot.');
+        expect(onCreate).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
     describe('while the server decides', () => {
         const deferred = () => {
             let resolve;

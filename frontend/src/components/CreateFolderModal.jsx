@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import { primaryButton, secondaryButton } from './modalStyles';
+import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
 
 /**
  * Asks for a folder name. onCreate returns a promise: the dialog closes once it resolves, and stays
@@ -30,6 +31,11 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
         e.preventDefault();
         const name = folderName.trim();
         if (!name || creating) return;
+        if (startsWithDot(name)) {
+            setError(DOT_NAME_RULE);
+            inputRef.current?.focus();
+            return;
+        }
 
         setCreating(true);
         setError(null);

@@ -65,6 +65,35 @@ describe('Dashboard', () => {
         expect(input.value).toBe('');
     });
 
+    it('skips files whose names start with a dot and says why', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        api.post.mockResolvedValue({ data: {} });
+        const user = userEvent.setup();
+        renderDashboard();
+        await screen.findByRole('button', { name: 'Download' });
+
+        await user.upload(document.querySelector('input[type="file"]'), [
+            new File(['x'], 'notes.txt'),
+            new File(['SECRET=1'], '.env'),
+        ]);
+
+        expect(addToast).toHaveBeenCalledWith('.env was not uploaded. Names cannot start with a dot.', 'error');
+        await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+        expect(api.post.mock.calls[0][1].getAll('files').map((file) => file.name)).toEqual(['notes.txt']);
+    });
+
+    it('sends nothing when every file starts with a dot', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        const user = userEvent.setup();
+        renderDashboard();
+        await screen.findByRole('button', { name: 'Download' });
+
+        await user.upload(document.querySelector('input[type="file"]'), [new File(['a'], '.env'), new File(['b'], '.npmrc')]);
+
+        expect(addToast).toHaveBeenCalledWith('.env, .npmrc were not uploaded. Names cannot start with a dot.', 'error');
+        expect(api.post).not.toHaveBeenCalled();
+    });
+
     it('keeps the table on screen while the list refreshes', async () => {
         api.get.mockResolvedValueOnce({ data: TREE });
         const store = renderDashboard();
