@@ -152,7 +152,7 @@ const Setup = () => {
                     <p className="text-xs text-gray-500">At least {MIN_PASSWORD_LENGTH} characters.</p>
 
                     {error && (
-                        <div className="text-red-500 text-sm text-center">
+                        <div role="alert" className="text-red-500 text-sm text-center">
                             {typeof error === 'string' ? error : 'Setup failed'}
                         </div>
                     )}

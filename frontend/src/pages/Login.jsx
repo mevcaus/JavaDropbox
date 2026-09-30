@@ -74,7 +74,7 @@ const Login = () => {
                     </div>
 
                     {error && (
-                        <div className="text-red-500 text-sm text-center">
+                        <div role="alert" className="text-red-500 text-sm text-center">
                             {typeof error === 'string' ? error : 'Login failed'}
                         </div>
                     )}

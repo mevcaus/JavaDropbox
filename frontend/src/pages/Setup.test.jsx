@@ -70,7 +70,7 @@ describe('Setup', () => {
         await fillForm(user, { confirm: 'something else' });
 
         expect(api.post).not.toHaveBeenCalled();
-        expect(screen.getByText('The passwords do not match.')).toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent('The passwords do not match.');
     });
 
     it('does not submit a password shorter than the minimum', async () => {
@@ -80,7 +80,7 @@ describe('Setup', () => {
         await fillForm(user, { password: 'short' });
 
         expect(api.post).not.toHaveBeenCalled();
-        expect(screen.getByText('Password must be at least 8 characters.')).toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent('Password must be at least 8 characters.');
     });
 
     it('shows the server message when the code is wrong', async () => {
@@ -92,7 +92,7 @@ describe('Setup', () => {
 
         await fillForm(user);
 
-        expect(await screen.findByText('Incorrect setup code. It is printed in the server log.')).toBeInTheDocument();
+        expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect setup code. It is printed in the server log.');
         expect(mockNavigate).not.toHaveBeenCalled();
     });
 });
