@@ -439,6 +439,9 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items or the root |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
+| `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
+| `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
+| `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
 | `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
 | `ShareLinkIntegrationTests` / `ShareTokenServiceTests` | Link issue/expiry/tamper and public download; the generated per-install key, and rejection of tokens signed with the formerly published key |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
