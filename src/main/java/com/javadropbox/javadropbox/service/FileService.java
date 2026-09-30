@@ -27,9 +27,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Changes to stored files and folders. Each change runs in one database transaction, and the disk
- * work is ordered so that a failure part-way leaves the previous content in place: new content is
- * written to a scratch file first and only renamed over the old one at the end.
+ * Changes to stored files and folders. Each change runs in one database transaction, and a failure
+ * part-way leaves the previous content in place: new content is written to a scratch file outside
+ * the transaction, and the moves inside it -- the live file into the version store, the scratch
+ * file onto the live path -- are undone if the transaction does not commit.
  *
  * <p>Failures are logged to the history in a transaction of their own after the change's
  * transaction has rolled back.
@@ -109,7 +110,7 @@ public class FileService {
             if (replacing) {
               versions.archive(file, target.path(), user);
             }
-            StorageFiles.moveIntoPlace(scratch, target.path());
+            moveIntoPlace(scratch, target.path(), replacing);
 
             file.setSize(size);
             file.setUpdatedAt(Instant.now());
@@ -213,10 +214,11 @@ public class FileService {
     Path scratch = StorageFiles.tempFileBeside(live.path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
-      if (Files.exists(live.path())) {
+      boolean replacing = Files.exists(live.path());
+      if (replacing) {
         versions.archive(file, live.path(), user);
       }
-      StorageFiles.moveIntoPlace(scratch, live.path());
+      moveIntoPlace(scratch, live.path(), replacing);
     } finally {
       Files.deleteIfExists(scratch);
     }
@@ -257,6 +259,18 @@ public class FileService {
       }
     }
     throw new ConflictException("Could not find a free name for the restored copy");
+  }
+
+  /**
+   * Moves a scratch file onto {@code target}. What was there before has been archived (whose undo
+   * puts it back); if nothing was, the new file is removed again should the transaction fail.
+   */
+  private static void moveIntoPlace(Path scratch, Path target, boolean replacing)
+      throws IOException {
+    StorageFiles.moveIntoPlace(scratch, target);
+    if (!replacing) {
+      OnRollback.undo("creating " + target, () -> Files.deleteIfExists(target));
+    }
   }
 
   /**

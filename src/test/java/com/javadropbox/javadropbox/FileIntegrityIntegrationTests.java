@@ -3,10 +3,14 @@ package com.javadropbox.javadropbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 
+import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.service.FileHistoryService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
 import java.io.IOException;
@@ -31,6 +35,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -71,9 +76,12 @@ class FileIntegrityIntegrationTests {
   @Autowired private FileMetadataRepository metadata;
   @Autowired private JdbcTemplate jdbc;
   @MockitoSpyBean private FileVersionService versionService;
+  @MockitoSpyBean private FileHistoryService historyService;
 
   @AfterEach
   void tearDown() throws IOException {
+    jdbc.execute("DROP TRIGGER IF EXISTS fail_version_insert ON file_versions");
+    jdbc.execute("DROP TRIGGER IF EXISTS fail_at_commit ON file_history");
     TestDatabase.wipe(jdbc);
     try (Stream<Path> entries = Files.list(servingDir)) {
       for (Path entry : entries.toList()) {
@@ -139,6 +147,80 @@ class FileIntegrityIntegrationTests {
         .isInstanceOf(DataIntegrityViolationException.class);
   }
 
+  // --- failures after the disk has changed -------------------------------------
+
+  @Test
+  @DisplayName("a replace failing after the live file was archived moves it back")
+  void failureAfterArchivingRestoresTheLiveFile() throws Exception {
+    upload("b.txt", "precious");
+    failVersionInserts();
+
+    assertThatThrownBy(() -> upload("b.txt", "replacement"))
+        .hasMessageContaining("simulated failure");
+
+    assertThat(servingDir.resolve("b.txt")).hasContent("precious");
+    assertThat(storedVersionFiles()).isEmpty();
+    assertThat(scratchFiles()).isEmpty();
+  }
+
+  @Test
+  @DisplayName("an in-place restore failing after the live file was archived moves it back")
+  void failedRestoreRestoresTheLiveFile() throws Exception {
+    upload("c.txt", "one");
+    upload("c.txt", "two");
+    long id = idOf("c.txt");
+    failVersionInserts();
+
+    assertThatThrownBy(() -> fileService.restoreVersion(id, 1, RestoreMode.OVERWRITE))
+        .hasMessageContaining("simulated failure");
+
+    assertThat(servingDir.resolve("c.txt")).hasContent("two");
+    assertThat(storedVersionFiles()).containsExactly(id + "/v1");
+  }
+
+  @Test
+  @DisplayName("a replace failing after the new content went live puts the old content back")
+  void failureAfterTheSwapRestoresTheOldContent() throws Exception {
+    upload("a.txt", "old");
+    long id = idOf("a.txt");
+    doThrow(new IllegalStateException("simulated failure"))
+        .when(target(historyService))
+        .recordSuccess(any(), eq(ChangeType.UPLOAD), any(), any());
+
+    assertThatThrownBy(() -> upload("a.txt", "new")).hasMessageContaining("simulated failure");
+
+    assertThat(servingDir.resolve("a.txt")).hasContent("old");
+    assertThat(storedVersionFiles()).isEmpty();
+    assertThat(metadata.findById(id).orElseThrow().getCurrentVersion()).isEqualTo(1);
+
+    Mockito.reset(target(historyService));
+    upload("a.txt", "newer");
+    assertThat(versionContents(id)).containsExactly(Map.entry(1, "old"));
+  }
+
+  @Test
+  @DisplayName("a replace failing at commit puts the old content back")
+  void failureAtCommitRestoresTheOldContent() throws Exception {
+    upload("d.txt", "old");
+    failAtCommit();
+
+    assertThatThrownBy(() -> upload("d.txt", "new")).isInstanceOf(RuntimeException.class);
+
+    assertThat(servingDir.resolve("d.txt")).hasContent("old");
+    assertThat(storedVersionFiles()).isEmpty();
+  }
+
+  @Test
+  @DisplayName("a new upload failing at commit leaves no untracked file behind")
+  void failedNewUploadLeavesNothing() throws Exception {
+    failAtCommit();
+
+    assertThatThrownBy(() -> upload("e.txt", "new")).isInstanceOf(RuntimeException.class);
+
+    assertThat(servingDir.resolve("e.txt")).doesNotExist();
+    assertThat(scratchFiles()).isEmpty();
+  }
+
   // --- helpers ------------------------------------------------------------------
 
   private final CountDownLatch firstFinished = new CountDownLatch(1);
@@ -167,6 +249,46 @@ class FileIntegrityIntegrationTests {
             })
         .when(target(versionService))
         .archive(any(), any(), any());
+  }
+
+  /** Makes every insert into file_versions fail, as a lost connection or lock timeout would. */
+  private void failVersionInserts() {
+    jdbc.execute(
+        "CREATE OR REPLACE FUNCTION simulated_failure() RETURNS trigger AS $$ BEGIN"
+            + " RAISE EXCEPTION 'simulated failure'; END $$ LANGUAGE plpgsql");
+    jdbc.execute(
+        "CREATE TRIGGER fail_version_insert BEFORE INSERT ON file_versions FOR EACH ROW"
+            + " EXECUTE FUNCTION simulated_failure()");
+  }
+
+  /** Makes the commit of any successful change fail, through a deferred constraint trigger. */
+  private void failAtCommit() {
+    jdbc.execute(
+        "CREATE OR REPLACE FUNCTION simulated_failure() RETURNS trigger AS $$ BEGIN"
+            + " RAISE EXCEPTION 'simulated failure'; END $$ LANGUAGE plpgsql");
+    jdbc.execute(
+        "CREATE CONSTRAINT TRIGGER fail_at_commit AFTER INSERT ON file_history"
+            + " DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.success)"
+            + " EXECUTE FUNCTION simulated_failure()");
+  }
+
+  /** Every stored version file, relative to the version store. */
+  private List<String> storedVersionFiles() throws IOException {
+    Path store = servingDir.resolve(".versions");
+    if (!Files.exists(store)) {
+      return List.of();
+    }
+    try (Stream<Path> walk = Files.walk(store)) {
+      return walk.filter(Files::isRegularFile)
+          .map(p -> store.relativize(p).toString().replace('\\', '/'))
+          .toList();
+    }
+  }
+
+  private List<Path> scratchFiles() throws IOException {
+    try (Stream<Path> walk = Files.walk(servingDir)) {
+      return walk.filter(p -> p.getFileName().toString().startsWith(".upload-")).toList();
+    }
   }
 
   private interface Work {

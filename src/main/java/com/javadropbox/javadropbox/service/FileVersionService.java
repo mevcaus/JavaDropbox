@@ -73,6 +73,10 @@ public class FileVersionService {
     // Never REPLACE_EXISTING: a file that is in the way now belongs to someone else, and failing
     // is better than overwriting it.
     Files.move(live, target);
+    // Also covers the caller having moved new content onto the live path since: the previous
+    // content goes back over it.
+    OnRollback.undo(
+        "archiving " + live + " as " + target, () -> StorageFiles.moveIntoPlace(target, live));
     versions.save(new FileVersion(file, number, stored, Files.size(target), user));
     file.setCurrentVersion(number + 1);
 
