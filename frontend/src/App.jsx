@@ -36,6 +36,9 @@ function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
           </Route>
+
+          {/* Anything else would render an empty page; MainLayout sends it on to sign-in if needed. */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
     </ToastProvider>
