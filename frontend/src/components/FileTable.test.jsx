@@ -254,7 +254,7 @@ describe('FileTable row actions', () => {
         screen.getAllByRole('row').find((row) => within(row).queryAllByText(name).length > 0);
 
     const actionButton = (name, action) =>
-        within(rowFor(name)).getByRole('button', { name: action });
+        within(rowFor(name)).getByRole('button', { name: `${action} ${name}` });
 
     it.each([
         ['onDownload', 'Download'],
@@ -323,6 +323,22 @@ describe('FileTable row actions', () => {
     });
 });
 
+describe('FileTable action names', () => {
+    it('says which file each action is for', () => {
+        const files = [
+            { name: 'a.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'a.txt', id: 1 },
+            { name: 'b.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'b.txt', id: 2 },
+        ];
+        render(<FileTable files={files} currentPath="" {...noopHandlers} onVersions={vi.fn()} />);
+
+        for (const name of ['a.txt', 'b.txt']) {
+            for (const label of [`Download ${name}`, `Share ${name}`, `Delete ${name}`, `Versions of ${name}`]) {
+                expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+            }
+        }
+    });
+});
+
 describe('FileTable versions action', () => {
     it('offers version history only for tracked files', async () => {
         const user = userEvent.setup();
@@ -331,8 +347,8 @@ describe('FileTable versions action', () => {
         const untracked = { name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' };
         render(<FileTable files={[tracked, untracked]} currentPath="" {...noopHandlers} onVersions={onVersions} />);
 
-        expect(screen.getAllByRole('button', { name: 'Versions' })).toHaveLength(1);
-        await user.click(screen.getByRole('button', { name: 'Versions' }));
+        expect(screen.getAllByRole('button', { name: /^Versions of/ })).toHaveLength(1);
+        await user.click(screen.getByRole('button', { name: 'Versions of kept.txt' }));
         expect(onVersions).toHaveBeenCalledWith(tracked);
     });
 

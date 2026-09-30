@@ -69,7 +69,7 @@ describe('Dashboard', () => {
         });
         renderDashboard();
 
-        await user.click(await screen.findByRole('button', { name: 'Download' }));
+        await user.click(await screen.findByRole('button', { name: 'Download report.pdf' }));
 
         expect(clicked).toEqual(['/api/files/download?path=report.pdf']);
         // Only the tree was fetched; the file itself never went through XHR.
@@ -82,7 +82,7 @@ describe('Dashboard', () => {
         api.post.mockResolvedValue({ data: {} });
         const user = userEvent.setup();
         renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
         const input = document.querySelector('input[type="file"]');
 
         await user.upload(input, new File(['x'], 'again.txt'));
@@ -96,7 +96,7 @@ describe('Dashboard', () => {
         api.post.mockResolvedValue({ data: {} });
         const user = userEvent.setup();
         renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
 
         await user.upload(document.querySelector('input[type="file"]'), [
             new File(['x'], 'notes.txt'),
@@ -112,7 +112,7 @@ describe('Dashboard', () => {
         api.get.mockResolvedValue({ data: TREE });
         const user = userEvent.setup();
         renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
 
         await user.upload(document.querySelector('input[type="file"]'), [new File(['a'], '.env'), new File(['b'], '.npmrc')]);
 
@@ -123,11 +123,11 @@ describe('Dashboard', () => {
     it('keeps the table on screen while the list refreshes', async () => {
         api.get.mockResolvedValueOnce({ data: TREE });
         const store = renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
 
         store.dispatch(fetchFiles.pending('refresh'));
 
-        expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Download report.pdf' })).toBeInTheDocument();
         expect(screen.queryByLabelText('Loading files')).not.toBeInTheDocument();
     });
 
@@ -195,7 +195,7 @@ describe('Dashboard', () => {
     it('does not offer upload sources or installers that do not exist', async () => {
         api.get.mockResolvedValue({ data: TREE });
         renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
 
         expect(screen.queryByText(/Google Drive|OneDrive|Install App/)).not.toBeInTheDocument();
     });
