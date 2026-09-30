@@ -13,6 +13,7 @@ import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -242,9 +243,10 @@ public class FileService {
   private void restoreAsCopy(FileMetadata file, Path source, int number, User user)
       throws IOException {
     StoragePath parent = storagePaths.resolve(parentKey(file.getPath()));
-    StoragePath target = freeCopyName(parent, file.getFilename(), number);
     Files.createDirectories(parent.path());
-    Files.copy(source, target.path());
+    StoragePath target = claimCopyName(parent, file.getFilename(), number);
+    OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
+    Files.copy(source, target.path(), StandardCopyOption.REPLACE_EXISTING);
 
     FileMetadata copy =
         claim(target, files.lockByPath(target.key()), false, Files.size(target.path()), user);
@@ -255,8 +257,11 @@ public class FileService {
         "Restored a copy of " + file.getPath() + " (version " + number + ")");
   }
 
-  // "report_v2.txt", or "report_v2 (2).txt" if that is taken, so a restore never overwrites.
-  private StoragePath freeCopyName(StoragePath parent, String filename, int number) {
+  // "report_v2.txt", or "report_v2 (2).txt" if that is taken, so a restore never overwrites. The
+  // name is claimed by creating an empty file, which fails if anything is there already, so two
+  // requests can't both pick a name that was free when they looked.
+  private StoragePath claimCopyName(StoragePath parent, String filename, int number)
+      throws IOException {
     int dot = filename.lastIndexOf('.');
     String base = dot > 0 ? filename.substring(0, dot) : filename;
     String extension = dot > 0 ? filename.substring(dot) : "";
@@ -265,8 +270,11 @@ public class FileService {
       String suffix = attempt == 1 ? "" : " (" + attempt + ")";
       StoragePath candidate =
           storagePaths.resolveChild(parent, base + "_v" + number + suffix + extension);
-      if (!Files.exists(candidate.path(), LinkOption.NOFOLLOW_LINKS)) {
+      try {
+        Files.createFile(candidate.path());
         return candidate;
+      } catch (FileAlreadyExistsException e) {
+        // Taken; try the next one.
       }
     }
     throw new ConflictException("Could not find a free name for the restored copy");

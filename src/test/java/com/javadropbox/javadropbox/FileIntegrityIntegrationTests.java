@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -14,6 +15,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.service.FileHistoryService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import jakarta.persistence.EntityManagerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -86,6 +88,7 @@ class FileIntegrityIntegrationTests {
   @Autowired private EntityManagerFactory entityManagerFactory;
   @MockitoSpyBean private FileVersionService versionService;
   @MockitoSpyBean private FileHistoryService historyService;
+  @MockitoSpyBean private StoragePaths storagePaths;
 
   @AfterEach
   void tearDown() throws IOException {
@@ -154,6 +157,39 @@ class FileIntegrityIntegrationTests {
                     id,
                     id + "/v1-copy"))
         .isInstanceOf(DataIntegrityViolationException.class);
+  }
+
+  @Test
+  @DisplayName("two restores of one version as a copy at once create two copies")
+  void concurrentCopyRestoresBothSucceed() throws Exception {
+    upload("n.txt", "one");
+    upload("n.txt", "two");
+    long id = idOf("n.txt");
+
+    // Both requests pick a name for the copy before either has created it, unless one waits.
+    CyclicBarrier bothPickedAName = new CyclicBarrier(2);
+    doAnswer(
+            invocation -> {
+              Object picked = invocation.callRealMethod();
+              if ("n_v1.txt".equals(invocation.getArgument(1))) {
+                try {
+                  bothPickedAName.await(2, TimeUnit.SECONDS);
+                } catch (TimeoutException | BrokenBarrierException e) {
+                  // The other request is waiting for this one to finish.
+                }
+              }
+              return picked;
+            })
+        .when(target(storagePaths))
+        .resolveChild(any(), anyString());
+    List<Throwable> errors =
+        runTogether(
+            () -> fileService.restoreVersion(id, 1, RestoreMode.COPY),
+            () -> fileService.restoreVersion(id, 1, RestoreMode.COPY));
+
+    assertThat(errors).isEmpty();
+    assertThat(servingDir.resolve("n_v1.txt")).hasContent("one");
+    assertThat(servingDir.resolve("n_v1 (2).txt")).hasContent("one");
   }
 
   // --- failures after the disk has changed -------------------------------------
