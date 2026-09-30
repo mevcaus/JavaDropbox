@@ -34,6 +34,9 @@ public interface FileMetadataRepository
     return path.replaceAll("[!%_]", "!$0") + "/%";
   }
 
+  @Query("select m.id from FileMetadata m")
+  List<Long> findAllIds();
+
   /** Every row with its owner, in one query, for building the file tree. */
   @Query("select m from FileMetadata m left join fetch m.owner")
   List<FileMetadata> findAllWithOwner();

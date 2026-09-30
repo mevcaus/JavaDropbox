@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,6 +80,9 @@ public class FileVersionService {
     // Never REPLACE_EXISTING: a file that is in the way now belongs to someone else, and failing
     // is better than overwriting it.
     Files.move(live, target);
+    // A move keeps the old modification time; a fresh one tells the startup sweep that this is no
+    // leftover even before the row below is committed.
+    Files.setLastModifiedTime(target, FileTime.from(Instant.now()));
     // Also covers the caller having moved new content onto the live path since: the previous
     // content goes back over it.
     OnRollback.undo(
@@ -128,7 +133,8 @@ public class FileVersionService {
   public void discardAll(FileMetadata file) {
     versions.findByFileMetadataOrderByVersionDesc(file).forEach(this::delete);
     Path folder = storagePaths.versionsDir().resolve(String.valueOf(file.getId()));
-    AfterCommit.run("remove " + folder, () -> Files.deleteIfExists(folder));
+    // With anything left in it, e.g. from an interrupted operation, deleteIfExists would fail.
+    AfterCommit.run("remove " + folder, () -> StorageFiles.deleteRecursively(folder));
   }
 
   /**

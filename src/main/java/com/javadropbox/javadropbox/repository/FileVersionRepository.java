@@ -13,6 +13,9 @@ public interface FileVersionRepository extends JpaRepository<FileVersion, Long> 
 
   boolean existsByStoredFilename(String storedFilename);
 
+  @Query("select v.storedFilename from FileVersion v")
+  List<String> findAllStoredFilenames();
+
   /**
    * Where the versions of the row at {@code path} and of every row below it are stored; see {@link
    * FileMetadataRepository#below}.

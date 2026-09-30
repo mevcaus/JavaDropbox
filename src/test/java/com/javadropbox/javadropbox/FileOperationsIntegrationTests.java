@@ -20,12 +20,16 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileService;
+import com.javadropbox.javadropbox.service.StorageSweeper;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -65,6 +69,7 @@ class FileOperationsIntegrationTests {
   @Autowired private FileMetadataRepository metadata;
   @Autowired private FileVersionRepository versions;
   @Autowired private FileHistoryRepository history;
+  @Autowired private StorageSweeper sweeper;
 
   @BeforeEach
   void setUp() {
@@ -314,6 +319,49 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
+  @DisplayName("dropping a file's versions removes its version folder even if it holds strays")
+  void discardedVersionFolderIsRemovedWithStrays() throws Exception {
+    upload("", "ghost.txt", "old one");
+    upload("", "ghost.txt", "old two");
+    Path folder = servingDir.resolve(".versions/" + idOf("ghost.txt"));
+    Files.writeString(folder.resolve("stray"), "left over");
+    Files.delete(servingDir.resolve("ghost.txt"));
+
+    upload("", "ghost.txt", "new");
+
+    assertThat(folder).doesNotExist();
+  }
+
+  // --- clean-up at startup ---------------------------------------------------------
+
+  @Test
+  @DisplayName("stale scratch files and unreferenced version data are removed, recent ones kept")
+  void startupSweepRemovesLeftovers() throws Exception {
+    createFolder("", "docs");
+    upload("", "kept.txt", "one");
+    upload("", "kept.txt", "two");
+    Path versionFolder = servingDir.resolve(".versions/" + idOf("kept.txt"));
+    Path staleScratch = old(Files.writeString(servingDir.resolve("docs/.upload-1.tmp"), "x"));
+    Path freshScratch = Files.writeString(servingDir.resolve(".upload-2.tmp"), "x");
+    Path referenced = old(versionFolder.resolve("v1"));
+    Path unreferenced = old(Files.writeString(versionFolder.resolve("v7"), "x"));
+    Path orphanFolder = Files.createDirectories(servingDir.resolve(".versions/999999"));
+    old(Files.writeString(orphanFolder.resolve("v1"), "x"));
+    old(orphanFolder);
+    Path freshOrphan = Files.createDirectories(servingDir.resolve(".versions/888888"));
+    Files.writeString(freshOrphan.resolve("v1"), "x");
+
+    sweeper.sweep();
+
+    assertThat(staleScratch).doesNotExist();
+    assertThat(freshScratch).exists();
+    assertThat(referenced).hasContent("one");
+    assertThat(unreferenced).doesNotExist();
+    assertThat(orphanFolder).doesNotExist();
+    assertThat(freshOrphan.resolve("v1")).exists();
+  }
+
+  @Test
   @DisplayName("a stored copy left over from an interrupted operation does not block a replace")
   void leftoverVersionFileIsReplaced() throws Exception {
     upload("", "stale.txt", "one");
@@ -485,6 +533,12 @@ class FileOperationsIntegrationTests {
                 .param("mode", mode)
                 .with(csrf()))
         .andExpect(status().isOk());
+  }
+
+  // Last modified two hours ago, i.e. not something a request could still be writing.
+  private static Path old(Path path) throws IOException {
+    Files.setLastModifiedTime(path, FileTime.from(Instant.now().minus(Duration.ofHours(2))));
+    return path;
   }
 
   private long idOf(String path) {

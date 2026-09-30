@@ -106,6 +106,7 @@ The system follows a **layered architecture** with clear separation of concerns:
   - `OVERWRITE` — Replace the current file (current version is snapshotted first)
   - `COPY` — Restore as a new file alongside the original (`name_v2.txt`, or `name_v2 (2).txt` if that is taken)
 - **Configurable retention** — Automatic pruning of old versions beyond a configurable limit, set via `javadropbox.versions.max-retained` in `application.properties` (default: 10)
+- **Clean-up of leftovers** — On startup, upload scratch files and stored versions that no database row refers to (what a crash leaves behind) are removed once they are over an hour old
 
 ### Security
 - **Spring Security** integration with form-based login, session management and cookie-based CSRF protection
