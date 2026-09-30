@@ -142,13 +142,30 @@ describe('authSlice', () => {
             expect(api.get).not.toHaveBeenCalled();
         });
 
-        it('still clears the session when the logout request fails', async () => {
+        // The server session may still be alive after any of these, so showing the user as signed
+        // out would leave the next person at the machine signed in as them.
+        it.each([
+            ['a 403 (stale CSRF token)', { response: { status: 403, data: '' } }],
+            ['a network error', new Error('Network Error')],
+            ['a 500', { response: { status: 500, data: '' } }],
+        ])('rejects and keeps the session after %s', async (_label, failure) => {
             signIn(store, 'ada');
-            api.post.mockRejectedValueOnce(new Error('Network Error'));
+            api.post.mockRejectedValueOnce(failure);
 
-            await store.dispatch(logoutUser());
+            const action = await store.dispatch(logoutUser());
 
-            // The thunk swallows the error so a dead backend cannot strand the user logged in
+            expect(action.type).toBe(logoutUser.rejected.type);
+            expect(authState(store)).toMatchObject({ user: 'ada', isAuthenticated: true });
+            expect(localStorage.getItem('user')).toBe('ada');
+        });
+
+        it('treats a 401 as signed out, since the session is already gone', async () => {
+            signIn(store, 'ada');
+            api.post.mockRejectedValueOnce({ response: { status: 401, data: '' } });
+
+            const action = await store.dispatch(logoutUser());
+
+            expect(action.type).toBe(logoutUser.fulfilled.type);
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
         });

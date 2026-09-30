@@ -27,6 +27,14 @@ describe('filesSlice session reset', () => {
         expect(store.getState().files).toMatchObject({ files: [], currentPath: '' });
     });
 
+    it('keeps the file tree when the logout fails and the user is still signed in', async () => {
+        api.post.mockRejectedValueOnce({ response: { status: 500, data: '' } });
+
+        await store.dispatch(logoutUser());
+
+        expect(store.getState().files.files).toHaveLength(1);
+    });
+
     it('forgets the file tree when the session expires', () => {
         store.dispatch(clearUser());
 

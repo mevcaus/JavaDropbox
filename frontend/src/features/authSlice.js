@@ -29,13 +29,19 @@ export const loginUser = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk(
     'auth/logoutUser',
-    async () => {
+    async (_, { rejectWithValue }) => {
         try {
             // Spring Security only accepts POST for logout while CSRF protection is on; a GET is
             // a 404 that leaves the server session alive.
             await api.post('/logout');
         } catch (error) {
-            console.error(error);
+            // A 401 means there was no session left to end, which is the outcome logout wants.
+            // Anything else (a stale CSRF token, a network error, a 500) may have left the session
+            // alive, so the user stays signed in here rather than being shown a logout that did
+            // not happen.
+            if (error.response?.status !== 401) {
+                return rejectWithValue(readableError(error, 'Logout failed.'));
+            }
         }
     }
 );
