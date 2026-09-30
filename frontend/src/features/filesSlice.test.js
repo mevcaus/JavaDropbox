@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, uploadFiles } from './filesSlice';
+import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, selectCurrentFiles, uploadFiles } from './filesSlice';
 import authReducer, { clearUser, loginUser, logoutUser } from './authSlice';
 import api from '../services/api';
 
@@ -156,5 +156,28 @@ describe('filesSlice refresh after a mutation', () => {
         await store.dispatch(deleteItem('folder'));
 
         expect(api.get).toHaveBeenCalledWith(FILES_ENDPOINT);
+    });
+});
+
+// useSelector compares results by reference, so a fresh [] on every call makes react-redux warn
+// and re-render on every store update.
+describe('selectCurrentFiles', () => {
+    const tree = [{ name: 'docs', isDirectory: true, children: [{ name: 'a.txt', isDirectory: false }] }];
+    const stateWith = (files) => ({ files: { files } });
+
+    it('finds the files in a nested folder', () => {
+        expect(selectCurrentFiles(stateWith(tree), 'docs')).toBe(tree[0].children);
+    });
+
+    it.each([
+        ['a folder that does not exist', tree, 'missing'],
+        ['a path through a file', tree, 'docs/a.txt/deeper'],
+        ['a tree that is not a list', null, ''],
+    ])('returns the same empty list every time for %s', (_label, files, path) => {
+        const state = stateWith(files);
+        const first = selectCurrentFiles(state, path);
+
+        expect(first).toEqual([]);
+        expect(selectCurrentFiles(state, path)).toBe(first);
     });
 });

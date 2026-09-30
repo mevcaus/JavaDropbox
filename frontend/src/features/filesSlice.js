@@ -125,6 +125,10 @@ const filesSlice = createSlice({
     },
 });
 
+// One shared empty result: useSelector compares by reference, so a new [] on every call would
+// count as a change on every store update.
+const NO_FILES = Object.freeze([]);
+
 /**
  * Selector to get the files in a folder of the file tree
  * @param {Object} state - Redux state
@@ -135,7 +139,7 @@ export const selectCurrentFiles = (state, currentPath) => {
     const { files } = state.files;
 
     if (!Array.isArray(files)) {
-        return [];
+        return NO_FILES;
     }
 
     if (!currentPath) {
@@ -147,7 +151,7 @@ export const selectCurrentFiles = (state, currentPath) => {
 
     for (const part of parts) {
         if (!Array.isArray(currentLevel)) {
-            return [];
+            return NO_FILES;
         }
 
         const folderNode = currentLevel.find(node => node.name === part && node.isDirectory);
@@ -155,11 +159,11 @@ export const selectCurrentFiles = (state, currentPath) => {
         if (folderNode && folderNode.children) {
             currentLevel = folderNode.children;
         } else {
-            return [];
+            return NO_FILES;
         }
     }
 
-    return Array.isArray(currentLevel) ? currentLevel : [];
+    return Array.isArray(currentLevel) ? currentLevel : NO_FILES;
 };
 
 /**
