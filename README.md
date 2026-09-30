@@ -444,7 +444,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
 | `FlywayMigrationIntegrationTests` / `FlywayBaselineIntegrationTests` | Migrations build an empty PostgreSQL database, and a pre-Flyway database is adopted; Hibernate validates both |
-| `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant |
+| `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant under UTC, region and offset-style (`GMT+01:00`) JVM zones |
 | `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup-code rotation, lockout timing, command-line shorthands |
 
 ### Test Design Highlights
