@@ -336,7 +336,7 @@ class FileOperationsIntegrationTests {
   // --- clean-up at startup ---------------------------------------------------------
 
   @Test
-  @DisplayName("stale scratch files and unreferenced version data are removed, recent ones kept")
+  @DisplayName("stale scratch files and stale unreferenced versions of known files are removed")
   void startupSweepRemovesLeftovers() throws Exception {
     createFolder("", "docs");
     upload("", "kept.txt", "one");
@@ -346,11 +346,8 @@ class FileOperationsIntegrationTests {
     Path freshScratch = Files.writeString(servingDir.resolve(".upload-2.tmp"), "x");
     Path referenced = old(versionFolder.resolve("v1"));
     Path unreferenced = old(Files.writeString(versionFolder.resolve("v7"), "x"));
-    Path orphanFolder = Files.createDirectories(servingDir.resolve(".versions/999999"));
-    old(Files.writeString(orphanFolder.resolve("v1"), "x"));
-    old(orphanFolder);
-    Path freshOrphan = Files.createDirectories(servingDir.resolve(".versions/888888"));
-    Files.writeString(freshOrphan.resolve("v1"), "x");
+    Path freshUnreferenced = Files.writeString(versionFolder.resolve("v8"), "x");
+    Path emptyUnknownFolder = old(Files.createDirectories(servingDir.resolve(".versions/777777")));
 
     sweeper.sweep();
 
@@ -358,8 +355,39 @@ class FileOperationsIntegrationTests {
     assertThat(freshScratch).exists();
     assertThat(referenced).hasContent("one");
     assertThat(unreferenced).doesNotExist();
-    assertThat(orphanFolder).doesNotExist();
-    assertThat(freshOrphan.resolve("v1")).exists();
+    assertThat(freshUnreferenced).exists();
+    assertThat(emptyUnknownFolder).doesNotExist();
+  }
+
+  @Test
+  @DisplayName(
+      "the sweep leaves alone the versions in a folder whose file the database doesn't know")
+  void startupSweepKeepsFoldersOfUnknownFiles() throws Exception {
+    upload("", "kept.txt", "one");
+    Path unknownFolder = old(Files.createDirectories(servingDir.resolve(".versions/999999")));
+    Path version = old(Files.writeString(unknownFolder.resolve("v1"), "precious"));
+    old(unknownFolder);
+    Path legacy = old(Files.writeString(servingDir.resolve(".versions/report.txt.v1"), "older"));
+
+    sweeper.sweep();
+
+    assertThat(version).hasContent("precious");
+    assertThat(legacy).hasContent("older");
+  }
+
+  @Test
+  @DisplayName("against an empty database the sweep deletes no version at all")
+  void startupSweepSkipsVersionsWhenTheDatabaseIsEmpty() throws Exception {
+    upload("", "kept.txt", "one");
+    upload("", "kept.txt", "two");
+    Path version = old(servingDir.resolve(".versions/" + idOf("kept.txt") + "/v1"));
+    old(version.getParent());
+    // E.g. a new database volume, or a wrong datasource URL, with the existing data folder.
+    TestDatabase.wipe(jdbc);
+
+    sweeper.sweep();
+
+    assertThat(version).hasContent("one");
   }
 
   @Test

@@ -3,15 +3,16 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -22,8 +23,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Clears up what interrupted operations leave on disk once the app has started: upload scratch
- * files, and stored versions or version folders that no row refers to (a crash between moving a
- * file and committing, or a clean-up after commit that failed).
+ * files, and stored versions of known files that no row refers to (a crash between moving a file
+ * and committing, or a clean-up after commit that failed).
  *
  * <p>Requests are already being served by then, and other instances may share the storage, so
  * anything modified within the last hour is left alone: a request could be writing it, or be about
@@ -85,46 +86,69 @@ public class StorageSweeper {
         });
   }
 
+  /**
+   * Removes stored versions only where they are provably orphaned: unreferenced files in the folder
+   * of a file the database knows. Everything else is left alone, since the database might not be
+   * the one this storage belongs to (a new volume, a wrong datasource URL, a reinstall); trusting
+   * it would delete every version on disk.
+   */
   private void removeUnreferencedVersions(FileTime cutoff) throws IOException {
     Path store = storagePaths.versionsDir();
+    Set<String> knownIds =
+        files.findAllIds().stream().map(String::valueOf).collect(Collectors.toSet());
+    if (knownIds.isEmpty()) {
+      if (!isEmpty(store)) {
+        log.warn(
+            "Not cleaning up {}: the database has no files, so it may not be the database this"
+                + " storage belongs to",
+            store);
+      }
+      return;
+    }
     Set<Path> referenced =
         versions.findAllStoredFilenames().stream()
             .map(stored -> store.resolve(stored).normalize())
             .collect(Collectors.toSet());
-    Set<Path> knownFolders =
-        files.findAllIds().stream()
-            .map(id -> store.resolve(String.valueOf(id)))
-            .collect(Collectors.toSet());
-    // Removing files updates a folder's modification time, so judge folders by it beforehand.
-    Set<Path> staleFolders = new HashSet<>();
 
-    Files.walkFileTree(
-        store,
-        new Sweep() {
-          @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-            if (!dir.equals(store) && attrs.lastModifiedTime().compareTo(cutoff) < 0) {
-              staleFolders.add(dir);
-            }
-            return FileVisitResult.CONTINUE;
-          }
+    int unknownFolders = 0;
+    try (DirectoryStream<Path> entries = Files.newDirectoryStream(store)) {
+      for (Path entry : entries) {
+        BasicFileAttributes attrs =
+            Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        // Loose files are the old <name>.v<n> layout, which doesn't say whose version it is.
+        if (!attrs.isDirectory()) {
+          continue;
+        }
+        if (knownIds.contains(entry.getFileName().toString())) {
+          removeUnreferencedFiles(entry, referenced, cutoff);
+        } else if (attrs.lastModifiedTime().compareTo(cutoff) < 0 && isEmpty(entry)) {
+          remove(entry);
+        } else {
+          unknownFolders++;
+        }
+      }
+    }
+    if (unknownFolders > 0) {
+      log.warn(
+          "Left {} folders in {} alone: the database knows no file with their ids",
+          unknownFolders,
+          store);
+    }
+  }
 
-          @Override
-          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-            if (!referenced.contains(file) && attrs.lastModifiedTime().compareTo(cutoff) < 0) {
-              remove(file);
-            }
-            return FileVisitResult.CONTINUE;
-          }
-
-          @Override
-          public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-            if (staleFolders.contains(dir) && !knownFolders.contains(dir) && isEmpty(dir)) {
-              remove(dir);
-            }
-            return FileVisitResult.CONTINUE;
-          }
-        });
+  private void removeUnreferencedFiles(Path folder, Set<Path> referenced, FileTime cutoff)
+      throws IOException {
+    try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
+      for (Path file : entries) {
+        BasicFileAttributes attrs =
+            Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (attrs.isRegularFile()
+            && !referenced.contains(file)
+            && attrs.lastModifiedTime().compareTo(cutoff) < 0) {
+          remove(file);
+        }
+      }
+    }
   }
 
   private static boolean isEmpty(Path dir) {
