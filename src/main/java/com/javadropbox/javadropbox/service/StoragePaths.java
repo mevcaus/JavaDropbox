@@ -20,7 +20,8 @@ import org.springframework.stereotype.Component;
  *   <li>the result stays inside the serving directory after {@code ..} is normalized away;
  *   <li>it stays inside it after symlinks are followed, so a link cannot expose the rest of the
  *       disk;
- *   <li>it never reaches the directories the app keeps its own data in ({@link #RESERVED_DIRS}).
+ *   <li>it never reaches the directories the app keeps its own data in ({@link #RESERVED_DIRS}),
+ *       under any letter case.
  * </ul>
  */
 @Component
@@ -90,11 +91,14 @@ public class StoragePaths {
     }
 
     Path relative = root.relativize(candidate);
-    if (relative.getNameCount() > 0 && RESERVED_DIRS.contains(relative.getName(0).toString())) {
+    if (isReserved(relative)) {
       throw new BadRequestException(INVALID_PATH);
     }
 
-    ensureInsideRealRoot(candidate, raw);
+    Path realRelative = realRelativeOf(candidate, raw);
+    if (isReserved(realRelative)) {
+      throw new BadRequestException(INVALID_PATH);
+    }
     return new StoragePath(candidate, toKey(relative));
   }
 
@@ -135,9 +139,20 @@ public class StoragePaths {
     return toKey(root.relativize(path.toAbsolutePath().normalize()));
   }
 
+  // A case-insensitive filesystem (macOS, Windows) treats ".VERSIONS" as ".versions".
+  private static boolean isReserved(Path relative) {
+    if (relative.getNameCount() == 0) {
+      return false;
+    }
+    String first = relative.getName(0).toString();
+    return RESERVED_DIRS.stream().anyMatch(first::equalsIgnoreCase);
+  }
+
   // Normalizing only removes "..": a symlink inside the serving directory can still point
-  // anywhere, so check where the deepest existing part of the path really leads.
-  private void ensureInsideRealRoot(Path candidate, String raw) {
+  // anywhere, so check where the deepest existing part of the path really leads. Returns that
+  // real location relative to the real root, which also carries the filesystem's own spelling of
+  // each name.
+  private Path realRelativeOf(Path candidate, String raw) {
     Path existing = candidate;
     while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
       existing = existing.getParent();
@@ -146,10 +161,12 @@ public class StoragePaths {
       throw new BadRequestException(INVALID_PATH);
     }
     try {
-      if (!existing.toRealPath().startsWith(realRoot)) {
+      Path real = existing.toRealPath();
+      if (!real.startsWith(realRoot)) {
         log.warn("Rejected path that leaves the serving directory through a symlink: {}", raw);
         throw new BadRequestException(INVALID_PATH);
       }
+      return realRoot.relativize(real);
     } catch (IOException e) {
       // A dangling symlink, or one that loops.
       throw new BadRequestException(INVALID_PATH);

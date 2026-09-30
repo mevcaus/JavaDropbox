@@ -119,6 +119,38 @@ class StoragePathSecurityTests {
   }
 
   @Test
+  @DisplayName("the reserved folders cannot be reached with a different letter case")
+  void reservedFoldersAreUnreachableInAnyCase() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    Files.createDirectories(servingDir.resolve(".versions"));
+    Files.writeString(servingDir.resolve(".versions/keep.txt.v1"), "old");
+    Files.createDirectories(servingDir.resolve(".javadropbox"));
+    Files.writeString(servingDir.resolve(".javadropbox/share-jwt.key"), "key");
+    MockMultipartFile forgedKey =
+        new MockMultipartFile("files", "share-jwt.key", "text/plain", "forged".getBytes());
+
+    mockMvc
+        .perform(get("/api/files/download").param("path", ".JAVADROPBOX/share-jwt.key"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(delete("/api/files").param("path", ".VERSIONS").with(csrf()))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(post("/api/share").param("path", ".Versions").with(csrf()))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(multipart("/api/files").file(forgedKey).param("path", ".Javadropbox").with(csrf()))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(post("/api/folders").param("path", ".VERSIONS").param("name", "x").with(csrf()))
+        .andExpect(status().isBadRequest());
+
+    assertThat(servingDir.resolve(".versions/keep.txt.v1")).hasContent("old");
+    assertThat(servingDir.resolve(".javadropbox/share-jwt.key")).hasContent("key");
+    assertThat(servingDir.resolve(".versions/x")).doesNotExist();
+  }
+
+  @Test
   @DisplayName("the root folder cannot be shared")
   void rootCannotBeShared() throws Exception {
     mockMvc
