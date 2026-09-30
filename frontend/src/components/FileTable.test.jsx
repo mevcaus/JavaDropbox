@@ -343,6 +343,28 @@ describe('FileTable versions action', () => {
     });
 });
 
+// jsdom has no layout engine, so these check the classes that decide it.
+describe('FileTable on narrow touch screens', () => {
+    const classesOf = (element) => element.className.split(/\s+/);
+
+    it('scrolls the table sideways instead of clipping the actions column', () => {
+        renderTable();
+        const wrapper = screen.getByRole('table').parentElement;
+
+        expect(classesOf(wrapper)).not.toContain('overflow-hidden');
+        expect(classesOf(wrapper)).toContain('overflow-x-auto');
+    });
+
+    it('hides the actions until hover only on devices that can hover', () => {
+        renderTable();
+        const actionsCell = within(screen.getAllByRole('row')[1]).getAllByRole('cell').at(-1);
+
+        // A bare opacity-0 would apply on phones too, where nothing ever hovers.
+        expect(classesOf(actionsCell)).not.toContain('opacity-0');
+        expect(classesOf(actionsCell)).toContain('[@media(hover:hover)]:opacity-0');
+    });
+});
+
 describe('FileTable empty state', () => {
     it('reports an empty folder rather than rendering a headerless table', () => {
         render(<FileTable files={[]} currentPath="" {...noopHandlers} />);

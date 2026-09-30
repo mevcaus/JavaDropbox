@@ -158,7 +158,9 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                 </p>
             )}
 
-            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+            {/* Scrolls sideways on a narrow screen, where the unwrapped columns are wider than the
+                viewport; clipping instead would cut off the actions column. */}
+            <div className="bg-white shadow overflow-x-auto sm:rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
@@ -213,8 +215,10 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         {formatDate(file.lastModified)}
                                     </td>
-                                    {/* Revealed on hover, and whenever one of the buttons has keyboard focus. */}
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                    {/* Where the device can hover, revealed on hover and whenever one of the
+                                        buttons has keyboard focus. Touch screens cannot hover, so there
+                                        the actions are always shown. */}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                                         {onVersions && file.id && !file.isDirectory && (
                                             <button
                                                 onClick={(e) => {
