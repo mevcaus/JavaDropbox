@@ -20,10 +20,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * V4 adds a unique version number per file, which databases written by the old code can already
- * violate; it has to clean those rows up rather than fail.
+ * violate; it has to clean those rows up rather than fail. V5 indexes the history's link to a file.
  */
 @Testcontainers
-@DisplayName("Flyway - V4 unique versions on a database with duplicates")
+@DisplayName("Flyway - V4 unique versions and V5 history index")
 class FlywayFileVersionMigrationTests {
 
   @Container
@@ -60,6 +60,28 @@ class FlywayFileVersionMigrationTests {
                         + " (20, 1, 2, '1/v2')"))
         .isInstanceOf(SQLException.class)
         .hasMessageContaining("uk_file_versions_file_version");
+  }
+
+  @Test
+  @DisplayName("deleting a file row finds its history through an index, not a table scan")
+  void historyIsIndexedByFile() throws SQLException {
+    assertThat(column("SELECT indexdef FROM pg_indexes WHERE tablename = 'file_history'"))
+        .anyMatch(definition -> definition.endsWith("(file_id)"));
+
+    // The ON DELETE SET NULL action runs this for every deleted file row. The table is tiny here,
+    // so rule out sequential scans to see whether an index could serve it at all.
+    List<String> plan = new ArrayList<>();
+    try (Connection c = connect();
+        Statement s = c.createStatement()) {
+      s.execute("SET enable_seqscan = off");
+      try (ResultSet rs =
+          s.executeQuery("EXPLAIN UPDATE file_history SET file_id = NULL WHERE file_id = 1")) {
+        while (rs.next()) {
+          plan.add(rs.getString(1));
+        }
+      }
+    }
+    assertThat(plan).noneMatch(line -> line.contains("Seq Scan"));
   }
 
   private static Flyway flyway(String target) {

@@ -366,7 +366,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 **Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
 
-**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`.
+**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history.
 
 **Tests.** The H2 integration tests keep `ddl-auto=create-drop` with Flyway disabled, because the migrations are PostgreSQL SQL. Tests that need the real schema run against Testcontainers PostgreSQL through `PostgresTestSupport`, which applies the production Flyway and `ddl-auto` settings unchanged.
 
