@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>the result stays inside the serving directory after {@code ..} is normalized away;
- *   <li>it stays inside it after symlinks are followed, so a link cannot expose the rest of the
- *       disk;
+ *   <li>it does not pass through a symlink: the file tree never shows one, and one could lead
+ *       outside the serving directory, back to its root, or into a reserved directory;
  *   <li>it never reaches the directories the app keeps its own data in ({@link #RESERVED_DIRS}),
  *       under any letter case.
  * </ul>
@@ -148,10 +148,9 @@ public class StoragePaths {
     return RESERVED_DIRS.stream().anyMatch(first::equalsIgnoreCase);
   }
 
-  // Normalizing only removes "..": a symlink inside the serving directory can still point
-  // anywhere, so check where the deepest existing part of the path really leads. Returns that
-  // real location relative to the real root, which also carries the filesystem's own spelling of
-  // each name.
+  // Normalizing only removes "..": a symlink can still lead anywhere, so refuse a path whose
+  // existing part passes through one. Returns the real location of that part relative to the real
+  // root, which also carries the filesystem's own spelling of each name.
   private Path realRelativeOf(Path candidate, String raw) {
     Path existing = candidate;
     while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
@@ -159,6 +158,13 @@ public class StoragePaths {
     }
     if (existing == null) {
       throw new BadRequestException(INVALID_PATH);
+    }
+    for (Path part = existing; part.startsWith(root) && !part.equals(root); ) {
+      if (Files.isSymbolicLink(part)) {
+        log.warn("Rejected path through a symlink: {}", raw);
+        throw new BadRequestException(INVALID_PATH);
+      }
+      part = part.getParent();
     }
     try {
       Path real = existing.toRealPath();

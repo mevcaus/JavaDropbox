@@ -175,6 +175,67 @@ class StoragePathSecurityTests {
   }
 
   @Test
+  @DisplayName("a symlink inside the serving directory cannot alias the root or a reserved folder")
+  void inRootSymlinkCannotAliasRootOrReservedFolder() throws Exception {
+    Files.createDirectories(servingDir.resolve(".versions"));
+    Files.writeString(servingDir.resolve(".versions/keep.txt.v1"), "old");
+    Files.createDirectories(servingDir.resolve(".javadropbox"));
+    Files.writeString(servingDir.resolve(".javadropbox/share-jwt.key"), "key");
+    Files.createDirectories(servingDir.resolve("a"));
+    Path self = Files.createSymbolicLink(servingDir.resolve("self"), Path.of("."));
+    Path versions = Files.createSymbolicLink(servingDir.resolve("v"), Path.of(".versions"));
+    Path up = Files.createSymbolicLink(servingDir.resolve("a/up"), Path.of(".."));
+    try {
+      mockMvc
+          .perform(post("/api/share").param("path", "self").with(csrf()))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(get("/api/files/download").param("path", "self"))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(delete("/api/files").param("path", "self/.versions").with(csrf()))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(get("/api/files/download").param("path", "v"))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(post("/api/share").param("path", "v").with(csrf()))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(get("/api/files/download").param("path", "a/up/.javadropbox/share-jwt.key"))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(delete("/api/files").param("path", "a/up").with(csrf()))
+          .andExpect(status().isBadRequest());
+
+      assertThat(servingDir.resolve(".versions/keep.txt.v1")).hasContent("old");
+      assertThat(servingDir.resolve("keep.txt")).exists();
+    } finally {
+      Files.delete(self);
+      Files.delete(versions);
+      Files.delete(up);
+    }
+  }
+
+  @Test
+  @DisplayName("an upload through a symlink is refused rather than keyed by the link's name")
+  void uploadThroughInRootSymlinkIsRefused() throws Exception {
+    Files.createDirectories(servingDir.resolve("sub"));
+    Path link = Files.createSymbolicLink(servingDir.resolve("link"), Path.of("sub"));
+    MockMultipartFile file = new MockMultipartFile("files", "x.txt", "text/plain", "x".getBytes());
+    try {
+      mockMvc
+          .perform(multipart("/api/files").file(file).param("path", "link").with(csrf()))
+          .andExpect(status().isBadRequest());
+
+      assertThat(servingDir.resolve("sub/x.txt")).doesNotExist();
+      assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_metadata", Long.class)).isZero();
+    } finally {
+      Files.delete(link);
+    }
+  }
+
+  @Test
   @DisplayName("a symlink loop does not break the file tree")
   void symlinkLoopIsSkipped() throws Exception {
     Path link = servingDir.resolve("loop");

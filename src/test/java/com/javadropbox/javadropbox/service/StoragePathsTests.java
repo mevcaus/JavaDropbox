@@ -30,6 +30,30 @@ class StoragePathsTests {
 
   @ParameterizedTest
   @ValueSource(
+      strings = {
+        "self",
+        "self/.versions",
+        "v",
+        "v/1",
+        "a/up",
+        "a/up/.javadropbox/share-jwt.key",
+        "link",
+        "link/new.txt"
+      })
+  @DisplayName("a path through a symlink inside the serving directory is refused")
+  void pathThroughInRootSymlinkIsRefused(String path) throws IOException {
+    Files.createDirectories(root.resolve("a"));
+    Files.createDirectories(root.resolve("sub"));
+    Files.createSymbolicLink(root.resolve("self"), Path.of("."));
+    Files.createSymbolicLink(root.resolve("v"), Path.of(".versions"));
+    Files.createSymbolicLink(root.resolve("a/up"), Path.of(".."));
+    Files.createSymbolicLink(root.resolve("link"), Path.of("sub"));
+
+    assertThatThrownBy(() -> paths.resolve(path)).isInstanceOf(BadRequestException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
       strings = {".VERSIONS", ".Versions/1/v1", ".JAVADROPBOX/share-jwt.key", ".JavaDropBox"})
   @DisplayName("the reserved folders are refused under any letter case, on any filesystem")
   void reservedFoldersAreRefusedInAnyCase(String path) {
