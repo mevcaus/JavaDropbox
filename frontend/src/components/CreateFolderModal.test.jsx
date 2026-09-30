@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CreateFolderModal from './CreateFolderModal';
 
@@ -74,5 +74,74 @@ describe('CreateFolderModal', () => {
         rerender(<CreateFolderModal isOpen onClose={onClose} onCreate={onCreate} />);
 
         expect(nameInput()).toHaveValue('');
+    });
+
+    describe('while the server decides', () => {
+        const deferred = () => {
+            let resolve;
+            let reject;
+            const promise = new Promise((res, rej) => {
+                resolve = res;
+                reject = rej;
+            });
+            return { promise, resolve, reject };
+        };
+
+        it('stays open, cannot be submitted twice, and closes once the folder exists', async () => {
+            const user = userEvent.setup();
+            const request = deferred();
+            const { onCreate, onClose } = renderModal({ onCreate: vi.fn(() => request.promise) });
+
+            await user.type(nameInput(), 'Reports');
+            await user.click(screen.getByRole('button', { name: 'Create' }));
+
+            expect(onClose).not.toHaveBeenCalled();
+            expect(screen.getByRole('button', { name: 'Creating' })).toBeDisabled();
+            await user.keyboard('{Enter}');
+            expect(onCreate).toHaveBeenCalledTimes(1);
+
+            await act(async () => request.resolve());
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it('cannot be dismissed until the server answers', async () => {
+            const user = userEvent.setup();
+            const { onClose } = renderModal({ onCreate: vi.fn(() => new Promise(() => {})) });
+
+            await user.type(nameInput(), 'Reports');
+            await user.click(screen.getByRole('button', { name: 'Create' }));
+            await user.click(screen.getByRole('button', { name: 'Cancel' }));
+            await user.keyboard('{Escape}');
+
+            expect(onClose).not.toHaveBeenCalled();
+        });
+
+        it('keeps the dialog, the name and the reason when the server refuses', async () => {
+            const user = userEvent.setup();
+            const { onClose } = renderModal({ onCreate: vi.fn().mockRejectedValue('Reports already exists') });
+
+            await user.type(nameInput(), 'Reports');
+            await user.click(screen.getByRole('button', { name: 'Create' }));
+
+            expect(await screen.findByRole('alert')).toHaveTextContent('Reports already exists');
+            expect(nameInput()).toHaveValue('Reports');
+            expect(nameInput()).toHaveFocus();
+            expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+            expect(onClose).not.toHaveBeenCalled();
+        });
+
+        it('forgets the reason once the dialog is closed', async () => {
+            const user = userEvent.setup();
+            const { rerender, onClose } = renderModal({ onCreate: vi.fn().mockRejectedValue('Reports already exists') });
+
+            await user.type(nameInput(), 'Reports');
+            await user.click(screen.getByRole('button', { name: 'Create' }));
+            await screen.findByRole('alert');
+            await user.click(screen.getByRole('button', { name: 'Cancel' }));
+            rerender(<CreateFolderModal isOpen={false} onClose={onClose} onCreate={vi.fn()} />);
+            rerender(<CreateFolderModal isOpen onClose={onClose} onCreate={vi.fn()} />);
+
+            expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        });
     });
 });

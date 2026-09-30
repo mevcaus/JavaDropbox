@@ -76,6 +76,21 @@ describe('Dashboard', () => {
         expect(screen.queryByLabelText('Loading files')).not.toBeInTheDocument();
     });
 
+    it('keeps the new-folder dialog open with the reason when the folder already exists', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'Photos already exists' } } });
+        const user = userEvent.setup();
+        renderDashboard();
+
+        await user.click(await screen.findByRole('button', { name: /New Folder/ }));
+        await user.type(screen.getByPlaceholderText('Folder Name'), 'Photos');
+        await user.click(screen.getByRole('button', { name: 'Create' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Photos already exists');
+        expect(screen.getByRole('dialog', { name: /Create New Folder/ })).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Folder Name')).toHaveValue('Photos');
+    });
+
     it('does not offer upload sources or installers that do not exist', async () => {
         api.get.mockResolvedValue({ data: TREE });
         renderDashboard();

@@ -45,13 +45,10 @@ const Dashboard = () => {
         dispatch(setCurrentPath(path));
     };
 
+    // A failure propagates to CreateFolderModal, which stays open and shows it next to the name.
     const handleCreateFolder = async (folderName) => {
-        try {
-            await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
-            addToast(`Folder "${folderName}" created successfully.`, 'success');
-        } catch (err) {
-            addToast(err, 'error');
-        }
+        await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
+        addToast(`Folder "${folderName}" created successfully.`, 'success');
     };
 
     const handleFileUpload = async (e) => {
