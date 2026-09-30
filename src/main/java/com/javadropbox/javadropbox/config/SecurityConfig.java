@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.User;
@@ -20,6 +21,8 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -77,9 +80,15 @@ public class SecurityConfig {
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http, LoginAttemptLimiter limiter)
       throws Exception {
+    // One matcher decides both which requests form login authenticates and which the throttle
+    // checks, so the two cannot disagree about a URL such as /logi%6E.
+    RequestMatcher loginRequest =
+        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/login");
+
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(
-            new LoginThrottleFilter(limiter), UsernamePasswordAuthenticationFilter.class)
+            new LoginThrottleFilter(limiter, loginRequest),
+            UsernamePasswordAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
@@ -105,6 +114,15 @@ public class SecurityConfig {
         .formLogin(
             form ->
                 form.loginProcessingUrl("/login")
+                    .withObjectPostProcessor(
+                        new ObjectPostProcessor<UsernamePasswordAuthenticationFilter>() {
+                          @Override
+                          public <O extends UsernamePasswordAuthenticationFilter> O postProcess(
+                              O filter) {
+                            filter.setRequiresAuthenticationRequestMatcher(loginRequest);
+                            return filter;
+                          }
+                        })
                     .successHandler(
                         (req, res, auth) -> {
                           limiter.recordSuccess(req.getRemoteAddr());

@@ -9,21 +9,28 @@ import java.time.Duration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /** Refuses sign-in attempts from an address the {@link LoginAttemptLimiter} has locked out. */
 public class LoginThrottleFilter extends OncePerRequestFilter {
 
   private final LoginAttemptLimiter limiter;
+  private final RequestMatcher loginRequest;
 
-  public LoginThrottleFilter(LoginAttemptLimiter limiter) {
+  /**
+   * @param loginRequest the same matcher form login uses to pick the requests it authenticates, so
+   *     that no spelling of the login URL (such as a percent-encoded one) reaches authentication
+   *     without passing the throttle
+   */
+  public LoginThrottleFilter(LoginAttemptLimiter limiter, RequestMatcher loginRequest) {
     this.limiter = limiter;
+    this.loginRequest = loginRequest;
   }
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
-    String path = request.getRequestURI().substring(request.getContextPath().length());
-    return !("POST".equals(request.getMethod()) && "/login".equals(path));
+    return !loginRequest.matches(request);
   }
 
   @Override
