@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import filesReducer, { fetchFiles, setCurrentPath } from './filesSlice';
+import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, setCurrentPath, uploadFiles } from './filesSlice';
 import authReducer, { clearUser, loginUser, logoutUser } from './authSlice';
 import api from '../services/api';
 
@@ -123,5 +123,39 @@ describe('filesSlice overlapping fetches', () => {
         await pending;
 
         expect(store.getState().files).toMatchObject({ files: [], loaded: false, loading: false });
+    });
+});
+
+// A failure does not mean nothing changed: a multi-file upload stores the files one at a time, and
+// a failed delete may be about an item that is already gone.
+describe('filesSlice refresh after a mutation', () => {
+    let store;
+
+    beforeEach(() => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        store = makeStore();
+    });
+
+    it.each([
+        ['succeeds', () => api.post.mockResolvedValueOnce({ data: {} })],
+        ['fails part-way', () => api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'b.txt is a folder' } } })],
+    ])('refreshes the list when an upload %s', async (_label, arrange) => {
+        arrange();
+
+        await store.dispatch(uploadFiles({ files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: '' }));
+
+        expect(api.get).toHaveBeenCalledWith(FILES_ENDPOINT);
+    });
+
+    it.each([
+        ['succeeds', () => api.delete.mockResolvedValueOnce({})],
+        ['fails', () => api.delete.mockRejectedValueOnce({ response: { status: 404, data: { message: 'Not found' } } })],
+    ])('refreshes the list when a delete %s', async (_label, arrange) => {
+        arrange();
+
+        await store.dispatch(deleteItem('folder'));
+
+        expect(api.get).toHaveBeenCalledWith(FILES_ENDPOINT);
     });
 });

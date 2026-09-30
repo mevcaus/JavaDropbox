@@ -50,10 +50,13 @@ export const uploadFiles = createAsyncThunk(
             fileArray.forEach((file) => formData.append('files', file));
 
             const response = await api.post(FILES_ENDPOINT, formData);
-            dispatch(fetchFiles());
             return response.data;
         } catch (error) {
             return rejectWithValue(readableError(error, 'Failed to upload files.'));
+        } finally {
+            // Refresh even after a failure: the files are stored one at a time, so the ones before
+            // the failing file are already there.
+            dispatch(fetchFiles());
         }
     }
 );
@@ -64,10 +67,13 @@ export const deleteItem = createAsyncThunk(
     async (path, { rejectWithValue, dispatch }) => {
         try {
             await api.delete(FILES_ENDPOINT, { params: { path } });
-            dispatch(fetchFiles());
             return path;
         } catch (error) {
             return rejectWithValue(readableError(error, 'Failed to delete item.'));
+        } finally {
+            // Refresh even after a failure: the item may already be gone (a 404), or a folder may
+            // have been partly removed before the error.
+            dispatch(fetchFiles());
         }
     }
 );
