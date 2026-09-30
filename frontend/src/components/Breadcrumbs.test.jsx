@@ -22,4 +22,18 @@ describe('Breadcrumbs', () => {
         const { container } = render(<Breadcrumbs currentPath="a/b/c" onNavigate={vi.fn()} />);
         expect(controlsWithoutFocusIndicator(container)).toEqual([]);
     });
+
+    it('is a labelled navigation landmark that marks the folder being viewed', () => {
+        render(<Breadcrumbs currentPath="docs/2026" onNavigate={vi.fn()} />);
+
+        expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
+        expect(screen.getByText('2026')).toHaveAttribute('aria-current', 'page');
+        expect(screen.getByRole('button', { name: 'docs' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('marks Home as current at the root', () => {
+        render(<Breadcrumbs currentPath="" onNavigate={vi.fn()} />);
+
+        expect(screen.getByText('Home').closest('[aria-current]')).toHaveAttribute('aria-current', 'page');
+    });
 });
