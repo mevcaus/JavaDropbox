@@ -17,7 +17,11 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import java.lang.reflect.Field;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 
 @DisplayName("Setup service")
@@ -86,6 +90,65 @@ class SetupServiceTests {
   void overlongPasswordRefused() {
     assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), "ada", "ü".repeat(37)))
         .hasMessage("Password is too long");
+  }
+
+  @Nested
+  @DisplayName("with a configured code")
+  @ExtendWith(OutputCaptureExtension.class)
+  class ConfiguredCode {
+
+    private static final String CONFIGURED = "Correct-Horse-7";
+
+    @Test
+    @DisplayName("wrong codes are throttled like wrong generated ones")
+    void configuredCodeIsThrottled() {
+      SetupService configured = configured(CONFIGURED);
+      for (int i = 0; i < 5; i++) {
+        assertThatThrownBy(() -> configured.createFirstUser(STRANGER, "NOPE", "ada", "long enough"))
+            .isInstanceOf(ForbiddenException.class);
+      }
+
+      assertThatThrownBy(
+              () -> configured.createFirstUser(STRANGER, CONFIGURED, "ada", "long enough"))
+          .isInstanceOf(TooManyRequestsException.class);
+      assertThatCode(() -> configured.createFirstUser(OWNER, CONFIGURED, "ada", "long enough"))
+          .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("one shorter than ten characters, not counting dashes, stops startup")
+    void shortConfiguredCodeIsRefused() {
+      assertThatThrownBy(() -> configured("abc"))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("app.setup.code")
+          .hasMessageContaining("at least 10 characters");
+      assertThatThrownBy(() -> configured("ABCDE-FGHJ")).isInstanceOf(IllegalStateException.class);
+      assertThatCode(() -> configured("ABCDE-FGHJK")).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("is never written to the log")
+    void configuredCodeIsNotLogged(CapturedOutput output) {
+      configured(CONFIGURED).announceCodeIfNeeded();
+
+      assertThat(output.getAll())
+          .contains("app.setup.code")
+          .doesNotContainIgnoringCase(CONFIGURED)
+          .doesNotContainIgnoringCase("CorrectHorse7");
+    }
+
+    private SetupService configured(String code) {
+      return new SetupService(users, NoOpPasswordEncoder.getInstance(), authService, code);
+    }
+  }
+
+  @Test
+  @DisplayName("a generated code is printed to the log, where the owner finds it")
+  @ExtendWith(OutputCaptureExtension.class)
+  void generatedCodeIsLogged(CapturedOutput output) throws Exception {
+    setup.announceCodeIfNeeded();
+
+    assertThat(output.getAll()).contains(code());
   }
 
   private String code() throws ReflectiveOperationException {

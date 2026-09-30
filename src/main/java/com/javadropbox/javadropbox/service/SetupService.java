@@ -36,6 +36,8 @@ public class SetupService {
 
   private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   private static final int CODE_LENGTH = 10;
+  // A configured code must be at least as long as a generated one.
+  private static final int MIN_CONFIGURED_CODE_LENGTH = CODE_LENGTH;
 
   private static final Logger log = LoggerFactory.getLogger(SetupService.class);
 
@@ -59,6 +61,14 @@ public class SetupService {
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
     this.configuredCode = configuredCode.trim();
+    if (!this.configuredCode.isEmpty()
+        && normalize(this.configuredCode).length() < MIN_CONFIGURED_CODE_LENGTH) {
+      throw new IllegalStateException(
+          "app.setup.code must be at least "
+              + MIN_CONFIGURED_CODE_LENGTH
+              + " characters long, not counting dashes and spaces. Remove it to have a random"
+              + " code generated on each start instead.");
+    }
     this.code = this.configuredCode.isEmpty() ? generateCode() : this.configuredCode;
   }
 
@@ -140,6 +150,15 @@ public class SetupService {
 
   private void announce() {
     String line = "=".repeat(60);
+    // Whoever configured the code knows it; printing it would only hand it to log readers.
+    if (!configuredCode.isEmpty()) {
+      log.warn(
+          "\n{}\n No account exists yet. Open the app and create one with the setup code set in"
+              + " app.setup.code.\n{}",
+          line,
+          line);
+      return;
+    }
     log.warn(
         "\n{}\n No account exists yet. Open the app and create one with this setup code:\n\n"
             + "     {}\n\n The code changes on every restart until setup is done.\n{}",

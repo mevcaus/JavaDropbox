@@ -346,7 +346,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file |
 | `app.share.jwt-secret` | generated per install | Share-link signing key (base64, ≥ 256 bits); set only to share a key between instances |
-| `app.setup.code` | generated per start | Fixed setup code for scripted installs |
+| `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
