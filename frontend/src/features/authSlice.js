@@ -20,7 +20,8 @@ export const loginUser = createAsyncThunk(
             // The backend answers a successful login with an empty 200.
             return { username };
         } catch (error) {
-            console.error('Login error details:', error.response);
+            // Nothing is logged here: the error carries the request config, and with it the
+            // form body holding the password. The form shows the readable message instead.
             return rejectWithValue(readableError(error, 'Login failed'));
         }
     }

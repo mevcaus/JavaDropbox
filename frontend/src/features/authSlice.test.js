@@ -1,5 +1,6 @@
+import { AxiosError } from 'axios';
 import { configureStore } from '@reduxjs/toolkit';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import authReducer, {
     clearUser,
     fetchCurrentUser,
@@ -16,6 +17,15 @@ const makeStore = () => configureStore({ reducer: { auth: authReducer } });
 const authState = (store) => store.getState().auth;
 // Seeds a signed-in session the way a successful login leaves it.
 const signIn = (store, username) => store.dispatch(loginUser.fulfilled({ username }, 'seed'));
+
+// Whether a secret appears anywhere in a value, however deeply nested (cycle-safe).
+const mentions = (value, secret, seen = new WeakSet()) => {
+    if (typeof value === 'string') return value.includes(secret);
+    if (value instanceof URLSearchParams) return value.toString().includes(secret);
+    if (value === null || typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    return Object.values(value).some((child) => mentions(child, secret, seen));
+};
 
 describe('authSlice', () => {
     let store;
@@ -81,6 +91,28 @@ describe('authSlice', () => {
             await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
 
             expect(authState(store).error).toBe('Login failed');
+        });
+
+        describe('console output', () => {
+            const methods = ['log', 'info', 'warn', 'error', 'debug'];
+            afterEach(() => vi.restoreAllMocks());
+
+            it('never contains the submitted password', async () => {
+                const spies = methods.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+                // Shaped like a real axios failure: the request config, body included, rides along
+                // on both the error and its response.
+                const config = { method: 'post', url: '/login', data: 'username=ada&password=hunter2-secret' };
+                const response = { status: 401, statusText: 'Unauthorized', data: '', headers: {}, config };
+                api.post.mockRejectedValueOnce(
+                    new AxiosError('Request failed with status code 401', 'ERR_BAD_REQUEST', config, null, response),
+                );
+
+                await store.dispatch(loginUser({ username: 'ada', password: 'hunter2-secret' }));
+
+                expect(authState(store).error).toBe('Invalid username or password.');
+                const logged = spies.flatMap((spy) => spy.mock.calls);
+                expect(mentions(logged, 'hunter2-secret')).toBe(false);
+            });
         });
 
         it('does not leave a failed login authenticated from a previous session', async () => {
