@@ -3,26 +3,36 @@ package com.javadropbox.javadropbox.config;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 
 /**
  * Slows down password guessing: after {@link #MAX_FAILURES} failed sign-ins from one address within
  * {@link #WINDOW}, that address is refused for {@link #LOCKOUT}. Kept in memory, which is enough
  * for a single instance.
+ *
+ * <p>At most {@link #MAX_CLIENTS} addresses are tracked at once, and each is forgotten as soon as
+ * its failures can no longer lead to or extend a lockout, so neither memory nor the work per call
+ * grows with the number of clients that ever failed. If more addresses than that fail within the
+ * window, the one whose last failure is oldest is forgotten first.
  */
 public class LoginAttemptLimiter {
 
   static final int MAX_FAILURES = 5;
   static final Duration WINDOW = Duration.ofMinutes(15);
   static final Duration LOCKOUT = Duration.ofMinutes(15);
+  static final int MAX_CLIENTS = 10_000;
 
-  // Bounds memory if many addresses fail once and never come back.
-  private static final int PRUNE_THRESHOLD = 10_000;
+  // Once this long has passed since a client's last failure, both its window and any lockout that
+  // failure started are over, so the entry no longer matters.
+  private static final Duration RETENTION = WINDOW.compareTo(LOCKOUT) > 0 ? WINDOW : LOCKOUT;
 
-  private record Attempts(int failures, Instant firstFailure, Instant lockedUntil) {}
+  private record Attempts(
+      int failures, Instant firstFailure, Instant lockedUntil, Instant updated) {}
 
-  private final Map<String, Attempts> byClient = new ConcurrentHashMap<>();
+  // Kept in order of last update, oldest first (an entry is re-inserted whenever it changes), so
+  // expired entries and the next one to evict are always at the head. Guarded by this.
+  private final LinkedHashMap<String, Attempts> byClient = new LinkedHashMap<>();
   private final Clock clock;
 
   public LoginAttemptLimiter(Clock clock) {
@@ -30,7 +40,7 @@ public class LoginAttemptLimiter {
   }
 
   /** How long the client must still wait, or {@link Duration#ZERO} if it may try now. */
-  public Duration retryAfter(String client) {
+  public synchronized Duration retryAfter(String client) {
     Attempts attempts = byClient.get(client);
     if (attempts == null || attempts.lockedUntil() == null) {
       return Duration.ZERO;
@@ -39,26 +49,43 @@ public class LoginAttemptLimiter {
     return remaining.isNegative() ? Duration.ZERO : remaining;
   }
 
-  public void recordFailure(String client) {
+  public synchronized void recordFailure(String client) {
     Instant now = clock.instant();
-    byClient.compute(
-        client,
-        (key, previous) -> {
-          boolean fresh =
-              previous == null
-                  || previous.firstFailure().plus(WINDOW).isBefore(now)
-                  || (previous.lockedUntil() != null && !previous.lockedUntil().isAfter(now));
-          int failures = fresh ? 1 : previous.failures() + 1;
-          Instant first = fresh ? now : previous.firstFailure();
-          Instant lockedUntil = failures >= MAX_FAILURES ? now.plus(LOCKOUT) : null;
-          return new Attempts(failures, first, lockedUntil);
-        });
-    if (byClient.size() > PRUNE_THRESHOLD) {
-      byClient.values().removeIf(a -> a.firstFailure().plus(WINDOW).plus(LOCKOUT).isBefore(now));
+    forgetExpired(now);
+
+    Attempts previous = byClient.remove(client);
+    boolean fresh =
+        previous == null
+            || previous.firstFailure().plus(WINDOW).isBefore(now)
+            || (previous.lockedUntil() != null && !previous.lockedUntil().isAfter(now));
+    int failures = fresh ? 1 : previous.failures() + 1;
+    Instant first = fresh ? now : previous.firstFailure();
+    Instant lockedUntil = failures >= MAX_FAILURES ? now.plus(LOCKOUT) : null;
+    byClient.put(client, new Attempts(failures, first, lockedUntil, now));
+
+    if (byClient.size() > MAX_CLIENTS) {
+      Iterator<String> oldest = byClient.keySet().iterator();
+      oldest.next();
+      oldest.remove();
     }
   }
 
-  public void recordSuccess(String client) {
+  public synchronized void recordSuccess(String client) {
     byClient.remove(client);
+  }
+
+  /** How many clients are currently tracked. */
+  synchronized int trackedClients() {
+    return byClient.size();
+  }
+
+  // Each entry is removed at most once, so this costs O(1) per call on average.
+  private void forgetExpired(Instant now) {
+    for (Iterator<Attempts> it = byClient.values().iterator(); it.hasNext(); ) {
+      if (it.next().updated().plus(RETENTION).isAfter(now)) {
+        return;
+      }
+      it.remove();
+    }
   }
 }
