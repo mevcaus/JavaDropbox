@@ -344,7 +344,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 |----------|---------|---------|
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
-| `javadropbox.versions.max-retained` | `10` | Previous versions kept per file |
+| `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
 | `app.share.jwt-secret` | generated per install | Share-link signing key (base64, ≥ 256 bits); set only to share a key between instances |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |

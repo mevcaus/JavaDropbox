@@ -39,6 +39,11 @@ public class FileVersionService {
       FileMetadataRepository files,
       StoragePaths storagePaths,
       @Value("${javadropbox.versions.max-retained:10}") int maxRetained) {
+    // Checked here so a bad setting stops the app starting, rather than failing every replace.
+    if (maxRetained < 0) {
+      throw new IllegalArgumentException(
+          "javadropbox.versions.max-retained must be 0 or more, not " + maxRetained);
+    }
     this.versions = versions;
     this.files = files;
     this.storagePaths = storagePaths;
