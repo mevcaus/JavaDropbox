@@ -12,8 +12,15 @@ import org.springframework.http.MediaType;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Refuses sign-in attempts from an address the {@link LoginAttemptLimiter} has locked out. */
+/**
+ * Refuses sign-in attempts from an address the {@link LoginAttemptLimiter} has locked out, and
+ * otherwise reserves the attempt before the password is checked. Form login's success and failure
+ * handlers end the reservation through {@link #recordSuccess} and {@link #recordFailure}.
+ */
 public class LoginThrottleFilter extends OncePerRequestFilter {
+
+  // Set while this request holds a reserved attempt that no handler has ended yet.
+  private static final String RESERVED = LoginThrottleFilter.class.getName() + ".RESERVED";
 
   private final LoginAttemptLimiter limiter;
   private final RequestMatcher loginRequest;
@@ -37,9 +44,19 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
-    Duration wait = limiter.retryAfter(request.getRemoteAddr());
+    String client = request.getRemoteAddr();
+    Duration wait = limiter.tryAcquire(client);
     if (wait.isZero()) {
-      chain.doFilter(request, response);
+      request.setAttribute(RESERVED, Boolean.TRUE);
+      try {
+        chain.doFilter(request, response);
+      } finally {
+        // Neither handler ran, so the request ended some other way: give the attempt back.
+        if (request.getAttribute(RESERVED) != null) {
+          request.removeAttribute(RESERVED);
+          limiter.release(client);
+        }
+      }
       return;
     }
 
@@ -54,5 +71,17 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
                 + minutes
                 + (minutes == 1 ? " minute" : " minutes")
                 + ".\"}");
+  }
+
+  /** Ends the request's reserved attempt as a successful sign-in. */
+  public void recordSuccess(HttpServletRequest request) {
+    request.removeAttribute(RESERVED);
+    limiter.recordSuccess(request.getRemoteAddr());
+  }
+
+  /** Ends the request's reserved attempt as a failed sign-in. */
+  public void recordFailure(HttpServletRequest request) {
+    request.removeAttribute(RESERVED);
+    limiter.recordFailure(request.getRemoteAddr());
   }
 }

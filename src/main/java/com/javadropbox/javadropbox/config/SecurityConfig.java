@@ -85,10 +85,10 @@ public class SecurityConfig {
     RequestMatcher loginRequest =
         PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/login");
 
+    LoginThrottleFilter throttle = new LoginThrottleFilter(limiter, loginRequest);
+
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
-        .addFilterBefore(
-            new LoginThrottleFilter(limiter, loginRequest),
-            UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(throttle, UsernamePasswordAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
@@ -125,12 +125,12 @@ public class SecurityConfig {
                         })
                     .successHandler(
                         (req, res, auth) -> {
-                          limiter.recordSuccess(req.getRemoteAddr());
+                          throttle.recordSuccess(req);
                           res.setStatus(200);
                         })
                     .failureHandler(
                         (req, res, exc) -> {
-                          limiter.recordFailure(req.getRemoteAddr());
+                          throttle.recordFailure(req);
                           res.setStatus(401);
                         })
                     .permitAll())

@@ -70,6 +70,49 @@ class LoginAttemptLimiterTests {
   }
 
   @Test
+  @DisplayName("attempts still in progress count towards the limit")
+  void attemptsInProgressCount() {
+    for (int i = 0; i < 5; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+    }
+
+    assertThat(limiter.tryAcquire(CLIENT)).isPositive();
+  }
+
+  @Test
+  @DisplayName("an attempt in progress becomes a failure, and the fifth locks the address out")
+  void reservedAttemptsBecomeFailures() {
+    for (int i = 0; i < 5; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+      limiter.recordFailure(CLIENT);
+    }
+
+    assertThat(limiter.tryAcquire(CLIENT)).isEqualTo(Duration.ofMinutes(15));
+  }
+
+  @Test
+  @DisplayName("an attempt that ends without a verdict does not count")
+  void releasedAttemptsDoNotCount() {
+    for (int i = 0; i < 10; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+      limiter.release(CLIENT);
+    }
+
+    assertThat(limiter.retryAfter(CLIENT)).isZero();
+  }
+
+  @Test
+  @DisplayName("a lockout outlasting the window is still enforced")
+  void lockoutOutlastsTheWindow() {
+    fail(4);
+    clock.advance(Duration.ofMinutes(14));
+    fail(1);
+    clock.advance(Duration.ofMinutes(10));
+
+    assertThat(limiter.tryAcquire(CLIENT)).isEqualTo(Duration.ofMinutes(5));
+  }
+
+  @Test
   @DisplayName("memory stays bounded however many addresses fail")
   void trackedClientsAreBounded() {
     for (int i = 0; i < LoginAttemptLimiter.MAX_CLIENTS * 2; i++) {
