@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
+import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
@@ -242,9 +243,64 @@ class FileIntegrityIntegrationTests {
     assertThat(storedVersionFiles()).isEmpty();
   }
 
+  @Test
+  @DisplayName("of two deletes of one file at once, the second finds nothing to delete")
+  void concurrentDeletesOfOneFile() throws Exception {
+    upload("d.txt", "x");
+
+    holdSecondVersionCleanupUntilFirstCommits();
+    List<Throwable> errors =
+        runTogether(() -> fileService.delete("d.txt"), () -> fileService.delete("d.txt"));
+
+    assertThat(errors).singleElement().isInstanceOf(NotFoundException.class);
+    assertThat(successfulDeletionsOf("d.txt")).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("of two deletes of one folder at once, the second finds nothing to delete")
+  void concurrentDeletesOfOneFolder() throws Exception {
+    fileService.createFolder("", "dir");
+    upload("dir", "f.txt", "x");
+
+    holdSecondVersionCleanupUntilFirstCommits();
+    List<Throwable> errors =
+        runTogether(() -> fileService.delete("dir"), () -> fileService.delete("dir"));
+
+    assertThat(errors).singleElement().isInstanceOf(NotFoundException.class);
+    assertThat(successfulDeletionsOf("dir")).isEqualTo(1);
+  }
+
   // --- helpers ------------------------------------------------------------------
 
   private final CountDownLatch firstFinished = new CountDownLatch(1);
+
+  /**
+   * Holds the second of two deletes, once both have checked that the item exists, until the first
+   * has committed.
+   */
+  private void holdSecondVersionCleanupUntilFirstCommits() {
+    CyclicBarrier bothStarted = new CyclicBarrier(2);
+    AtomicInteger arrivals = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              boolean first = arrivals.incrementAndGet() == 1;
+              bothStarted.await(20, TimeUnit.SECONDS);
+              if (!first) {
+                assertThat(firstFinished.await(20, TimeUnit.SECONDS)).isTrue();
+              }
+              return invocation.callRealMethod();
+            })
+        .when(target(versionService))
+        .discardAllAtOrBelow(any());
+  }
+
+  private int successfulDeletionsOf(String path) {
+    return jdbc.queryForObject(
+        "SELECT count(*) FROM file_history WHERE change_type = 'DELETE' AND success"
+            + " AND file_path = ?",
+        Integer.class,
+        path);
+  }
 
   /**
    * Makes the first request to reach {@code archive()} wait there for up to two seconds for the

@@ -9,6 +9,7 @@ import java.util.Map;
 import org.apache.tomcat.util.http.fileupload.impl.SizeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -49,6 +50,13 @@ public class ApiExceptionHandler {
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<Map<String, String>> handleIntegrity(DataIntegrityViolationException ex) {
     log.warn("Rejected a change that conflicts with the database", ex);
+    return message(HttpStatus.CONFLICT, "That conflicts with another change. Please try again.");
+  }
+
+  // Two requests changing the same rows at once, where the database made one of them give way.
+  @ExceptionHandler(ConcurrencyFailureException.class)
+  public ResponseEntity<Map<String, String>> handleConcurrency(ConcurrencyFailureException ex) {
+    log.warn("Rejected a change that raced another one", ex);
     return message(HttpStatus.CONFLICT, "That conflicts with another change. Please try again.");
   }
 

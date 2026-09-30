@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
@@ -141,7 +142,16 @@ public class FileService {
             versions.discardAllAtOrBelow(target.key());
             files.deleteAtOrBelow(target.key(), FileMetadataRepository.below(target.key()));
 
-            StorageFiles.deleteRecursively(target.path());
+            // A concurrent delete of the same item got here first: the deletes above waited for
+            // its row locks and found nothing, and now the disk has nothing either.
+            if (!Files.exists(target.path(), LinkOption.NOFOLLOW_LINKS)) {
+              throw new NotFoundException("Not found: " + target.key());
+            }
+            try {
+              StorageFiles.deleteRecursively(target.path());
+            } catch (NoSuchFileException e) {
+              throw new NotFoundException("Not found: " + target.key());
+            }
             history.recordDeletion(target.key(), target.name(), user);
           });
     } catch (IOException | RuntimeException e) {
