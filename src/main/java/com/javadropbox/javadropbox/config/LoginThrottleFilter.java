@@ -60,7 +60,6 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
       return;
     }
 
-    long minutes = Math.max(1, (wait.toSeconds() + 59) / 60);
     response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
     response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(wait.toSeconds()));
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
@@ -68,8 +67,7 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
         .getWriter()
         .write(
             "{\"message\":\"Too many failed sign-in attempts. Try again in "
-                + minutes
-                + (minutes == 1 ? " minute" : " minutes")
+                + LoginAttemptLimiter.describe(wait)
                 + ".\"}");
   }
 

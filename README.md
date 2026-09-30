@@ -110,7 +110,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 ### Security
 - **Spring Security** integration with form-based login, session management and cookie-based CSRF protection
 - **BCrypt password hashing** via `PasswordEncoder`
-- **First-run setup flow** — `SetupFilter` redirects every request to `/setup` until the first account exists, and creating it requires a **one-time setup code printed in the server log**, so only whoever runs the server can claim it; five wrong guesses rotate the code
+- **First-run setup flow** — `SetupFilter` redirects every request to `/setup` until the first account exists, and creating it requires a **one-time setup code printed in the server log**, so only whoever runs the server can claim it; five wrong codes from one address lock that address out for 15 minutes, without changing the code
 - **Path safety** — Every client-supplied path goes through `StoragePaths`, which rejects anything outside the serving directory (after `..` is normalized *and* after symlinks are followed), the app's own `.versions/` and `.javadropbox/` directories, and the root itself for delete and share
 - **Sign-in throttling** — Five failed sign-ins from one address within 15 minutes lock it out for 15 minutes (`429` with `Retry-After`)
 - **CORS** — Off unless `app.cors.allowed-origins` lists origins (the dev profile allows the Vite dev server)
@@ -377,7 +377,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 All endpoints require authentication unless noted otherwise. For a live, interactive reference of all REST API endpoints, visit the [Swagger UI](http://localhost:8080/swagger-ui.html) while the backend runs with the `dev` profile (`./gradlew bootRun`).
 
-Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code, `404` when the item or version does not exist, `409` when something already exists, `429` when sign-in is throttled.
+Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code, `404` when the item or version does not exist, `409` when something already exists, `429` when sign-in or setup is throttled.
 
 ### Authentication
 
@@ -439,13 +439,13 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items or the root |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
-| `SetupIntegrationTests` | First-run redirects, the setup code, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
+| `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
 | `ShareLinkIntegrationTests` / `ShareTokenServiceTests` | Link issue/expiry/tamper and public download; the generated per-install key, and rejection of tokens signed with the formerly published key |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
 | `FlywayMigrationIntegrationTests` / `FlywayBaselineIntegrationTests` | Migrations build an empty PostgreSQL database, and a pre-Flyway database is adopted; Hibernate validates both |
 | `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant |
-| `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup-code rotation, lockout timing, command-line shorthands |
+| `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup codes throttled per client, lockout timing and bounds, command-line shorthands |
 
 ### Test Design Highlights
 - **Test isolation**: Test classes with the same configuration share one Spring context and database, so each wipes every table after a test through `TestDatabase.wipe`

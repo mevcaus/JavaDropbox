@@ -7,9 +7,9 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 
 /**
- * Slows down password guessing: after {@link #MAX_FAILURES} failed sign-ins from one address within
- * {@link #WINDOW}, that address is refused for {@link #LOCKOUT}. Kept in memory, which is enough
- * for a single instance.
+ * Slows down guessing: after {@link #MAX_FAILURES} failed attempts from one address within {@link
+ * #WINDOW}, that address is refused for {@link #LOCKOUT}. Used for sign-ins and, separately, for
+ * setup codes. Kept in memory, which is enough for a single instance.
  *
  * <p>Each attempt is reserved with {@link #tryAcquire} before the password is checked and then
  * ended with {@link #recordFailure}, {@link #recordSuccess} or {@link #release}. Attempts still in
@@ -131,6 +131,12 @@ public class LoginAttemptLimiter {
               attempts.inProgress() - 1,
               attempts.updated()));
     }
+  }
+
+  /** A wait for a message to the user, in whole minutes rounded up: "1 minute", "15 minutes". */
+  public static String describe(Duration wait) {
+    long minutes = Math.max(1, (wait.toSeconds() + 59) / 60);
+    return minutes + (minutes == 1 ? " minute" : " minutes");
   }
 
   /** How many clients are currently tracked. */
