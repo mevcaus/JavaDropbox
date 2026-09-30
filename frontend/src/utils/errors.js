@@ -3,7 +3,18 @@
 // the UI would put that on screen, so pick out something a person can actually read.
 const isHtmlDocument = (value) => /^\s*<(!doctype|html)/i.test(value);
 
-export const readableError = (error, fallback) => {
+/**
+ * A message fit to show for a failed request: the server's own message when it sent one, otherwise
+ * one chosen from the status, otherwise the fallback.
+ *
+ * A 401 reads as an expired session, which is what it means for every request but the sign-in
+ * itself; the login form passes its own text for that case in options.unauthorized.
+ */
+export const readableError = (
+    error,
+    fallback,
+    { unauthorized = 'Your session has expired. Please sign in again.' } = {},
+) => {
     const { status, data } = error?.response ?? {};
 
     if (data && typeof data === 'object') {
@@ -19,7 +30,7 @@ export const readableError = (error, fallback) => {
     }
 
     if (status === 401) {
-        return 'Invalid username or password.';
+        return unauthorized;
     }
     if (status >= 500) {
         return 'The server is unavailable right now. Please try again.';

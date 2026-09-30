@@ -22,7 +22,9 @@ export const loginUser = createAsyncThunk(
         } catch (error) {
             // Nothing is logged here: the error carries the request config, and with it the
             // form body holding the password. The form shows the readable message instead.
-            return rejectWithValue(readableError(error, 'Login failed'));
+            return rejectWithValue(
+                readableError(error, 'Login failed', { unauthorized: 'Invalid username or password.' }),
+            );
         }
     }
 );
