@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.javadropbox.javadropbox.model.FileHistory;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.FileVersion;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileHistoryRepository;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
@@ -80,6 +81,46 @@ class FileOperationsIntegrationTests {
         deleteTree(entry);
       }
     }
+  }
+
+  // --- uploading -------------------------------------------------------------
+
+  @Test
+  @DisplayName("an empty file is stored, listed and versioned like any other")
+  void emptyFileIsStored() throws Exception {
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "empty.txt", "text/plain", new byte[0]))
+                .param("path", "")
+                .with(csrf()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
+
+    assertThat(servingDir.resolve("empty.txt")).isEmptyFile();
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(jsonPath("$[?(@.name == 'empty.txt')].size").value(0))
+        .andExpect(jsonPath("$[?(@.name == 'empty.txt')].id").isNotEmpty());
+
+    upload("", "empty.txt", "content");
+    assertThat(versions.findAll()).extracting(FileVersion::getSize).containsExactly(0L);
+  }
+
+  @Test
+  @DisplayName("a part without a file name is skipped and not counted as uploaded")
+  void partWithoutFileNameIsSkipped() throws Exception {
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "", "application/octet-stream", new byte[0]))
+                .file(new MockMultipartFile("files", "real.txt", "text/plain", "x".getBytes()))
+                .param("path", "")
+                .with(csrf()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
+
+    assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("real.txt");
   }
 
   // --- deleting --------------------------------------------------------------

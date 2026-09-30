@@ -65,24 +65,30 @@ public class FileService {
   /**
    * Stores uploaded files in a folder. Each file is committed on its own, so a failure on one does
    * not undo the ones before it; the failing file and everything after it are not stored.
+   *
+   * @return how many files were stored
    */
-  public void upload(MultipartFile[] uploads, String folderPath) throws IOException {
+  public int upload(MultipartFile[] uploads, String folderPath) throws IOException {
     User user = authService.currentUser();
     StoragePath folder = storagePaths.resolve(folderPath);
     Files.createDirectories(folder.path());
 
+    int stored = 0;
     for (MultipartFile upload : uploads) {
-      if (upload.isEmpty()) {
+      String name = upload.getOriginalFilename();
+      // A file input left empty sends a part with no file name. An empty file is still a file.
+      if (name == null || name.isEmpty()) {
         continue;
       }
-      String name = upload.getOriginalFilename();
       try {
         store(upload, storagePaths.resolveChild(folder, name), user);
       } catch (IOException | RuntimeException e) {
         history.recordFailure(childKey(folder, name), name, ChangeType.UPLOAD, user, e);
         throw e;
       }
+      stored++;
     }
+    return stored;
   }
 
   private void store(MultipartFile upload, StoragePath target, User user) throws IOException {
