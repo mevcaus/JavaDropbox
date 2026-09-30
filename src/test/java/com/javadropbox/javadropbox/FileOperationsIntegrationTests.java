@@ -368,6 +368,35 @@ class FileOperationsIntegrationTests {
         .andExpect(status().isNotFound());
   }
 
+  // --- letter case -------------------------------------------------------------
+
+  @Test
+  @DisplayName("an upload spelled in a different letter case replaces the file under its one row")
+  void caseVariantUploadKeepsOneRow() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    upload("", "report.txt", "one");
+    upload("", "report.txt", "two");
+    upload("", "Report.txt", "three");
+
+    assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("report.txt");
+    assertThat(versions.findAll()).hasSize(2);
+    assertThat(servingDir.resolve("report.txt")).hasContent("three");
+  }
+
+  @Test
+  @DisplayName("deleting a file spelled in a different letter case removes its row")
+  void caseVariantDeleteRemovesTheRow() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    upload("", "notes.txt", "a");
+    upload("", "notes.txt", "b");
+
+    deletePath("NOTES.TXT");
+
+    assertThat(servingDir.resolve("notes.txt")).doesNotExist();
+    assertThat(metadata.findAll()).isEmpty();
+    assertThat(versions.findAll()).isEmpty();
+  }
+
   // --- helpers ------------------------------------------------------------------
 
   private void upload(String folder, String name, String content) throws Exception {

@@ -1,9 +1,14 @@
 package com.javadropbox.javadropbox.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import com.javadropbox.javadropbox.FileSystemAssumptions;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import java.io.IOException;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,6 +78,35 @@ class StoragePathsTests {
     assertThatThrownBy(() -> paths.resolveChild(paths.resolve(".git"), "config"))
         .isInstanceOf(BadRequestException.class)
         .hasMessageContaining("dot");
+  }
+
+  @Test
+  @DisplayName("keys use the filesystem's own spelling of names that already exist")
+  void keysUseTheOnDiskSpelling() throws IOException {
+    FileSystemAssumptions.assumeCaseInsensitive(root);
+    Files.createDirectory(root.resolve("Docs"));
+    Files.writeString(root.resolve("Docs/Report.txt"), "report");
+
+    assertThat(paths.resolve("DOCS/report.TXT").key()).isEqualTo("Docs/Report.txt");
+    assertThat(paths.resolveChild(paths.resolve("docs"), "new.txt").key())
+        .isEqualTo("Docs/new.txt");
+  }
+
+  @Test
+  @DisplayName("keys use the on-disk spelling, checked on an in-memory case-insensitive filesystem")
+  void keysUseTheOnDiskSpellingOnAnyPlatform() throws IOException {
+    try (FileSystem macLike = Jimfs.newFileSystem(Configuration.osX())) {
+      Path macRoot = Files.createDirectories(macLike.getPath("/srv/files"));
+      Files.createDirectories(macRoot.resolve("Docs"));
+      Files.writeString(macRoot.resolve("Docs/Report.txt"), "report");
+      Files.createDirectories(macRoot.resolve(".versions"));
+      StoragePaths macPaths = new StoragePaths(macRoot);
+
+      assertThat(macPaths.resolve("DOCS/report.TXT").key()).isEqualTo("Docs/Report.txt");
+      assertThat(macPaths.resolve("docs/new/file.txt").key()).isEqualTo("Docs/new/file.txt");
+      assertThatThrownBy(() -> macPaths.resolve(".VERSIONS"))
+          .isInstanceOf(BadRequestException.class);
+    }
   }
 
   @ParameterizedTest

@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -51,9 +52,15 @@ public class StoragePaths {
   private final Path root;
   private final Path realRoot;
 
+  @Autowired
   public StoragePaths(@Value("${javadropbox.serving.directory}") String directory)
       throws IOException {
-    this.root = Path.of(directory).toAbsolutePath().normalize();
+    this(Path.of(directory));
+  }
+
+  // For tests on another filesystem, such as an in-memory case-insensitive one.
+  StoragePaths(Path directory) throws IOException {
+    this.root = directory.toAbsolutePath().normalize();
     if (!Files.exists(root)) {
       Files.createDirectories(root);
       Files.writeString(
@@ -110,14 +117,18 @@ public class StoragePaths {
     if (existing == null) {
       throw new BadRequestException(INVALID_PATH);
     }
-    if (isReserved(realRelativeOf(existing, raw))) {
+    // Keyed by the filesystem's own spelling of the part that exists, so every spelling a
+    // case-insensitive filesystem accepts for one file gives it one key.
+    Path created = existing.relativize(candidate);
+    Path key = realRelativeOf(existing, raw).resolve(created);
+    if (isReserved(key)) {
       throw new BadRequestException(INVALID_PATH);
     }
     // Whatever does not exist yet may be created by the caller, e.g. an upload's folder.
-    if (hasHiddenName(existing.relativize(candidate))) {
+    if (hasHiddenName(created)) {
       throw new BadRequestException(HIDDEN_NAME);
     }
-    return new StoragePath(realRoot.resolve(relative), toKey(relative));
+    return new StoragePath(realRoot.resolve(key), toKey(key));
   }
 
   /**
@@ -225,7 +236,8 @@ public class StoragePaths {
    *
    * @param path the absolute filesystem path, inside the real serving directory
    * @param key the path relative to the serving directory with forward slashes, {@code ""} for the
-   *     root. This is the form stored in the database and shown to clients.
+   *     root, spelled as on disk where it exists. This is the form stored in the database and shown
+   *     to clients.
    */
   public record StoragePath(Path path, String key) {
 
