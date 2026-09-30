@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, setCurrentPath, uploadFiles } from './filesSlice';
+import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, uploadFiles } from './filesSlice';
 import authReducer, { clearUser, loginUser, logoutUser } from './authSlice';
 import api from '../services/api';
 
@@ -29,7 +29,6 @@ describe('filesSlice session reset', () => {
         store = makeStore();
         api.get.mockResolvedValueOnce({ data: [{ name: 'private.txt', isDirectory: false, size: 1 }] });
         await store.dispatch(fetchFiles());
-        store.dispatch(setCurrentPath('docs'));
     });
 
     it('forgets the file tree on logout', async () => {
@@ -37,7 +36,7 @@ describe('filesSlice session reset', () => {
 
         await store.dispatch(logoutUser());
 
-        expect(store.getState().files).toMatchObject({ files: [], currentPath: '' });
+        expect(store.getState().files).toMatchObject({ files: [], loaded: false });
     });
 
     it('keeps the file tree when the logout fails and the user is still signed in', async () => {
@@ -51,7 +50,7 @@ describe('filesSlice session reset', () => {
     it('forgets the file tree when the session expires', () => {
         store.dispatch(clearUser());
 
-        expect(store.getState().files).toMatchObject({ files: [], currentPath: '' });
+        expect(store.getState().files).toMatchObject({ files: [], loaded: false });
     });
 });
 

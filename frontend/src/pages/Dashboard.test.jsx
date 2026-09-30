@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import filesReducer, { fetchFiles } from '../features/filesSlice';
 import authReducer from '../features/authSlice';
@@ -17,15 +18,40 @@ vi.mock('../hooks/useToast', () => ({
 
 const TREE = [{ name: 'report.pdf', isDirectory: false, size: 10, lastModified: '2026-01-01T00:00:00Z', relativePath: 'report.pdf' }];
 
-const renderDashboard = () => {
+const PHOTOS_TREE = [
+    {
+        name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos',
+        children: [{ name: 'beach.jpg', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos/beach.jpg' }],
+    },
+    ...TREE,
+];
+
+// Shows the router's location and offers the browser's Back button.
+const LocationProbe = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    return (
+        <>
+            <output aria-label="Location">{`${location.pathname}${location.search}`}</output>
+            <button onClick={() => navigate(-1)}>Browser back</button>
+        </>
+    );
+};
+
+const renderDashboard = ({ url = '/dashboard' } = {}) => {
     const store = configureStore({ reducer: { auth: authReducer, files: filesReducer } });
     render(
         <Provider store={store}>
-            <Dashboard />
+            <MemoryRouter initialEntries={[url]}>
+                <Dashboard />
+                <LocationProbe />
+            </MemoryRouter>
         </Provider>,
     );
     return store;
 };
+
+const currentLocation = () => screen.getByLabelText('Location').textContent;
 
 describe('Dashboard', () => {
     afterEach(() => {
@@ -118,6 +144,52 @@ describe('Dashboard', () => {
         expect(await screen.findByRole('alert')).toHaveTextContent('Photos already exists');
         expect(screen.getByRole('dialog', { name: /Create New Folder/ })).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Folder Name')).toHaveValue('Photos');
+    });
+
+    describe('the current folder', () => {
+        it('is kept in the URL when a folder is opened', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            const user = userEvent.setup();
+            renderDashboard();
+
+            await user.click(await screen.findByRole('button', { name: 'Photos' }));
+
+            expect(currentLocation()).toBe('/dashboard?path=Photos');
+            expect(screen.getByText('beach.jpg')).toBeInTheDocument();
+        });
+
+        it('is read back from the URL, so a reload stays in the folder', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            renderDashboard({ url: '/dashboard?path=Photos' });
+
+            expect(await screen.findByText('beach.jpg')).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Photos' })).not.toBeInTheDocument();
+        });
+
+        it('follows Back to the previous folder', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            const user = userEvent.setup();
+            renderDashboard();
+
+            await user.click(await screen.findByRole('button', { name: 'Photos' }));
+            await user.click(screen.getByRole('button', { name: 'Browser back' }));
+
+            expect(currentLocation()).toBe('/dashboard');
+            expect(screen.getByRole('button', { name: 'Photos' })).toBeInTheDocument();
+        });
+
+        it('is where uploads go', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            api.post.mockResolvedValue({ data: {} });
+            const user = userEvent.setup();
+            renderDashboard({ url: '/dashboard?path=Photos' });
+            await screen.findByText('beach.jpg');
+
+            await user.upload(document.querySelector('input[type="file"]'), new File(['x'], 'sunset.jpg'));
+
+            await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+            expect(api.post.mock.calls[0][1].get('path')).toBe('Photos');
+        });
     });
 
     it('does not offer upload sources or installers that do not exist', async () => {

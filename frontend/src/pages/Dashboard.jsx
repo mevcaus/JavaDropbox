@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSearchParams } from 'react-router-dom';
 import {
     fetchFiles,
     deleteItem,
-    setCurrentPath,
     selectCurrentFiles,
     createDirectory,
     uploadFiles,
@@ -25,8 +25,12 @@ const pathOf = (file, currentPath) =>
 
 const Dashboard = () => {
     const dispatch = useDispatch();
-    const files = useSelector(selectCurrentFiles);
-    const { loading, loaded, error, currentPath } = useSelector((state) => state.files);
+    // The folder being viewed lives in the URL, so a reload keeps it and Back/Forward move
+    // between folders.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const currentPath = searchParams.get('path') ?? '';
+    const files = useSelector((state) => selectCurrentFiles(state, currentPath));
+    const { loading, loaded, error } = useSelector((state) => state.files);
     const { addToast } = useToast();
 
     const [itemToDelete, setItemToDelete] = useState(null);
@@ -43,7 +47,7 @@ const Dashboard = () => {
     // FileTable hands back the folder's full path, which is what search results need: a nested
     // match cannot be located by name alone.
     const handleNavigate = (path) => {
-        dispatch(setCurrentPath(path));
+        setSearchParams(path ? { path } : {});
     };
 
     // A failure propagates to CreateFolderModal, which stays open and shows it next to the name.

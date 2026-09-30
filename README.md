@@ -133,7 +133,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 
 ### Frontend
 - **React 19** SPA with **Redux Toolkit** for global state management
-- **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu
+- **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu; the open folder is kept in the URL (`/dashboard?path=...`), so a reload and Back/Forward keep it
 - **Smart file icons** — Context-aware icons based on file extension (images, video, audio, code, documents)
 - **File search** — Search box above the file table matches filenames (case-insensitive substring) across the open folder **and every folder beneath it**, flattening results into a list labelled with each match's full path; runs entirely client-side against the already-loaded tree, so no extra request is made
 - **Column sorting** — Name, Size, and Last Modified headers sort in either direction, keyboard-operable and annotated with `aria-sort`; folders stay grouped ahead of files in every ordering

@@ -78,9 +78,10 @@ export const deleteItem = createAsyncThunk(
     }
 );
 
+// The folder being viewed is not kept here: it lives in the URL (/dashboard?path=...), so a reload
+// or Back keeps it. Dashboard reads it from there and passes it to selectCurrentFiles.
 const initialState = {
     files: [],
-    currentPath: '',
     loading: false,
     // Whether the tree has loaded at least once. Refreshes after an upload or delete keep showing
     // the current tree instead of swapping the page for a spinner.
@@ -97,11 +98,7 @@ const isLatest = (state, action) => action.meta.requestId === state.latestReques
 const filesSlice = createSlice({
     name: 'files',
     initialState,
-    reducers: {
-        setCurrentPath: (state, action) => {
-            state.currentPath = action.payload;
-        },
-    },
+    reducers: {},
     extraReducers: (builder) => {
         builder
             .addCase(fetchFiles.pending, (state, action) => {
@@ -128,16 +125,14 @@ const filesSlice = createSlice({
     },
 });
 
-
-export const { setCurrentPath } = filesSlice.actions;
-
 /**
- * Selector to get files for the current path from the file tree
+ * Selector to get the files in a folder of the file tree
  * @param {Object} state - Redux state
- * @returns {Array} Files in the current path
+ * @param {string} currentPath - The folder, as a path like "docs/2026"; empty for the root
+ * @returns {Array} Files in that folder
  */
-export const selectCurrentFiles = (state) => {
-    const { files, currentPath } = state.files;
+export const selectCurrentFiles = (state, currentPath) => {
+    const { files } = state.files;
 
     if (!Array.isArray(files)) {
         return [];
