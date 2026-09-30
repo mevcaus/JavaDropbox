@@ -4,8 +4,13 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
+import java.io.EOFException;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.util.Map;
+import org.apache.catalina.connector.ClientAbortException;
+import org.apache.tomcat.util.http.fileupload.FileUploadException;
+import org.apache.tomcat.util.http.fileupload.MultipartStream.MalformedStreamException;
 import org.apache.tomcat.util.http.fileupload.impl.SizeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +28,7 @@ import org.springframework.web.multipart.MultipartException;
 public class ApiExceptionHandler {
 
   private static final String TOO_LARGE = "File too large! Maximum upload size exceeded.";
+  private static final String OPERATION_FAILED = "The file operation could not be completed.";
 
   private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
@@ -64,7 +70,7 @@ public class ApiExceptionHandler {
   @ExceptionHandler(IOException.class)
   public ResponseEntity<Map<String, String>> handleIo(IOException ex) {
     log.error("File operation failed", ex);
-    return message(HttpStatus.INTERNAL_SERVER_ERROR, "The file operation could not be completed.");
+    return message(HttpStatus.INTERNAL_SERVER_ERROR, OPERATION_FAILED);
   }
 
   @ExceptionHandler(MaxUploadSizeExceededException.class)
@@ -74,13 +80,30 @@ public class ApiExceptionHandler {
 
   @ExceptionHandler(MultipartException.class)
   public ResponseEntity<Map<String, String>> handleMultipart(MultipartException ex) {
-    // Tomcat reports its own size limits as a SizeException somewhere in the cause chain.
+    Throwable root = ex;
     for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+      // Tomcat reports its own size limits as a SizeException somewhere in the cause chain.
       if (cause instanceof SizeException) {
         return message(HttpStatus.PAYLOAD_TOO_LARGE, TOO_LARGE);
       }
+      root = cause;
+    }
+    // Tomcat wraps anything that goes wrong while reading the parts the same way; only the
+    // innermost cause tells a malformed request from the server failing to store it, e.g. in an
+    // unwritable or full temporary folder.
+    if (root instanceof IOException && !isClientFault(root)) {
+      log.error("Could not store an upload while reading the request", ex);
+      return message(HttpStatus.INTERNAL_SERVER_ERROR, OPERATION_FAILED);
     }
     return message(HttpStatus.BAD_REQUEST, "Invalid multipart request.");
+  }
+
+  private static boolean isClientFault(Throwable cause) {
+    return cause instanceof MalformedStreamException
+        || cause instanceof FileUploadException
+        || cause instanceof ClientAbortException
+        || cause instanceof EOFException
+        || cause instanceof SocketTimeoutException;
   }
 
   static ResponseEntity<Map<String, String>> message(HttpStatus status, String message) {
