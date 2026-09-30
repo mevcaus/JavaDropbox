@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import Dashboard from './Dashboard';
-import filesReducer from '../features/filesSlice';
+import filesReducer, { fetchFiles } from '../features/filesSlice';
 import authReducer from '../features/authSlice';
 import api from '../services/api';
 
@@ -70,7 +70,7 @@ describe('Dashboard', () => {
         const store = renderDashboard();
         await screen.findByRole('button', { name: 'Download' });
 
-        store.dispatch({ type: 'files/fetchFiles/pending' });
+        store.dispatch(fetchFiles.pending('refresh'));
 
         expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
         expect(screen.queryByLabelText('Loading files')).not.toBeInTheDocument();

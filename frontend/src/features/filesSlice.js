@@ -80,7 +80,13 @@ const initialState = {
     // the current tree instead of swapping the page for a spinner.
     loaded: false,
     error: null,
+    // The request whose answer the store is waiting for. Every mutation fires its own refresh, so
+    // answers can arrive out of order, and a reset (logout, expired session) clears this so that a
+    // request still in flight cannot put the previous session's tree back.
+    latestRequestId: null,
 };
+
+const isLatest = (state, action) => action.meta.requestId === state.latestRequestId;
 
 const filesSlice = createSlice({
     name: 'files',
@@ -92,16 +98,21 @@ const filesSlice = createSlice({
     },
     extraReducers: (builder) => {
         builder
-            .addCase(fetchFiles.pending, (state) => {
+            .addCase(fetchFiles.pending, (state, action) => {
+                state.latestRequestId = action.meta.requestId;
                 state.loading = true;
                 state.error = null;
             })
             .addCase(fetchFiles.fulfilled, (state, action) => {
+                if (!isLatest(state, action)) return;
+                state.latestRequestId = null;
                 state.loading = false;
                 state.loaded = true;
                 state.files = action.payload;
             })
             .addCase(fetchFiles.rejected, (state, action) => {
+                if (!isLatest(state, action)) return;
+                state.latestRequestId = null;
                 state.loading = false;
                 state.error = action.payload;
             })
