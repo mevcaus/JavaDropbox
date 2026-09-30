@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -50,6 +51,28 @@ class StoragePathsTests {
     Files.createSymbolicLink(root.resolve("link"), Path.of("sub"));
 
     assertThatThrownBy(() -> paths.resolve(path)).isInstanceOf(BadRequestException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {".env", ".config"})
+  @DisplayName("a new item whose name starts with a dot, which the tree would hide, is refused")
+  void dotNamedChildIsRefused(String name) {
+    assertThatThrownBy(() -> paths.resolveChild(paths.resolve(""), name))
+        .isInstanceOf(BadRequestException.class)
+        .hasMessageContaining("dot");
+  }
+
+  @Test
+  @DisplayName("nothing new can be created inside a hidden folder")
+  void newItemInsideHiddenFolderIsRefused() throws IOException {
+    Files.createDirectory(root.resolve(".git"));
+
+    assertThatThrownBy(() -> paths.resolve(".cache/new"))
+        .isInstanceOf(BadRequestException.class)
+        .hasMessageContaining("dot");
+    assertThatThrownBy(() -> paths.resolveChild(paths.resolve(".git"), "config"))
+        .isInstanceOf(BadRequestException.class)
+        .hasMessageContaining("dot");
   }
 
   @ParameterizedTest

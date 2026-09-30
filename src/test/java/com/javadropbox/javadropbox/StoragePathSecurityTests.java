@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.javadropbox.javadropbox.model.User;
@@ -256,6 +257,29 @@ class StoragePathSecurityTests {
         .andExpect(status().isOk());
 
     assertThat(servingDir.resolve("notes..v2.txt")).hasContent("hello");
+  }
+
+  @Test
+  @DisplayName("files and folders whose names start with a dot are refused with a clear message")
+  void dotNamedItemsAreRefused() throws Exception {
+    MockMultipartFile env = new MockMultipartFile("files", ".env", "text/plain", "x".getBytes());
+    MockMultipartFile file = new MockMultipartFile("files", "a.txt", "text/plain", "x".getBytes());
+
+    mockMvc
+        .perform(multipart("/api/files").file(env).param("path", "").with(csrf()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("dot")));
+    mockMvc
+        .perform(post("/api/folders").param("path", "").param("name", ".config").with(csrf()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("dot")));
+    mockMvc
+        .perform(multipart("/api/files").file(file).param("path", ".cache").with(csrf()))
+        .andExpect(status().isBadRequest());
+
+    assertThat(servingDir.resolve(".env")).doesNotExist();
+    assertThat(servingDir.resolve(".config")).doesNotExist();
+    assertThat(servingDir.resolve(".cache")).doesNotExist();
   }
 
   @ParameterizedTest

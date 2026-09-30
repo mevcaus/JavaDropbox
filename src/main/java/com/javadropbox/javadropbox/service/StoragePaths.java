@@ -21,7 +21,8 @@ import org.springframework.stereotype.Component;
  *   <li>it does not pass through a symlink: the file tree never shows one, and one could lead
  *       outside the serving directory, back to its root, or into a reserved directory;
  *   <li>it never reaches the directories the app keeps its own data in ({@link #RESERVED_DIRS}),
- *       under any letter case.
+ *       under any letter case;
+ *   <li>nothing new is created under a name starting with a dot, which the file tree hides.
  * </ul>
  *
  * <p>A resolved path is built on the real serving directory, so no part of it is a symlink. Code
@@ -39,6 +40,8 @@ public class StoragePaths {
 
   private static final Set<String> RESERVED_DIRS = Set.of(VERSIONS_DIR, INTERNAL_DIR);
   private static final String INVALID_PATH = "Invalid path";
+  private static final String HIDDEN_NAME =
+      "Names cannot start with a dot: files and folders named like that are hidden";
 
   /** The longest file or folder name most filesystems accept, and the width of the column. */
   static final int MAX_NAME_LENGTH = 255;
@@ -78,7 +81,8 @@ public class StoragePaths {
    * Resolves a path relative to the serving directory. {@code null} and the empty string mean the
    * root itself.
    *
-   * @throws BadRequestException if the path escapes the serving directory or names a reserved one
+   * @throws BadRequestException if the path escapes the serving directory, names a reserved one, or
+   *     would create a hidden folder
    */
   public StoragePath resolve(String relativePath) {
     String raw = relativePath == null ? "" : relativePath;
@@ -99,9 +103,19 @@ public class StoragePaths {
       throw new BadRequestException(INVALID_PATH);
     }
 
-    Path realRelative = realRelativeOf(candidate, raw);
-    if (isReserved(realRelative)) {
+    Path existing = candidate;
+    while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
+      existing = existing.getParent();
+    }
+    if (existing == null) {
       throw new BadRequestException(INVALID_PATH);
+    }
+    if (isReserved(realRelativeOf(existing, raw))) {
+      throw new BadRequestException(INVALID_PATH);
+    }
+    // Whatever does not exist yet may be created by the caller, e.g. an upload's folder.
+    if (hasHiddenName(existing.relativize(candidate))) {
+      throw new BadRequestException(HIDDEN_NAME);
     }
     return new StoragePath(realRoot.resolve(relative), toKey(relative));
   }
@@ -135,6 +149,9 @@ public class StoragePaths {
     if (name.length() > MAX_NAME_LENGTH) {
       throw new BadRequestException("Names can be at most " + MAX_NAME_LENGTH + " characters");
     }
+    if (name.startsWith(".") || hasHiddenName(realRoot.relativize(parent.path()))) {
+      throw new BadRequestException(HIDDEN_NAME);
+    }
     return resolveItem(parent.isRoot() ? name : parent.key() + "/" + name);
   }
 
@@ -165,17 +182,20 @@ public class StoragePaths {
     return RESERVED_DIRS.stream().anyMatch(first::equalsIgnoreCase);
   }
 
+  // The file tree skips such names, so an item created under one would never be seen again.
+  private static boolean hasHiddenName(Path relative) {
+    for (Path name : relative) {
+      if (name.toString().startsWith(".")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Normalizing only removes "..": a symlink can still lead anywhere, so refuse a path whose
   // existing part passes through one. Returns the real location of that part relative to the real
   // root, which also carries the filesystem's own spelling of each name.
-  private Path realRelativeOf(Path candidate, String raw) {
-    Path existing = candidate;
-    while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-      existing = existing.getParent();
-    }
-    if (existing == null) {
-      throw new BadRequestException(INVALID_PATH);
-    }
+  private Path realRelativeOf(Path existing, String raw) {
     for (Path part = existing; part.startsWith(root) && !part.equals(root); ) {
       if (Files.isSymbolicLink(part)) {
         log.warn("Rejected path through a symlink: {}", raw);
