@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
@@ -77,6 +78,7 @@ class MultipartErrorIntegrationTests {
     Files.createDirectories(tempDir.toPath());
     assertThat(tempDir.setWritable(false, false)).isTrue();
     try {
+      assumeFalse(Files.isWritable(tempDir.toPath()), "running as root, which can write anyway");
       HttpResponse<String> response = upload(multipartBody("a.txt", "content", true));
 
       assertThat(response.statusCode()).isEqualTo(500);

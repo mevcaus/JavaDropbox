@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -472,6 +473,7 @@ class FileOperationsIntegrationTests {
     Path locked = servingDir.resolve("locked");
     assertThat(locked.toFile().setWritable(false)).isTrue();
     try {
+      assumeFalse(Files.isWritable(locked), "running as root, which can write anyway");
       mockMvc
           .perform(
               multipart("/api/files")
