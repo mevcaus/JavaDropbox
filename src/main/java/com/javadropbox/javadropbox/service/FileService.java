@@ -20,6 +20,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -70,8 +71,21 @@ public class FileService {
    */
   public int upload(MultipartFile[] uploads, String folderPath) throws IOException {
     User user = authService.currentUser();
-    StoragePath folder = storagePaths.resolve(folderPath);
-    Files.createDirectories(folder.path());
+    StoragePath folder;
+    try {
+      folder = storagePaths.resolve(folderPath);
+      createFolders(folder);
+    } catch (IOException | RuntimeException e) {
+      // Recorded against the first file, the one that could not be stored, like any failed upload.
+      Arrays.stream(uploads)
+          .map(MultipartFile::getOriginalFilename)
+          .filter(name -> name != null && !name.isEmpty())
+          .findFirst()
+          .ifPresent(
+              name ->
+                  history.recordFailure(join(folderPath, name), name, ChangeType.UPLOAD, user, e));
+      throw e;
+    }
 
     int stored = 0;
     for (MultipartFile upload : uploads) {
@@ -89,6 +103,20 @@ public class FileService {
       stored++;
     }
     return stored;
+  }
+
+  // Where a segment of the path is a file, createDirectories fails with a disk error that says
+  // nothing useful to the client; say what is wrong instead.
+  private void createFolders(StoragePath folder) throws IOException {
+    Path existing = folder.path();
+    while (!Files.exists(existing)) {
+      existing = existing.getParent();
+    }
+    if (!Files.isDirectory(existing)) {
+      throw new BadRequestException(
+          "\"" + storagePaths.keyOf(existing) + "\" is a file, not a folder");
+    }
+    Files.createDirectories(folder.path());
   }
 
   private void store(MultipartFile upload, StoragePath target, User user) throws IOException {
@@ -180,9 +208,7 @@ public class FileService {
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
           });
     } catch (IOException | RuntimeException e) {
-      String attempted =
-          parentPath == null || parentPath.isEmpty() ? name : parentPath + "/" + name;
-      history.recordFailure(attempted, name, ChangeType.CREATE_FOLDER, user, e);
+      history.recordFailure(join(parentPath, name), name, ChangeType.CREATE_FOLDER, user, e);
       throw e;
     }
   }
@@ -355,6 +381,11 @@ public class FileService {
 
   private static String childKey(StoragePath folder, String name) {
     return folder.isRoot() ? name : folder.key() + "/" + name;
+  }
+
+  // The path a request meant, for the history of a request that failed before it was resolved.
+  private static String join(String parentPath, String name) {
+    return parentPath == null || parentPath.isEmpty() ? name : parentPath + "/" + name;
   }
 
   private static String parentKey(String key) {

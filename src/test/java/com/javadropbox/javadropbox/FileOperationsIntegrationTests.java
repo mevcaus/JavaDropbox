@@ -123,6 +123,31 @@ class FileOperationsIntegrationTests {
     assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("real.txt");
   }
 
+  @Test
+  @DisplayName("uploading into a path that runs through a file is a 400, recorded as a failure")
+  void uploadThroughAFileIsRefused() throws Exception {
+    upload("", "a.txt", "x");
+
+    for (String folder : List.of("a.txt", "a.txt/sub")) {
+      mockMvc
+          .perform(
+              multipart("/api/files")
+                  .file(new MockMultipartFile("files", "b.txt", "text/plain", "y".getBytes()))
+                  .param("path", folder)
+                  .with(csrf()))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("\"a.txt\" is a file, not a folder"));
+    }
+
+    assertThat(history.findAll())
+        .filteredOn(h -> !h.isSuccess())
+        .extracting(FileHistory::getChangeType, FileHistory::getFilePath)
+        .containsExactly(
+            Tuple.tuple(ChangeType.UPLOAD, "a.txt/b.txt"),
+            Tuple.tuple(ChangeType.UPLOAD, "a.txt/sub/b.txt"));
+    assertThat(servingDir.resolve("a.txt")).hasContent("x");
+  }
+
   // --- deleting --------------------------------------------------------------
 
   @Test
