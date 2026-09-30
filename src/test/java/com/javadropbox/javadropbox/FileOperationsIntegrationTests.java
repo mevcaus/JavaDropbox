@@ -459,8 +459,35 @@ class FileOperationsIntegrationTests {
 
     assertThat(history.findAll())
         .filteredOn(h -> !h.isSuccess())
-        .extracting(FileHistory::getChangeType, FileHistory::getFilePath)
-        .containsExactly(Tuple.tuple(ChangeType.CREATE_FOLDER, "dup"));
+        .extracting(
+            FileHistory::getChangeType, FileHistory::getFilePath, FileHistory::getErrorMessage)
+        .containsExactly(
+            Tuple.tuple(ChangeType.CREATE_FOLDER, "dup", "\"dup\" already exists here"));
+  }
+
+  @Test
+  @DisplayName("a failure recorded in the history never reveals server paths or exception types")
+  void recordedFailureHidesServerDetails() throws Exception {
+    createFolder("", "locked");
+    Path locked = servingDir.resolve("locked");
+    assertThat(locked.toFile().setWritable(false)).isTrue();
+    try {
+      mockMvc
+          .perform(
+              multipart("/api/files")
+                  .file(new MockMultipartFile("files", "a.txt", "text/plain", "x".getBytes()))
+                  .param("path", "locked")
+                  .with(csrf()))
+          .andExpect(status().isInternalServerError());
+    } finally {
+      locked.toFile().setWritable(true);
+    }
+
+    assertThat(history.findAll())
+        .filteredOn(h -> !h.isSuccess())
+        .singleElement()
+        .extracting(FileHistory::getErrorMessage)
+        .isEqualTo("The operation could not be completed.");
   }
 
   @Test
