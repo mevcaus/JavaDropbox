@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.UUID;
 
 /**
  * Filesystem operations shared by the storage services. Each checks its path again with {@link
@@ -63,8 +64,13 @@ final class StorageFiles {
     }
   }
 
-  /** A hidden scratch file next to {@code target}, so moving it into place is a rename. */
+  /**
+   * A hidden scratch file next to {@code target}, so moving it into place is a rename. It gets the
+   * permissions any new file gets, which the rename carries over to {@code target}; a temp file
+   * would be readable only by the app's user.
+   */
   static Path tempFileBeside(Path target) throws IOException {
-    return Files.createTempFile(StoragePaths.recheck(target.getParent()), ".upload-", ".tmp");
+    Path folder = StoragePaths.recheck(target.getParent());
+    return Files.createFile(folder.resolve(".upload-" + UUID.randomUUID() + ".tmp"));
   }
 }
