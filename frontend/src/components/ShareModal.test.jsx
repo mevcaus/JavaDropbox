@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ShareModal from './ShareModal';
 import api from '../services/api';
@@ -188,6 +188,57 @@ describe('ShareModal', () => {
         expect(screen.queryByDisplayValue(SHARE_URL)).not.toBeInTheDocument();
         expect(expirationSelect()).toHaveValue(String(60 * 24));
         expect(generateButton()).toBeInTheDocument();
+    });
+
+    describe('when the user moves on to another item', () => {
+        const A = { name: 'a-secret.pdf', path: 'a-secret.pdf', isDirectory: false };
+        const B = { name: 'b-public.pdf', path: 'b-public.pdf', isDirectory: false };
+        const A_URL = 'http://localhost/share/token-for-A';
+
+        // As Dashboard renders it: always mounted, with item set back to null on cancel.
+        const dialogFor = (item) => <ShareModal isOpen={item !== null} onClose={vi.fn()} item={item} />;
+
+        it('ignores a link that arrives for the previous item', async () => {
+            const user = userEvent.setup();
+            let resolveA;
+            api.post.mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve; }));
+            const { rerender } = render(dialogFor(A));
+
+            await user.click(generateButton());
+            rerender(dialogFor(null));
+            rerender(dialogFor(B));
+            await act(async () => resolveA({ data: { url: A_URL } }));
+
+            expect(screen.getByRole('dialog')).toHaveTextContent('Share b-public.pdf');
+            expect(screen.queryByDisplayValue(A_URL)).not.toBeInTheDocument();
+            expect(generateButton()).toBeEnabled();
+        });
+
+        it('ignores an error that arrives for the previous item', async () => {
+            const user = userEvent.setup();
+            let rejectA;
+            api.post.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectA = reject; }));
+            const { rerender } = render(dialogFor(A));
+
+            await user.click(generateButton());
+            rerender(dialogFor(B));
+            await act(async () => rejectA({ response: { data: { message: 'A is gone' } } }));
+
+            expect(screen.queryByText('A is gone')).not.toBeInTheDocument();
+        });
+
+        it('does not carry the previous item\'s spinner over', async () => {
+            const user = userEvent.setup();
+            api.post.mockReturnValueOnce(new Promise(() => {}));
+            const { rerender } = render(dialogFor(A));
+
+            await user.click(generateButton());
+            rerender(dialogFor(null));
+            rerender(dialogFor(B));
+
+            // Nothing has been sent for B yet.
+            expect(generateButton()).toBeEnabled();
+        });
     });
 
     it('describes a folder share as a folder', () => {
