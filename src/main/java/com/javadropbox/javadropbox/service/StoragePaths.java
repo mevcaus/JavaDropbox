@@ -215,14 +215,15 @@ public class StoragePaths {
       part = part.getParent();
     }
     try {
+      // Only a link swapped in since the loop above could lead elsewhere.
       Path real = existing.toRealPath();
       if (!real.startsWith(realRoot)) {
-        log.warn("Rejected path that leaves the serving directory through a symlink: {}", raw);
+        log.warn("Rejected path that leaves the serving directory: {}", raw);
         throw new BadRequestException(INVALID_PATH);
       }
       return realRoot.relativize(real);
     } catch (IOException e) {
-      // A dangling symlink, or one that loops.
+      // Removed, or replaced by a dangling or looping link, while it was being checked.
       throw new BadRequestException(INVALID_PATH);
     }
   }
