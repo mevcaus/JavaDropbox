@@ -3,6 +3,7 @@ import { useDispatch } from 'react-redux';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { setupCompleted } from '../features/authSlice';
+import { readableError } from '../utils/errors';
 import { Loader2 } from 'lucide-react';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
 
@@ -48,11 +49,7 @@ const Setup = () => {
             dispatch(setupCompleted());
             navigate('/login', { replace: true });
         } catch (err) {
-            const message =
-                err.response?.data?.error ||
-                err.response?.data?.message ||
-                'Setup failed. An account may already exist.';
-            setError(message);
+            setError(readableError(err, 'Setup failed. An account may already exist.'));
         } finally {
             setLoading(false);
         }

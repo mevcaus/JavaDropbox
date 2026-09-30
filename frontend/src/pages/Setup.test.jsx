@@ -95,4 +95,19 @@ describe('Setup', () => {
         expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect setup code. It is printed in the server log.');
         expect(mockNavigate).not.toHaveBeenCalled();
     });
+
+    // Setup reads errors through the same readableError as every other screen.
+    it.each([
+        ['the specific message over the status text', { status: 400, data: { error: 'Bad Request', message: 'Username is required' } }, 'Username is required'],
+        ['a readable line instead of an HTML error page', { status: 500, data: '<!doctype html><h1>HTTP Status 500</h1>' }, 'The server is unavailable right now. Please try again.'],
+        ['the fallback when there is nothing better', { status: 409, data: '' }, 'Setup failed. An account may already exist.'],
+    ])('shows %s', async (_label, response, expected) => {
+        api.post.mockRejectedValueOnce({ response });
+        const user = userEvent.setup();
+        renderSetup();
+
+        await fillForm(user);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    });
 });
