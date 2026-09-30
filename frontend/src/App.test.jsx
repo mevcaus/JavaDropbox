@@ -47,6 +47,6 @@ describe('App routing', () => {
         renderAppAt('/no-such-page');
 
         await waitFor(() => expect(window.location.pathname).toBe('/login'));
-        expect(screen.getByRole('heading', { name: 'Sign in to your account' })).toBeInTheDocument();
+        expect(await screen.findByRole('heading', { name: 'Sign in to your account' })).toBeInTheDocument();
     });
 });
