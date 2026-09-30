@@ -244,22 +244,30 @@ public class FileService {
       throws IOException {
     StoragePath parent = storagePaths.resolve(parentKey(file.getPath()));
     Files.createDirectories(parent.path());
-    StoragePath target = claimCopyName(parent, file.getFilename(), number);
-    OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
-    Files.copy(source, target.path(), StandardCopyOption.REPLACE_EXISTING);
+    // Copied to a scratch file first and renamed into place, like an upload, so the copy never
+    // shows up under its name half-written.
+    Path scratch = StorageFiles.tempFileBeside(storagePaths.resolveItem(file.getPath()).path());
+    try {
+      Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      StoragePath target = claimCopyName(parent, file.getFilename(), number);
+      OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
+      StorageFiles.moveIntoPlace(scratch, target.path());
 
-    FileMetadata copy =
-        claim(target, files.lockByPath(target.key()), false, Files.size(target.path()), user);
-    history.recordSuccess(
-        copy,
-        ChangeType.RESTORE,
-        user,
-        "Restored a copy of " + file.getPath() + " (version " + number + ")");
+      FileMetadata copy =
+          claim(target, files.lockByPath(target.key()), false, Files.size(target.path()), user);
+      history.recordSuccess(
+          copy,
+          ChangeType.RESTORE,
+          user,
+          "Restored a copy of " + file.getPath() + " (version " + number + ")");
+    } finally {
+      Files.deleteIfExists(scratch);
+    }
   }
 
   // "report_v2.txt", or "report_v2 (2).txt" if that is taken, so a restore never overwrites. The
   // name is claimed by creating an empty file, which fails if anything is there already, so two
-  // requests can't both pick a name that was free when they looked.
+  // requests can't both pick a name that was free when they looked. The copy replaces it at once.
   private StoragePath claimCopyName(StoragePath parent, String filename, int number)
       throws IOException {
     int dot = filename.lastIndexOf('.');

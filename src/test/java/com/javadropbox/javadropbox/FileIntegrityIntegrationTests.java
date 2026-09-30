@@ -266,6 +266,26 @@ class FileIntegrityIntegrationTests {
     assertThat(scratchFiles()).isEmpty();
   }
 
+  @Test
+  @DisplayName("a restore as a copy that fails leaves neither the copy nor a scratch file")
+  void failedCopyRestoreLeavesNothing() throws Exception {
+    upload("k.txt", "one");
+    upload("k.txt", "two");
+    long id = idOf("k.txt");
+    doThrow(new IllegalStateException("simulated failure"))
+        .when(target(historyService))
+        .recordSuccess(any(), eq(ChangeType.RESTORE), any(), any());
+
+    assertThatThrownBy(() -> fileService.restoreVersion(id, 1, RestoreMode.COPY))
+        .hasMessageContaining("simulated failure");
+
+    try (Stream<Path> entries = Files.list(servingDir)) {
+      assertThat(entries.map(p -> p.getFileName().toString()))
+          .containsExactlyInAnyOrder("k.txt", ".versions");
+    }
+    assertThat(metadata.findByPath("k_v1.txt")).isEmpty();
+  }
+
   // --- deleting ----------------------------------------------------------------
 
   @Test
