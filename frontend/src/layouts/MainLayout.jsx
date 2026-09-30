@@ -41,7 +41,8 @@ const MainLayout = () => {
             {/* Main Content */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 <Navbar onMenuClick={() => setIsSidebarOpen(true)} />
-                <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
+                {/* Focusable so a dialog can hand focus back here when what opened it is gone. */}
+                <main tabIndex={-1} className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 focus:outline-none">
                     <Outlet />
                 </main>
             </div>
