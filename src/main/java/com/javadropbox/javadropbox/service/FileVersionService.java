@@ -108,7 +108,7 @@ public class FileVersionService {
             .filter(v -> v.getVersion() == number)
             .findFirst()
             .orElseThrow(() -> new NotFoundException("Version " + number + " not found"));
-    Path stored = resolve(version);
+    Path stored = resolve(version.getStoredFilename());
     if (!Files.isRegularFile(stored)) {
       throw new NotFoundException("The stored copy of version " + number + " is missing");
     }
@@ -126,15 +126,43 @@ public class FileVersionService {
     AfterCommit.run("remove " + folder, () -> Files.deleteIfExists(folder));
   }
 
+  /**
+   * Deletes the versions of the item at {@code path} and of everything below it, e.g. because a
+   * folder is being deleted with all it holds. Takes the same few statements however many items
+   * there are. The rows go now; the stored files once that commits.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void discardAllAtOrBelow(String path) {
+    String below = FileMetadataRepository.below(path);
+    List<Path> stored =
+        versions.findStoredFilenamesAtOrBelow(path, below).stream().map(this::resolve).toList();
+    List<Path> folders =
+        files.findIdsAtOrBelow(path, below).stream()
+            .map(id -> storagePaths.versionsDir().resolve(String.valueOf(id)))
+            .toList();
+    versions.deleteAtOrBelow(path, below);
+
+    AfterCommit.run(
+        "remove the versions of " + path,
+        () -> {
+          for (Path file : stored) {
+            Files.deleteIfExists(file);
+          }
+          for (Path folder : folders) {
+            StorageFiles.deleteRecursively(folder);
+          }
+        });
+  }
+
   private void delete(FileVersion version) {
     versions.delete(version);
-    Path stored = resolve(version);
+    Path stored = resolve(version.getStoredFilename());
     AfterCommit.run("remove " + stored, () -> Files.deleteIfExists(stored));
   }
 
-  private Path resolve(FileVersion version) {
+  private Path resolve(String storedFilename) {
     Path versionsDir = storagePaths.versionsDir();
-    Path stored = versionsDir.resolve(version.getStoredFilename()).normalize();
+    Path stored = versionsDir.resolve(storedFilename).normalize();
     if (!stored.startsWith(versionsDir)) {
       throw new IllegalStateException("Version row points outside the version store");
     }

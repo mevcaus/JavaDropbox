@@ -13,6 +13,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.service.FileHistoryService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
+import jakarta.persistence.EntityManagerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +32,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,7 +58,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * constraints and triggers behave there as they do in production. The spies only pause or break the
  * real services at chosen points, to make an interleaving or a failure happen on purpose.
  */
-@SpringBootTest
+@SpringBootTest(
+    properties = {
+      "spring.jpa.properties.hibernate.generate_statistics=true",
+      "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=WARN"
+    })
 @Testcontainers
 @DisplayName("File operations on PostgreSQL - concurrency and failures")
 class FileIntegrityIntegrationTests {
@@ -75,6 +82,7 @@ class FileIntegrityIntegrationTests {
   @Autowired private FileService fileService;
   @Autowired private FileMetadataRepository metadata;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private EntityManagerFactory entityManagerFactory;
   @MockitoSpyBean private FileVersionService versionService;
   @MockitoSpyBean private FileHistoryService historyService;
 
@@ -221,6 +229,19 @@ class FileIntegrityIntegrationTests {
     assertThat(scratchFiles()).isEmpty();
   }
 
+  // --- deleting ----------------------------------------------------------------
+
+  @Test
+  @DisplayName("deleting a folder takes as many statements for many items as for a few")
+  void folderDeleteStatementsDoNotGrowWithItems() throws Exception {
+    long few = statementsToDelete(folderWithVersionedFiles("few", 2));
+    long many = statementsToDelete(folderWithVersionedFiles("many", 8));
+
+    assertThat(many).isEqualTo(few);
+    assertThat(metadata.findAll()).isEmpty();
+    assertThat(storedVersionFiles()).isEmpty();
+  }
+
   // --- helpers ------------------------------------------------------------------
 
   private final CountDownLatch firstFinished = new CountDownLatch(1);
@@ -249,6 +270,22 @@ class FileIntegrityIntegrationTests {
             })
         .when(target(versionService))
         .archive(any(), any(), any());
+  }
+
+  private String folderWithVersionedFiles(String folder, int files) throws IOException {
+    fileService.createFolder("", folder);
+    for (int i = 0; i < files; i++) {
+      upload(folder, "f" + i + ".txt", "one");
+      upload(folder, "f" + i + ".txt", "two");
+    }
+    return folder;
+  }
+
+  private long statementsToDelete(String path) throws IOException {
+    Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    statistics.clear();
+    fileService.delete(path);
+    return statistics.getPrepareStatementCount();
   }
 
   /** Makes every insert into file_versions fail, as a lost connection or lock timeout would. */
@@ -336,12 +373,16 @@ class FileIntegrityIntegrationTests {
   }
 
   private void upload(String name, String content) throws IOException {
+    upload("", name, content);
+  }
+
+  private void upload(String folder, String name, String content) throws IOException {
     fileService.upload(
         new MultipartFile[] {
           new MockMultipartFile(
               "files", name, "text/plain", content.getBytes(StandardCharsets.UTF_8))
         },
-        "");
+        folder);
   }
 
   private long idOf(String path) {

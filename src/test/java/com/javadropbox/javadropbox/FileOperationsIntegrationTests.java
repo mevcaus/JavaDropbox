@@ -167,6 +167,22 @@ class FileOperationsIntegrationTests {
     assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("docs_other");
   }
 
+  @Test
+  @DisplayName("deleting a folder leaves folders that only match it as a LIKE pattern alone")
+  void deleteFolderTreatsWildcardsLiterally() throws Exception {
+    createFolder("", "a_");
+    createFolder("", "ab");
+    upload("ab", "keep.txt", "x");
+    upload("ab", "keep.txt", "y");
+
+    deletePath("a_");
+
+    assertThat(metadata.findAll())
+        .extracting(FileMetadata::getPath)
+        .containsExactlyInAnyOrder("ab", "ab/keep.txt");
+    assertThat(versionFiles()).hasSize(1);
+  }
+
   // --- versions and restore ---------------------------------------------------
 
   @Test

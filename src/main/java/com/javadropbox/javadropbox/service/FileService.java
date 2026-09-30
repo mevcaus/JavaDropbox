@@ -18,8 +18,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -138,13 +136,10 @@ public class FileService {
 
       inTransaction(
           () -> {
-            List<FileMetadata> rows = new ArrayList<>();
-            files.findByPath(target.key()).ifPresent(rows::add);
-            rows.addAll(files.findByPathStartingWith(target.key() + "/"));
-            rows.forEach(versions::discardAll);
-            files.deleteAll(rows);
-            // Surface any database problem before anything irreversible happens on disk.
-            files.flush();
+            // Bulk statements, so a folder costs the same few queries however much it holds. They
+            // run before anything irreversible happens on disk, so a database problem stops it.
+            versions.discardAllAtOrBelow(target.key());
+            files.deleteAtOrBelow(target.key(), FileMetadataRepository.below(target.key()));
 
             StorageFiles.deleteRecursively(target.path());
             history.recordDeletion(target.key(), target.name(), user);
