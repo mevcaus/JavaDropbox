@@ -2,8 +2,10 @@ package com.javadropbox.javadropbox.config;
 
 import com.javadropbox.javadropbox.controller.SpaController;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +22,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -157,11 +160,30 @@ public class SecurityConfig {
    * pure-JSON SPA that never renders a server-side form the CookieCsrfTokenRepository would never
    * write the cookie -- leaving the browser with no token to send and every POST, including /login,
    * rejected with 403.
+   *
+   * <p>A multipart request's token is only taken from the header. Looking for a _csrf parameter
+   * makes Tomcat parse the whole body, writing up to the upload limit to disk for a request that is
+   * about to be refused. The SPA always sends the header; the parameter is still read from other
+   * requests, whose bodies Tomcat reads into memory under a small size limit.
    */
   private static CsrfTokenRequestAttributeHandler csrfTokenRequestHandler() {
-    CsrfTokenRequestAttributeHandler handler = new CsrfTokenRequestAttributeHandler();
+    CsrfTokenRequestAttributeHandler handler =
+        new CsrfTokenRequestAttributeHandler() {
+          @Override
+          public String resolveCsrfTokenValue(HttpServletRequest request, CsrfToken csrfToken) {
+            if (isMultipart(request)) {
+              return request.getHeader(csrfToken.getHeaderName());
+            }
+            return super.resolveCsrfTokenValue(request, csrfToken);
+          }
+        };
     handler.setCsrfRequestAttributeName(null);
     return handler;
+  }
+
+  private static boolean isMultipart(HttpServletRequest request) {
+    String contentType = request.getContentType();
+    return contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("multipart/");
   }
 
   /** Cross-origin access for {@code app.cors.allowed-origins}; none at all when it is empty. */
