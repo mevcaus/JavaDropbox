@@ -9,7 +9,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 
-public interface FileMetadataRepository extends JpaRepository<FileMetadata, Long> {
+public interface FileMetadataRepository
+    extends JpaRepository<FileMetadata, Long>, FileMetadataLocking {
 
   Optional<FileMetadata> findByPath(String path);
 

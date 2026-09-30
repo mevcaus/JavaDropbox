@@ -98,9 +98,14 @@ public class FileService {
 
       inTransaction(
           () -> {
+            // Locked before looking at the disk, so that concurrent uploads of one file take
+            // turns and each archives what the one before it left.
+            Optional<FileMetadata> row = files.lockByPath(target.key());
             boolean replacing = Files.exists(target.path());
             FileMetadata file =
-                replacing ? existingOrNew(target, size, user) : claim(target, false, size, user);
+                replacing
+                    ? row.orElseGet(() -> track(target, size, user))
+                    : claim(target, row, false, size, user);
             if (replacing) {
               versions.archive(file, target.path(), user);
             }
@@ -157,7 +162,7 @@ public class FileService {
 
       inTransaction(
           () -> {
-            FileMetadata folder = claim(target, true, 0, user);
+            FileMetadata folder = claim(target, files.lockByPath(target.key()), true, 0, user);
             Files.createDirectory(target.path());
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
           });
@@ -184,7 +189,10 @@ public class FileService {
     try {
       inTransaction(
           () -> {
-            FileMetadata current = files.findById(fileId).orElseThrow();
+            // Locked so that a concurrent replace or restore of the same file waits for this one
+            // instead of archiving under the same version number.
+            FileMetadata current =
+                files.lockById(fileId).orElseThrow(() -> new NotFoundException("File not found"));
             Path source = versions.storedCopy(current, number);
             if (mode == RestoreMode.COPY) {
               restoreAsCopy(current, source, number, user);
@@ -225,7 +233,8 @@ public class FileService {
     Files.createDirectories(parent.path());
     Files.copy(source, target.path());
 
-    FileMetadata copy = claim(target, false, Files.size(target.path()), user);
+    FileMetadata copy =
+        claim(target, files.lockByPath(target.key()), false, Files.size(target.path()), user);
     history.recordSuccess(
         copy,
         ChangeType.RESTORE,
@@ -279,11 +288,15 @@ public class FileService {
 
   /**
    * The metadata row for a new item at {@code target}. A row can outlive its file, e.g. when the
-   * file was removed outside the app; it is reset rather than duplicated, and its versions (which
-   * belong to the old file) are dropped.
+   * file was removed outside the app; that {@code leftover} is reset rather than duplicated, and
+   * its versions (which belong to the old file) are dropped.
    */
-  private FileMetadata claim(StoragePath target, boolean isDirectory, long size, User owner) {
-    Optional<FileMetadata> leftover = files.findByPath(target.key());
+  private FileMetadata claim(
+      StoragePath target,
+      Optional<FileMetadata> leftover,
+      boolean isDirectory,
+      long size,
+      User owner) {
     if (leftover.isPresent()) {
       FileMetadata row = leftover.get();
       versions.discardAll(row);
@@ -295,11 +308,8 @@ public class FileService {
 
   // A file that is on disk but was never tracked, e.g. copied in by hand, gets a row now so its
   // current content can be kept as a version before it is replaced.
-  private FileMetadata existingOrNew(StoragePath target, long size, User user) {
-    return files
-        .findByPath(target.key())
-        .orElseGet(
-            () -> files.save(new FileMetadata(target.key(), target.name(), size, false, user)));
+  private FileMetadata track(StoragePath target, long size, User user) {
+    return files.save(new FileMetadata(target.key(), target.name(), size, false, user));
   }
 
   private static String childKey(StoragePath folder, String name) {

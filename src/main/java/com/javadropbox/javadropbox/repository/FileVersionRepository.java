@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface FileVersionRepository extends JpaRepository<FileVersion, Long> {
 
   List<FileVersion> findByFileMetadataOrderByVersionDesc(FileMetadata fileMetadata);
+
+  boolean existsByStoredFilename(String storedFilename);
 }

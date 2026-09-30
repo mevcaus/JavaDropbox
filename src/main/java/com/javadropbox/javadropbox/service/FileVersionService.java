@@ -9,9 +9,11 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -24,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class FileVersionService {
+
+  private static final Logger log = LoggerFactory.getLogger(FileVersionService.class);
 
   private final FileVersionRepository versions;
   private final FileMetadataRepository files;
@@ -53,7 +57,8 @@ public class FileVersionService {
 
   /**
    * Moves the live file into the version store as its next version, then prunes versions beyond the
-   * retention limit. Runs in the caller's transaction.
+   * retention limit. Runs in the caller's transaction, which must hold the lock on the file's row
+   * ({@link FileMetadataRepository#lockById}) so that no one else numbers a version meanwhile.
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public void archive(FileMetadata file, Path live, User user) throws IOException {
@@ -62,7 +67,12 @@ public class FileVersionService {
     Path target = storagePaths.versionsDir().resolve(stored);
 
     Files.createDirectories(target.getParent());
-    Files.move(live, target, StandardCopyOption.REPLACE_EXISTING);
+    if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+      removeLeftover(target, stored);
+    }
+    // Never REPLACE_EXISTING: a file that is in the way now belongs to someone else, and failing
+    // is better than overwriting it.
+    Files.move(live, target);
     versions.save(new FileVersion(file, number, stored, Files.size(target), user));
     file.setCurrentVersion(number + 1);
 
@@ -70,6 +80,16 @@ public class FileVersionService {
     for (FileVersion old : all.subList(Math.min(maxRetained, all.size()), all.size())) {
       delete(old);
     }
+  }
+
+  // Under the row lock nobody else can be writing this version, so a file already there that no
+  // row points to is left over from an operation that was interrupted before it could clean up.
+  private void removeLeftover(Path target, String stored) throws IOException {
+    if (versions.existsByStoredFilename(stored)) {
+      throw new IllegalStateException("Version " + stored + " already exists");
+    }
+    log.warn("Removing {}, left over from an interrupted operation", target);
+    Files.delete(target);
   }
 
   /**

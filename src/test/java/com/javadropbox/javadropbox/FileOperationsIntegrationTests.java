@@ -231,6 +231,20 @@ class FileOperationsIntegrationTests {
     assertThat(versions.findAll()).isEmpty();
   }
 
+  @Test
+  @DisplayName("a stored copy left over from an interrupted operation does not block a replace")
+  void leftoverVersionFileIsReplaced() throws Exception {
+    upload("", "stale.txt", "one");
+    Path leftover = servingDir.resolve(".versions/" + idOf("stale.txt") + "/v1");
+    Files.createDirectories(leftover.getParent());
+    Files.writeString(leftover, "from a crash");
+
+    upload("", "stale.txt", "two");
+
+    assertThat(leftover).hasContent("one");
+    assertThat(servingDir.resolve("stale.txt")).hasContent("two");
+  }
+
   // --- attribution ---------------------------------------------------------------
 
   @Test
