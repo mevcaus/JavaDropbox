@@ -37,7 +37,10 @@ class TrustedProxyIntegrationTests {
   static void properties(DynamicPropertyRegistry registry) {
     registry.add("javadropbox.serving.directory", () -> servingDir.toString());
     MainProperties.register(
-        registry, "server.forward-headers-strategy", "server.tomcat.remoteip.internal-proxies");
+        registry,
+        "server.forward-headers-strategy",
+        "server.tomcat.remoteip.internal-proxies",
+        "server.servlet.session.cookie.same-site");
   }
 
   @LocalServerPort private int port;
@@ -97,6 +100,25 @@ class TrustedProxyIntegrationTests {
                     Map.of("X-Forwarded-For", "203.0.113.99, 198.51.100.9"))
                 .statusCode())
         .isEqualTo(429);
+  }
+
+  @Test
+  @DisplayName("the session cookie is SameSite=Lax, and Secure when the proxy forwarded https")
+  void sessionCookieIsSecureBehindATlsProxy() {
+    String plain =
+        HttpTestClient.setCookie(
+            http.login("owner", "correct-horse", Map.of("X-Forwarded-For", "198.51.100.11")),
+            "JSESSIONID");
+    String https =
+        HttpTestClient.setCookie(
+            http.login(
+                "owner",
+                "correct-horse",
+                Map.of("X-Forwarded-For", "198.51.100.11", "X-Forwarded-Proto", "https")),
+            "JSESSIONID");
+
+    assertThat(plain).contains("SameSite=Lax").doesNotContain("Secure");
+    assertThat(https).contains("SameSite=Lax").contains("Secure");
   }
 
   @Test

@@ -39,7 +39,8 @@ class UntrustedForwardedHeadersIntegrationTests {
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
     registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-    MainProperties.register(registry, "server.forward-headers-strategy");
+    MainProperties.register(
+        registry, "server.forward-headers-strategy", "server.servlet.session.cookie.same-site");
     registry.add("server.tomcat.remoteip.internal-proxies", () -> "192\\.0\\.2\\.1");
   }
 
@@ -98,6 +99,17 @@ class UntrustedForwardedHeadersIntegrationTests {
 
     assertThat(limiter.retryAfter("198.51.100.20")).isZero();
     assertThat(limiter.retryAfter(CLIENT)).isPositive();
+  }
+
+  @Test
+  @DisplayName("a client claiming https over plain http gets no Secure session cookie")
+  void spoofedForwardedProtoDoesNotMarkTheCookieSecure() {
+    String cookie =
+        HttpTestClient.setCookie(
+            http.login("owner", "correct-horse", Map.of("X-Forwarded-Proto", "https")),
+            "JSESSIONID");
+
+    assertThat(cookie).contains("SameSite=Lax").doesNotContain("Secure");
   }
 
   @Test
