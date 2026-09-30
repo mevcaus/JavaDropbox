@@ -318,7 +318,7 @@ npm run dev
 ### 3. Initial Setup
 
 1. Navigate to `http://localhost:5173`
-2. You'll be redirected to the **setup page**. Enter the **setup code** printed in the backend's log (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), then choose your admin username and password (at least 8 characters)
+2. While no account exists, the sign-in page offers **Set up the first user**; follow it to the **setup page** (the backend on port 8080 redirects there by itself). Enter the **setup code** printed in the backend's log (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), then choose your admin username and password (at least 8 characters)
 3. Log in with your new credentials
 4. Start uploading and managing files!
 

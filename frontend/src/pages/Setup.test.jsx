@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { configureStore } from '@reduxjs/toolkit';
+import { Provider } from 'react-redux';
 import Setup from './Setup';
+import authReducer, { fetchCurrentUser, SETUP_REQUIRED } from '../features/authSlice';
 import api from '../services/api';
 
 vi.mock('../services/api');
@@ -13,12 +16,19 @@ vi.mock('react-router-dom', async (importOriginal) => ({
     useNavigate: () => mockNavigate,
 }));
 
-const renderSetup = () =>
+// Starts where App leaves a fresh install: the session check found setup pending.
+const renderSetup = () => {
+    const store = configureStore({ reducer: { auth: authReducer } });
+    store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, SETUP_REQUIRED));
     render(
-        <MemoryRouter>
-            <Setup />
-        </MemoryRouter>,
+        <Provider store={store}>
+            <MemoryRouter>
+                <Setup />
+            </MemoryRouter>
+        </Provider>,
     );
+    return store;
+};
 
 const fillForm = async (user, { code = 'ABCDE-FGHJK', username = 'ada', password = 'correct horse', confirm = password } = {}) => {
     await user.type(screen.getByLabelText('Setup code'), code);
@@ -37,7 +47,7 @@ describe('Setup', () => {
     it('sends the setup code with the new account and moves on to sign in', async () => {
         api.post.mockResolvedValueOnce({ data: { message: 'Setup successful' } });
         const user = userEvent.setup();
-        renderSetup();
+        const store = renderSetup();
 
         await fillForm(user);
 
@@ -49,6 +59,8 @@ describe('Setup', () => {
             password: 'correct horse',
         });
         expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true });
+        // So the sign-in page stops offering setup
+        expect(store.getState().auth.setupRequired).toBe(false);
     });
 
     it('does not submit when the passwords differ', async () => {

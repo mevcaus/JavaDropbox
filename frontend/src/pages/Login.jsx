@@ -11,7 +11,7 @@ const Login = () => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
     const location = useLocation();
-    const { isAuthenticated, loading, error } = useSelector((state) => state.auth);
+    const { isAuthenticated, loading, error, setupRequired } = useSelector((state) => state.auth);
 
     const from = location.state?.from?.pathname || '/dashboard';
 
@@ -98,11 +98,14 @@ const Login = () => {
                             )}
                         </button>
                     </div>
-                    <div className="text-center">
-                        <Link to="/setup" className="font-medium text-blue-600 hover:text-blue-500 text-sm">
-                            Need to setup a first user?
-                        </Link>
-                    </div>
+                    {/* Only while no account exists: afterwards the setup form can only fail. */}
+                    {setupRequired && (
+                        <div className="text-center">
+                            <Link to="/setup" className="font-medium text-blue-600 hover:text-blue-500 text-sm">
+                                No account yet? Set up the first user
+                            </Link>
+                        </div>
+                    )}
                 </form>
             </div>
         </div>

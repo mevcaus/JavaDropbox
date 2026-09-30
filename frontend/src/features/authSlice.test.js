@@ -6,6 +6,7 @@ import authReducer, {
     fetchCurrentUser,
     loginUser,
     logoutUser,
+    setupCompleted,
 } from './authSlice';
 import api from '../services/api';
 
@@ -202,8 +203,12 @@ describe('authSlice', () => {
         });
 
         it('does not treat the setup-page redirect as a signed-in session', async () => {
-            // Pending first-run setup redirects /api/me to /setup, which resolves 200 with HTML
-            api.get.mockResolvedValueOnce({ data: '<!doctype html><title>Setup</title>' });
+            // Pending first-run setup redirects /api/me to /setup; the browser follows it and the
+            // request resolves 200 with the app's HTML
+            api.get.mockResolvedValueOnce({
+                data: '<!doctype html><title>Setup</title>',
+                request: { responseURL: 'http://localhost:5173/setup' },
+            });
 
             await store.dispatch(fetchCurrentUser());
 
@@ -213,6 +218,51 @@ describe('authSlice', () => {
                 user: null,
             });
             expect(localStorage.getItem('user')).toBeNull();
+        });
+
+        describe('first-run setup', () => {
+            it('is required when the session check was redirected to the setup page', async () => {
+                api.get.mockResolvedValueOnce({
+                    data: '<!doctype html><title>Setup</title>',
+                    request: { responseURL: 'http://localhost:5173/setup' },
+                });
+
+                await store.dispatch(fetchCurrentUser());
+
+                expect(authState(store).setupRequired).toBe(true);
+            });
+
+            it('is not required when the backend answers 401: an account exists', async () => {
+                api.get.mockRejectedValueOnce({ response: { status: 401, data: '' } });
+
+                await store.dispatch(fetchCurrentUser());
+
+                expect(authState(store).setupRequired).toBe(false);
+            });
+
+            it('is not assumed from some other page that is not a session', async () => {
+                // e.g. a proxy's error page: no session, but no sign that setup is pending either
+                api.get.mockResolvedValueOnce({
+                    data: '<!doctype html><title>Bad gateway</title>',
+                    request: { responseURL: 'http://localhost:5173/api/me' },
+                });
+
+                await store.dispatch(fetchCurrentUser());
+
+                expect(authState(store)).toMatchObject({ isAuthenticated: false, setupRequired: false });
+            });
+
+            it('is no longer required once the first account is created', async () => {
+                api.get.mockResolvedValueOnce({
+                    data: '<!doctype html><title>Setup</title>',
+                    request: { responseURL: 'http://localhost:5173/setup' },
+                });
+                await store.dispatch(fetchCurrentUser());
+
+                store.dispatch(setupCompleted());
+
+                expect(authState(store).setupRequired).toBe(false);
+            });
         });
 
         it('lifts the loading gate when the backend never answers', async () => {

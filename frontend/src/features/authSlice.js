@@ -48,6 +48,19 @@ export const logoutUser = createAsyncThunk(
     }
 );
 
+// fetchCurrentUser's rejection when the backend is waiting for its first account.
+export const SETUP_REQUIRED = 'setup-required';
+
+// Until the first account exists, SetupFilter redirects every request to /setup, and the browser
+// follows that redirect without telling the page. The final URL of the request is the only trace.
+const wasSentToSetup = (response) => {
+    try {
+        return new URL(response.request?.responseURL).pathname === '/setup';
+    } catch {
+        return false;
+    }
+};
+
 export const fetchCurrentUser = createAsyncThunk(
     'auth/fetchCurrentUser',
     async (_, { rejectWithValue }) => {
@@ -61,7 +74,7 @@ export const fetchCurrentUser = createAsyncThunk(
             // page; the browser follows that redirect and the call resolves as a 200 of HTML.
             // Only a real user payload counts as a session -- a 2xx on its own does not.
             if (typeof response.data?.username !== 'string') {
-                return rejectWithValue('Not authenticated');
+                return rejectWithValue(wasSentToSetup(response) ? SETUP_REQUIRED : 'Not authenticated');
             }
             return response.data;
         } catch (error) {
@@ -78,12 +91,18 @@ const authSlice = createSlice({
         isInitialized: false,
         loading: false,
         error: null,
+        // Whether the backend has no account yet, so the sign-in page should point to setup.
+        // Learnt from the session check at startup; a 401 there means an account exists.
+        setupRequired: false,
     },
     reducers: {
         clearUser: (state) => {
             state.user = null;
             state.isAuthenticated = false;
             localStorage.removeItem('user');
+        },
+        setupCompleted: (state) => {
+            state.setupRequired = false;
         },
     },
     extraReducers: (builder) => {
@@ -113,8 +132,9 @@ const authSlice = createSlice({
                 state.user = action.payload.username;
                 localStorage.setItem('user', action.payload.username);
             })
-            .addCase(fetchCurrentUser.rejected, (state) => {
+            .addCase(fetchCurrentUser.rejected, (state, action) => {
                 state.isInitialized = true;
+                state.setupRequired = action.payload === SETUP_REQUIRED;
                 state.isAuthenticated = false;
                 state.user = null;
                 localStorage.removeItem('user');
@@ -122,5 +142,5 @@ const authSlice = createSlice({
     },
 });
 
-export const { clearUser } = authSlice.actions;
+export const { clearUser, setupCompleted } = authSlice.actions;
 export default authSlice.reducer;

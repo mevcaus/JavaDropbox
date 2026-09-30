@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
+import { setupCompleted } from '../features/authSlice';
 import { Loader2 } from 'lucide-react';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
 
@@ -15,6 +17,7 @@ const Setup = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const navigate = useNavigate();
+    const dispatch = useDispatch();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -41,7 +44,8 @@ const Setup = () => {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             });
 
-            // Account created — send the user to the login screen.
+            // Account created — send the user to the login screen, which stops offering setup.
+            dispatch(setupCompleted());
             navigate('/login', { replace: true });
         } catch (err) {
             const message =
