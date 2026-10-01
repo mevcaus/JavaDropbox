@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ShareModal from './ShareModal';
@@ -12,6 +12,24 @@ vi.mock('../hooks/useToast', () => ({
 }));
 
 afterEach(cleanup);
+
+// Some tests replace the clipboard and the legacy copy command; none may leave them replaced.
+const originalGlobals = {
+    clipboard: Object.getOwnPropertyDescriptor(navigator, 'clipboard'),
+    execCommand: Object.getOwnPropertyDescriptor(document, 'execCommand'),
+};
+const restore = (target, key, descriptor) => {
+    if (descriptor) Object.defineProperty(target, key, descriptor);
+    else delete target[key];
+};
+afterEach(() => {
+    restore(navigator, 'clipboard', originalGlobals.clipboard);
+    restore(document, 'execCommand', originalGlobals.execCommand);
+});
+afterAll(() => {
+    expect(Object.getOwnPropertyDescriptor(navigator, 'clipboard')).toEqual(originalGlobals.clipboard);
+    expect(Object.getOwnPropertyDescriptor(document, 'execCommand')).toEqual(originalGlobals.execCommand);
+});
 
 const FILE = { name: 'document.pdf', path: 'documents/document.pdf', isDirectory: false };
 const SHARE_URL = 'http://localhost/share/12345';
