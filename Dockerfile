@@ -4,7 +4,8 @@
 FROM node:22-alpine AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# Cache mounts keep downloaded packages between builds without putting them in a layer.
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 # The PNGs are Git LFS objects. A clone without git-lfs has small text pointers in their
 # place, which build without complaint and ship an app with every logo broken.
@@ -20,11 +21,11 @@ FROM eclipse-temurin:21-jdk-alpine AS backend
 WORKDIR /app
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle gradle
-# Resolve dependencies in their own layer so source changes do not re-download them.
-RUN ./gradlew --no-daemon dependencies > /dev/null
 COPY src src
 COPY --from=frontend /frontend/dist frontend/dist
-RUN ./gradlew --no-daemon bootJar -PbundleFrontend
+# The Gradle distribution and dependency jars stay in the cache mount, so a source change
+# does not download them again. (A "dependencies" layer would only hold the POMs.)
+RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar -PbundleFrontend
 
 # 3. The runtime image.
 FROM eclipse-temurin:21-jre-alpine
