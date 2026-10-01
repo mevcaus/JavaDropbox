@@ -2,6 +2,8 @@ package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,20 +15,28 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.javadropbox.javadropbox.model.FileHistory;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.FileVersion;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileHistoryRepository;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileService;
+import com.javadropbox.javadropbox.service.StorageSweeper;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.PosixFilePermission;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.AfterEach;
@@ -64,6 +74,7 @@ class FileOperationsIntegrationTests {
   @Autowired private FileMetadataRepository metadata;
   @Autowired private FileVersionRepository versions;
   @Autowired private FileHistoryRepository history;
+  @Autowired private StorageSweeper sweeper;
 
   @BeforeEach
   void setUp() {
@@ -80,6 +91,71 @@ class FileOperationsIntegrationTests {
         deleteTree(entry);
       }
     }
+  }
+
+  // --- uploading -------------------------------------------------------------
+
+  @Test
+  @DisplayName("an empty file is stored, listed and versioned like any other")
+  void emptyFileIsStored() throws Exception {
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "empty.txt", "text/plain", new byte[0]))
+                .param("path", "")
+                .with(csrf().asHeader()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
+
+    assertThat(servingDir.resolve("empty.txt")).isEmptyFile();
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(jsonPath("$[?(@.name == 'empty.txt')].size").value(0))
+        .andExpect(jsonPath("$[?(@.name == 'empty.txt')].id").isNotEmpty());
+
+    upload("", "empty.txt", "content");
+    assertThat(versions.findAll()).extracting(FileVersion::getSize).containsExactly(0L);
+  }
+
+  @Test
+  @DisplayName("a part without a file name is skipped and not counted as uploaded")
+  void partWithoutFileNameIsSkipped() throws Exception {
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "", "application/octet-stream", new byte[0]))
+                .file(new MockMultipartFile("files", "real.txt", "text/plain", "x".getBytes()))
+                .param("path", "")
+                .with(csrf().asHeader()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
+
+    assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("real.txt");
+  }
+
+  @Test
+  @DisplayName("uploading into a path that runs through a file is a 400, recorded as a failure")
+  void uploadThroughAFileIsRefused() throws Exception {
+    upload("", "a.txt", "x");
+
+    for (String folder : List.of("a.txt", "a.txt/sub")) {
+      mockMvc
+          .perform(
+              multipart("/api/files")
+                  .file(new MockMultipartFile("files", "b.txt", "text/plain", "y".getBytes()))
+                  .param("path", folder)
+                  .with(csrf().asHeader()))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("\"a.txt\" is a file, not a folder"));
+    }
+
+    assertThat(history.findAll())
+        .filteredOn(h -> !h.isSuccess())
+        .extracting(FileHistory::getChangeType, FileHistory::getFilePath)
+        .containsExactly(
+            Tuple.tuple(ChangeType.UPLOAD, "a.txt/b.txt"),
+            Tuple.tuple(ChangeType.UPLOAD, "a.txt/sub/b.txt"));
+    assertThat(servingDir.resolve("a.txt")).hasContent("x");
   }
 
   // --- deleting --------------------------------------------------------------
@@ -124,6 +200,22 @@ class FileOperationsIntegrationTests {
     deletePath("docs");
 
     assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("docs_other");
+  }
+
+  @Test
+  @DisplayName("deleting a folder leaves folders that only match it as a LIKE pattern alone")
+  void deleteFolderTreatsWildcardsLiterally() throws Exception {
+    createFolder("", "a_");
+    createFolder("", "ab");
+    upload("ab", "keep.txt", "x");
+    upload("ab", "keep.txt", "y");
+
+    deletePath("a_");
+
+    assertThat(metadata.findAll())
+        .extracting(FileMetadata::getPath)
+        .containsExactlyInAnyOrder("ab", "ab/keep.txt");
+    assertThat(versionFiles()).hasSize(1);
   }
 
   // --- versions and restore ---------------------------------------------------
@@ -180,6 +272,23 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
+  @DisplayName("uploaded and restored files get the permissions of any new file")
+  void uploadedAndRestoredFilesHaveDefaultPermissions() throws Exception {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
+    Set<PosixFilePermission> ordinary =
+        Files.getPosixFilePermissions(Files.createFile(servingDir.resolve("ordinary.txt")));
+
+    upload("", "report.txt", "one");
+    upload("", "report.txt", "two");
+    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report.txt"))).isEqualTo(ordinary);
+    restore(idOf("report.txt"), 1, "OVERWRITE");
+    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report.txt"))).isEqualTo(ordinary);
+    restore(idOf("report.txt"), 1, "COPY");
+    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report_v1.txt")))
+        .isEqualTo(ordinary);
+  }
+
+  @Test
   @DisplayName("versions are listed newest first, with their size in bytes and author")
   void versionsAreListed() throws Exception {
     upload("", "list.txt", "a");
@@ -231,6 +340,91 @@ class FileOperationsIntegrationTests {
     assertThat(versions.findAll()).isEmpty();
   }
 
+  @Test
+  @DisplayName("dropping a file's versions removes its version folder even if it holds strays")
+  void discardedVersionFolderIsRemovedWithStrays() throws Exception {
+    upload("", "ghost.txt", "old one");
+    upload("", "ghost.txt", "old two");
+    Path folder = servingDir.resolve(".versions/" + idOf("ghost.txt"));
+    Files.writeString(folder.resolve("stray"), "left over");
+    Files.delete(servingDir.resolve("ghost.txt"));
+
+    upload("", "ghost.txt", "new");
+
+    assertThat(folder).doesNotExist();
+  }
+
+  // --- clean-up at startup ---------------------------------------------------------
+
+  @Test
+  @DisplayName("stale scratch files and stale unreferenced versions of known files are removed")
+  void startupSweepRemovesLeftovers() throws Exception {
+    createFolder("", "docs");
+    upload("", "kept.txt", "one");
+    upload("", "kept.txt", "two");
+    Path versionFolder = servingDir.resolve(".versions/" + idOf("kept.txt"));
+    Path staleScratch = old(Files.writeString(servingDir.resolve("docs/.upload-1.tmp"), "x"));
+    Path freshScratch = Files.writeString(servingDir.resolve(".upload-2.tmp"), "x");
+    Path referenced = old(versionFolder.resolve("v1"));
+    Path unreferenced = old(Files.writeString(versionFolder.resolve("v7"), "x"));
+    Path freshUnreferenced = Files.writeString(versionFolder.resolve("v8"), "x");
+    Path emptyUnknownFolder = old(Files.createDirectories(servingDir.resolve(".versions/777777")));
+
+    sweeper.sweep();
+
+    assertThat(staleScratch).doesNotExist();
+    assertThat(freshScratch).exists();
+    assertThat(referenced).hasContent("one");
+    assertThat(unreferenced).doesNotExist();
+    assertThat(freshUnreferenced).exists();
+    assertThat(emptyUnknownFolder).doesNotExist();
+  }
+
+  @Test
+  @DisplayName(
+      "the sweep leaves alone the versions in a folder whose file the database doesn't know")
+  void startupSweepKeepsFoldersOfUnknownFiles() throws Exception {
+    upload("", "kept.txt", "one");
+    Path unknownFolder = old(Files.createDirectories(servingDir.resolve(".versions/999999")));
+    Path version = old(Files.writeString(unknownFolder.resolve("v1"), "precious"));
+    old(unknownFolder);
+    Path legacy = old(Files.writeString(servingDir.resolve(".versions/report.txt.v1"), "older"));
+
+    sweeper.sweep();
+
+    assertThat(version).hasContent("precious");
+    assertThat(legacy).hasContent("older");
+  }
+
+  @Test
+  @DisplayName("against an empty database the sweep deletes no version at all")
+  void startupSweepSkipsVersionsWhenTheDatabaseIsEmpty() throws Exception {
+    upload("", "kept.txt", "one");
+    upload("", "kept.txt", "two");
+    Path version = old(servingDir.resolve(".versions/" + idOf("kept.txt") + "/v1"));
+    old(version.getParent());
+    // E.g. a new database volume, or a wrong datasource URL, with the existing data folder.
+    TestDatabase.wipe(jdbc);
+
+    sweeper.sweep();
+
+    assertThat(version).hasContent("one");
+  }
+
+  @Test
+  @DisplayName("a stored copy left over from an interrupted operation does not block a replace")
+  void leftoverVersionFileIsReplaced() throws Exception {
+    upload("", "stale.txt", "one");
+    Path leftover = servingDir.resolve(".versions/" + idOf("stale.txt") + "/v1");
+    Files.createDirectories(leftover.getParent());
+    Files.writeString(leftover, "from a crash");
+
+    upload("", "stale.txt", "two");
+
+    assertThat(leftover).hasContent("one");
+    assertThat(servingDir.resolve("stale.txt")).hasContent("two");
+  }
+
   // --- attribution ---------------------------------------------------------------
 
   @Test
@@ -274,6 +468,18 @@ class FileOperationsIntegrationTests {
     mockMvc.perform(get("/api/history").param("page", "-1")).andExpect(status().isBadRequest());
   }
 
+  @Test
+  @DisplayName("a history page too far out to address is a 400, not a 500")
+  void historyPageBeyondReachIsRefused() throws Exception {
+    mockMvc
+        .perform(get("/api/history").param("page", "100000000").param("size", "200"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(get("/api/history").param("page", "10000000").param("size", "200"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items").isEmpty());
+  }
+
   // --- failures ----------------------------------------------------------------
 
   @Test
@@ -303,8 +509,36 @@ class FileOperationsIntegrationTests {
 
     assertThat(history.findAll())
         .filteredOn(h -> !h.isSuccess())
-        .extracting(FileHistory::getChangeType, FileHistory::getFilePath)
-        .containsExactly(Tuple.tuple(ChangeType.CREATE_FOLDER, "dup"));
+        .extracting(
+            FileHistory::getChangeType, FileHistory::getFilePath, FileHistory::getErrorMessage)
+        .containsExactly(
+            Tuple.tuple(ChangeType.CREATE_FOLDER, "dup", "\"dup\" already exists here"));
+  }
+
+  @Test
+  @DisplayName("a failure recorded in the history never reveals server paths or exception types")
+  void recordedFailureHidesServerDetails() throws Exception {
+    createFolder("", "locked");
+    Path locked = servingDir.resolve("locked");
+    assertThat(locked.toFile().setWritable(false)).isTrue();
+    try {
+      assumeFalse(Files.isWritable(locked), "running as root, which can write anyway");
+      mockMvc
+          .perform(
+              multipart("/api/files")
+                  .file(new MockMultipartFile("files", "a.txt", "text/plain", "x".getBytes()))
+                  .param("path", "locked")
+                  .with(csrf().asHeader()))
+          .andExpect(status().isInternalServerError());
+    } finally {
+      locked.toFile().setWritable(true);
+    }
+
+    assertThat(history.findAll())
+        .filteredOn(h -> !h.isSuccess())
+        .singleElement()
+        .extracting(FileHistory::getErrorMessage)
+        .isEqualTo("The operation could not be completed.");
   }
 
   @Test
@@ -347,6 +581,35 @@ class FileOperationsIntegrationTests {
         .andExpect(status().isNotFound());
   }
 
+  // --- letter case -------------------------------------------------------------
+
+  @Test
+  @DisplayName("an upload spelled in a different letter case replaces the file under its one row")
+  void caseVariantUploadKeepsOneRow() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    upload("", "report.txt", "one");
+    upload("", "report.txt", "two");
+    upload("", "Report.txt", "three");
+
+    assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("report.txt");
+    assertThat(versions.findAll()).hasSize(2);
+    assertThat(servingDir.resolve("report.txt")).hasContent("three");
+  }
+
+  @Test
+  @DisplayName("deleting a file spelled in a different letter case removes its row")
+  void caseVariantDeleteRemovesTheRow() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    upload("", "notes.txt", "a");
+    upload("", "notes.txt", "b");
+
+    deletePath("NOTES.TXT");
+
+    assertThat(servingDir.resolve("notes.txt")).doesNotExist();
+    assertThat(metadata.findAll()).isEmpty();
+    assertThat(versions.findAll()).isEmpty();
+  }
+
   // --- helpers ------------------------------------------------------------------
 
   private void upload(String folder, String name, String content) throws Exception {
@@ -377,6 +640,12 @@ class FileOperationsIntegrationTests {
                 .param("mode", mode)
                 .with(csrf()))
         .andExpect(status().isOk());
+  }
+
+  // Last modified two hours ago, i.e. not something a request could still be writing.
+  private static Path old(Path path) throws IOException {
+    Files.setLastModifiedTime(path, FileTime.from(Instant.now().minus(Duration.ofHours(2))));
+    return path;
   }
 
   private long idOf(String path) {

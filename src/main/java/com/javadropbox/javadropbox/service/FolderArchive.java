@@ -1,10 +1,13 @@
 package com.javadropbox.javadropbox.service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -25,18 +28,23 @@ public final class FolderArchive {
 
   private static void addFolder(Path folder, String prefix, ZipOutputStream zip)
       throws IOException {
-    try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
+    try (DirectoryStream<Path> entries = Files.newDirectoryStream(StoragePaths.recheck(folder))) {
       for (Path entry : entries) {
-        // A symlink could lead outside the serving directory or back into this folder.
-        if (Files.isSymbolicLink(entry)) {
+        // A symlink could lead outside the serving directory or back into this folder. Read once
+        // without following links, so what is checked is what gets opened.
+        BasicFileAttributes attributes =
+            Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (attributes.isSymbolicLink()) {
           continue;
         }
         String name = prefix + "/" + entry.getFileName();
-        if (Files.isDirectory(entry)) {
+        if (attributes.isDirectory()) {
           addFolder(entry, name, zip);
         } else {
           zip.putNextEntry(new ZipEntry(name));
-          Files.copy(entry, zip);
+          try (InputStream in = Files.newInputStream(entry, LinkOption.NOFOLLOW_LINKS)) {
+            in.transferTo(zip);
+          }
           zip.closeEntry();
         }
       }

@@ -107,12 +107,13 @@ The system follows a **layered architecture** with clear separation of concerns:
   - `OVERWRITE` — Replace the current file (current version is snapshotted first)
   - `COPY` — Restore as a new file alongside the original (`name_v2.txt`, or `name_v2 (2).txt` if that is taken)
 - **Configurable retention** — Automatic pruning of old versions beyond a configurable limit, set via `javadropbox.versions.max-retained` in `application.properties` (default: 10)
+- **Clean-up of leftovers** — On startup, upload scratch files and unreferenced stored versions of files the database knows (what a crash leaves behind) are removed once they are over an hour old. Version folders of files the database doesn't know are left alone and logged, and nothing is swept if the database has no files at all, so starting against the wrong database can't delete version history
 
 ### Security
 - **Spring Security** integration with form-based login, session management and cookie-based CSRF protection
 - **BCrypt password hashing** via `PasswordEncoder`
 - **First-run setup flow** — `SetupFilter` redirects every request to `/setup` until the first account exists, and creating it requires a **one-time setup code printed in the server log**, so only whoever runs the server can claim it; five wrong codes from one address lock that address out for 15 minutes, without changing the code
-- **Path safety** — Every client-supplied path goes through `StoragePaths`, which rejects anything outside the serving directory (after `..` is normalized *and* after symlinks are followed), the app's own `.versions/` and `.javadropbox/` directories, and the root itself for delete and share
+- **Path safety** — Every client-supplied path goes through `StoragePaths`, which rejects anything outside the serving directory (after `..` is normalized), any path through a symlink (the tree never shows one), the app's own `.versions/` and `.javadropbox/` directories under any letter case, new names starting with a dot (the tree hides them), and the root itself for delete and share. Paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one metadata row, and are checked again for swapped-in symlinks right before each disk operation
 - **Sign-in throttling** — Five failed sign-ins from one address within 15 minutes lock it out for 15 minutes (`429` with `Retry-After`)
 - **CORS** — Off unless `app.cors.allowed-origins` lists origins (the dev profile allows the Vite dev server)
 - **Session-based auth** with `JSESSIONID` cookie and automatic 401 interception on the frontend via Axios interceptors
@@ -135,7 +136,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 
 ### Frontend
 - **React 19** SPA with **Redux Toolkit** for global state management
-- **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu
+- **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu; the open folder is kept in the URL (`/dashboard?path=...`), so a reload and Back/Forward keep it
 - **Smart file icons** — Context-aware icons based on file extension (images, video, audio, code, documents)
 - **File search** — Search box above the file table matches filenames (case-insensitive substring) across the open folder **and every folder beneath it**, flattening results into a list labelled with each match's full path; runs entirely client-side against the already-loaded tree, so no extra request is made
 - **Column sorting** — Name, Size, and Last Modified headers sort in either direction, keyboard-operable and annotated with `aria-sort`; folders stay grouped ahead of files in every ordering
@@ -320,7 +321,7 @@ npm run dev
 ### 3. Initial Setup
 
 1. Navigate to `http://localhost:5173`
-2. You'll be redirected to the **setup page**. Enter the **setup code** printed in the backend's log (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), then choose your admin username and password (at least 8 characters)
+2. While no account exists, the sign-in page offers **Set up the first user**; follow it to the **setup page** (the backend on port 8080 redirects there by itself). Enter the **setup code** printed in the backend's log (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), then choose your admin username and password (at least 8 characters)
 3. Log in with your new credentials
 4. Start uploading and managing files!
 
@@ -346,7 +347,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 |----------|---------|---------|
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
-| `javadropbox.versions.max-retained` | `10` | Previous versions kept per file |
+| `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
@@ -370,7 +371,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 **Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
 
-**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V6` adds the `share_links` table.
+**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`).
 
 **Tests.** The H2 integration tests keep `ddl-auto=create-drop` with Flyway disabled, because the migrations are PostgreSQL SQL. Tests that need the real schema run against Testcontainers PostgreSQL through `PostgresTestSupport`, which applies the production Flyway and `ddl-auto` settings unchanged.
 
@@ -380,7 +381,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 All endpoints require authentication unless noted otherwise. For a live, interactive reference of all REST API endpoints, visit the [Swagger UI](http://localhost:8080/swagger-ui.html) while the backend runs with the `dev` profile (`./gradlew bootRun`).
 
-Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code, `404` when the item or version does not exist, `409` when something already exists, `429` when sign-in or setup is throttled.
+Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in or setup is throttled.
 
 ### Authentication
 
@@ -440,7 +441,10 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | Test Suite | What It Covers |
 |-----------|----------------|
 | `FileOperationsIntegrationTests` | Delete-then-recreate, folder deletes removing child rows and versions, restore in place and as a copy (twice), versions kept per path, pruning, untracked files versioned before replace, failed uploads keeping the old content, failures recorded despite rollback, attribution to the signed-in user, 404s, history paging |
-| `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, the reserved `.versions`/`.javadropbox` directories, single-segment upload names |
+| `FileIntegrityIntegrationTests` | On PostgreSQL: concurrent replaces, restores and deletes of one file, the disk put back when a replace or restore fails before, after or at commit, folder deletes in a fixed number of statements |
+| `MultipartErrorIntegrationTests` | On a real Tomcat: a server fault storing an upload is a 500, a malformed upload a 400 |
+| `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, in-root symlinks aliasing the root or a reserved folder, the reserved `.versions`/`.javadropbox` directories in any letter case, dot-named uploads and folders, single-segment upload names |
+| `StoragePathsTests`, `SymlinkSwapTests`, `StorageFilesTests`, `DownloadResponsesTests` | Path resolution on disk and on an in-memory case-insensitive filesystem (Jimfs), symlinks swapped in after the check for zip, delete, upload and download, upload scratch-file permissions |
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
@@ -453,8 +457,10 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
 | `FlywayMigrationIntegrationTests` / `FlywayBaselineIntegrationTests` | Migrations build an empty PostgreSQL database, and a pre-Flyway database is adopted; Hibernate validates both |
-| `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant |
+| `FlywayFileVersionMigrationTests` | V4 drops duplicate version rows before making versions unique; V5 lets deletes find history rows through an index |
+| `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant under UTC, region and offset-style (`GMT+01:00`) JVM zones |
 | `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup codes throttled per client, lockout timing and bounds, command-line shorthands |
+| `FileVersionServiceTests`, `ApiExceptionHandlerTests` | A negative retention limit stops startup; statuses for lost races and for upload parsing failures |
 
 ### Test Design Highlights
 - **Test isolation**: Test classes with the same configuration share one Spring context and database, so each wipes every table after a test through `TestDatabase.wipe`
@@ -472,12 +478,15 @@ npm test
 
 | Test Suite | What It Covers |
 |-----------|----------------|
-| `Dashboard.test.jsx` | Downloads through a link rather than into memory, re-uploading the same file, keeping the table during refreshes |
-| `Modal.test.jsx` | Escape, focus trap and focus restore |
-| `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, listing and revoking active links |
-| `VersionHistoryModal.test.jsx` | Listing versions and restoring in either mode |
-| `Setup.test.jsx`, `authSlice.test.js`, `filesSlice.test.js`, `api.test.js` | Setup code and password checks, session handling (logout is a POST), CSRF priming, 401 handling |
-| `FileTable.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, and search clearing on folder navigation |
+| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting |
+| `Modal.test.jsx` | Escape, focus trap (including focus outside the panel or on a removed control) and focus restore with a fallback |
+| `CreateFolderModal.test.jsx` | Closing only once the folder exists, the pending state, inline server errors, the dot-name rule |
+| `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item, listing and revoking active links |
+| `VersionHistoryModal.test.jsx` | Listing versions, restoring in either mode, a restore for one file not affecting the next file's dialog |
+| `Login.test.jsx`, `Setup.test.jsx`, `Navbar.test.jsx` | Offering setup only while no account exists, errors announced as alerts, setup code and password checks, a failed logout keeping the user signed in |
+| `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
+| `ToastContext.test.jsx` | Errors announced assertively, toasts held while hovered or focused |
+| `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, visible keyboard focus, the breadcrumb landmark |
 
 ### Code Style
 

@@ -4,6 +4,7 @@ import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.dto.Download.FileDownload;
 import com.javadropbox.javadropbox.dto.Download.FolderDownload;
 import com.javadropbox.javadropbox.service.FolderArchive;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +33,7 @@ final class DownloadResponses {
       return ResponseEntity.ok()
           .contentType(MediaType.parseMediaType(file.contentType()))
           .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
-          .body(new FileSystemResource(file.path()));
+          .body(new FileSystemResource(StoragePaths.recheck(file.path())));
     }
 
     FolderDownload folder = (FolderDownload) download;

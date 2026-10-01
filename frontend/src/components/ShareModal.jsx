@@ -22,14 +22,19 @@ const ShareModal = ({ isOpen, onClose, item }) => {
     const [copied, setCopied] = useState(false);
     const linkInputRef = useRef(null);
     const copiedTimerRef = useRef(null);
+    // Counts requests and item changes. The dialog stays mounted from one share to the next, so a
+    // slow answer for the previous item must not land in the dialog for this one.
+    const requestRef = useRef(0);
     const { addToast } = useToast();
 
     useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 
     // Reset state whenever a new item is shared
     useEffect(() => {
+        requestRef.current += 1;
         setShareUrl(null);
         setError(null);
+        setLoading(false);
         setCopied(false);
         setExpirationMinutes(EXPIRATION_OPTIONS[2].minutes);
     }, [item]);
@@ -37,6 +42,8 @@ const ShareModal = ({ isOpen, onClose, item }) => {
     if (!item) return null;
 
     const handleGenerate = async () => {
+        const request = ++requestRef.current;
+        const isCurrent = () => request === requestRef.current;
         setLoading(true);
         setError(null);
 
@@ -49,11 +56,11 @@ const ShareModal = ({ isOpen, onClose, item }) => {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             });
 
-            setShareUrl(response.data.url);
+            if (isCurrent()) setShareUrl(response.data.url);
         } catch (err) {
-            setError(readableError(err, 'Failed to create share link.'));
+            if (isCurrent()) setError(readableError(err, 'Failed to create share link.'));
         } finally {
-            setLoading(false);
+            if (isCurrent()) setLoading(false);
         }
     };
 
