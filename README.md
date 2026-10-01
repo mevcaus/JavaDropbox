@@ -445,7 +445,10 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `MultipartErrorIntegrationTests` | On a real Tomcat: a server fault storing an upload is a 500, a malformed upload a 400 |
 | `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, in-root symlinks aliasing the root or a reserved folder, the reserved `.versions`/`.javadropbox` directories in any letter case, dot-named uploads and folders, single-segment upload names |
 | `StoragePathsTests`, `SymlinkSwapTests`, `StorageFilesTests`, `DownloadResponsesTests` | Path resolution on disk and on an in-memory case-insensitive filesystem (Jimfs), symlinks swapped in after the check for zip, delete, upload and download, upload scratch-file permissions |
-| `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items |
+| `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items, `Content-Security-Policy: sandbox` on every download |
+| `FolderArchiveTests` | Zips leave out hidden files, FIFOs and entries that vanish while zipping, and keep empty folders |
+| `ClientAbortIntegrationTests` / `IoExceptionHandlingTests` | Cancelled file and zip downloads are logged at debug only (on real Tomcat); nothing is written into a response already under way |
+| `DownloadConnectionIntegrationTests` | A paused download holds no database connection, with a one-connection pool (on real Tomcat) |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
 | `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |

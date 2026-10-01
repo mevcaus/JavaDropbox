@@ -38,6 +38,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -92,7 +93,11 @@ class DownloadIntegrationTests {
 
     assertThat(filename(response)).isEqualTo("docs.zip");
     assertThat(unzip(response.getContentAsByteArray()))
-        .containsOnly(Map.entry("docs/top.txt", "top"), Map.entry("docs/nested/deep.txt", "deep"));
+        .containsOnly(
+            Map.entry("docs/", ""),
+            Map.entry("docs/top.txt", "top"),
+            Map.entry("docs/nested/", ""),
+            Map.entry("docs/nested/deep.txt", "deep"));
   }
 
   @Test
@@ -132,6 +137,28 @@ class DownloadIntegrationTests {
             get("/api/files/download").param("path", "docs/top.txt").header("Range", "bytes=1-2"))
         .andExpect(status().isPartialContent())
         .andExpect(content().string("op"));
+  }
+
+  @Test
+  @WithMockUser(username = "owner")
+  @DisplayName("file and folder downloads are sandboxed, so active content cannot run as the app")
+  void downloadsAreSandboxed() throws Exception {
+    Files.writeString(servingDir.resolve("page.html"), "<script>alert(1)</script>");
+    Files.writeString(
+        servingDir.resolve("image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
+
+    for (String path : new String[] {"page.html", "image.svg", "docs"}) {
+      for (var request :
+          new MockHttpServletRequestBuilder[] {
+            get("/api/files/download").param("path", path), get(share(path))
+          }) {
+        mockMvc
+            .perform(request)
+            .andExpect(status().isOk())
+            .andExpect(header().string("Content-Security-Policy", "sandbox"))
+            .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+      }
+    }
   }
 
   @Test

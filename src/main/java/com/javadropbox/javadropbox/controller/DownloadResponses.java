@@ -18,6 +18,13 @@ import org.springframework.http.ResponseEntity;
 /** Turns a {@link Download} into an HTTP response, shared by the private and share-link routes. */
 final class DownloadResponses {
 
+  // The probed type can be text/html or image/svg+xml, served from the app's own origin (on the
+  // public share route too). Should a browser ever render one despite the attachment disposition,
+  // the sandbox gives it an opaque origin with scripts off, so it cannot read the CSRF cookie or
+  // call the API as the user.
+  private static final String CONTENT_SECURITY_POLICY = "Content-Security-Policy";
+  private static final String SANDBOX = "sandbox";
+
   private DownloadResponses() {}
 
   /**
@@ -32,12 +39,14 @@ final class DownloadResponses {
     if (download instanceof FileDownload file) {
       return ResponseEntity.ok()
           .contentType(MediaType.parseMediaType(file.contentType()))
+          .header(CONTENT_SECURITY_POLICY, SANDBOX)
           .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
           .body(new FileSystemResource(StoragePaths.recheck(file.path())));
     }
 
     FolderDownload folder = (FolderDownload) download;
     response.setContentType("application/zip");
+    response.setHeader(CONTENT_SECURITY_POLICY, SANDBOX);
     response.setHeader(HttpHeaders.CONTENT_DISPOSITION, disposition);
     String rootName = folder.filename().substring(0, folder.filename().length() - ".zip".length());
     FolderArchive.write(folder.path(), rootName, response.getOutputStream());
