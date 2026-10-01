@@ -9,9 +9,13 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FileVersionService {
 
+  private static final Logger log = LoggerFactory.getLogger(FileVersionService.class);
+
   private final FileVersionRepository versions;
   private final FileMetadataRepository files;
   private final StoragePaths storagePaths;
@@ -35,6 +41,11 @@ public class FileVersionService {
       FileMetadataRepository files,
       StoragePaths storagePaths,
       @Value("${javadropbox.versions.max-retained:10}") int maxRetained) {
+    // Checked here so a bad setting stops the app starting, rather than failing every replace.
+    if (maxRetained < 0) {
+      throw new IllegalArgumentException(
+          "javadropbox.versions.max-retained must be 0 or more, not " + maxRetained);
+    }
     this.versions = versions;
     this.files = files;
     this.storagePaths = storagePaths;
@@ -53,7 +64,8 @@ public class FileVersionService {
 
   /**
    * Moves the live file into the version store as its next version, then prunes versions beyond the
-   * retention limit. Runs in the caller's transaction.
+   * retention limit. Runs in the caller's transaction, which must hold the lock on the file's row
+   * ({@link FileMetadataRepository#lockById}) so that no one else numbers a version meanwhile.
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public void archive(FileMetadata file, Path live, User user) throws IOException {
@@ -62,7 +74,19 @@ public class FileVersionService {
     Path target = storagePaths.versionsDir().resolve(stored);
 
     Files.createDirectories(target.getParent());
-    Files.move(live, target, StandardCopyOption.REPLACE_EXISTING);
+    if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+      removeLeftover(target, stored);
+    }
+    // Never REPLACE_EXISTING: a file that is in the way now belongs to someone else, and failing
+    // is better than overwriting it.
+    Files.move(live, target);
+    // A move keeps the old modification time; a fresh one tells the startup sweep that this is no
+    // leftover even before the row below is committed.
+    Files.setLastModifiedTime(target, FileTime.from(Instant.now()));
+    // Also covers the caller having moved new content onto the live path since: the previous
+    // content goes back over it.
+    OnRollback.undo(
+        "archiving " + live + " as " + target, () -> StorageFiles.moveIntoPlace(target, live));
     versions.save(new FileVersion(file, number, stored, Files.size(target), user));
     file.setCurrentVersion(number + 1);
 
@@ -70,6 +94,16 @@ public class FileVersionService {
     for (FileVersion old : all.subList(Math.min(maxRetained, all.size()), all.size())) {
       delete(old);
     }
+  }
+
+  // Under the row lock nobody else can be writing this version, so a file already there that no
+  // row points to is left over from an operation that was interrupted before it could clean up.
+  private void removeLeftover(Path target, String stored) throws IOException {
+    if (versions.existsByStoredFilename(stored)) {
+      throw new IllegalStateException("Version " + stored + " already exists");
+    }
+    log.warn("Removing {}, left over from an interrupted operation", target);
+    Files.delete(target);
   }
 
   /**
@@ -84,7 +118,7 @@ public class FileVersionService {
             .filter(v -> v.getVersion() == number)
             .findFirst()
             .orElseThrow(() -> new NotFoundException("Version " + number + " not found"));
-    Path stored = resolve(version);
+    Path stored = resolve(version.getStoredFilename());
     if (!Files.isRegularFile(stored)) {
       throw new NotFoundException("The stored copy of version " + number + " is missing");
     }
@@ -99,18 +133,47 @@ public class FileVersionService {
   public void discardAll(FileMetadata file) {
     versions.findByFileMetadataOrderByVersionDesc(file).forEach(this::delete);
     Path folder = storagePaths.versionsDir().resolve(String.valueOf(file.getId()));
-    AfterCommit.run("remove " + folder, () -> Files.deleteIfExists(folder));
+    // With anything left in it, e.g. from an interrupted operation, deleteIfExists would fail.
+    AfterCommit.run("remove " + folder, () -> StorageFiles.deleteRecursively(folder));
+  }
+
+  /**
+   * Deletes the versions of the item at {@code path} and of everything below it, e.g. because a
+   * folder is being deleted with all it holds. Takes the same few statements however many items
+   * there are. The rows go now; the stored files once that commits.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void discardAllAtOrBelow(String path) {
+    String below = FileMetadataRepository.below(path);
+    List<Path> stored =
+        versions.findStoredFilenamesAtOrBelow(path, below).stream().map(this::resolve).toList();
+    List<Path> folders =
+        files.findIdsAtOrBelow(path, below).stream()
+            .map(id -> storagePaths.versionsDir().resolve(String.valueOf(id)))
+            .toList();
+    versions.deleteAtOrBelow(path, below);
+
+    AfterCommit.run(
+        "remove the versions of " + path,
+        () -> {
+          for (Path file : stored) {
+            Files.deleteIfExists(file);
+          }
+          for (Path folder : folders) {
+            StorageFiles.deleteRecursively(folder);
+          }
+        });
   }
 
   private void delete(FileVersion version) {
     versions.delete(version);
-    Path stored = resolve(version);
+    Path stored = resolve(version.getStoredFilename());
     AfterCommit.run("remove " + stored, () -> Files.deleteIfExists(stored));
   }
 
-  private Path resolve(FileVersion version) {
+  private Path resolve(String storedFilename) {
     Path versionsDir = storagePaths.versionsDir();
-    Path stored = versionsDir.resolve(version.getStoredFilename()).normalize();
+    Path stored = versionsDir.resolve(storedFilename).normalize();
     if (!stored.startsWith(versionsDir)) {
       throw new IllegalStateException("Version row points outside the version store");
     }

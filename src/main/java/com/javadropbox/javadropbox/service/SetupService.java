@@ -1,13 +1,17 @@
 package com.javadropbox.javadropbox.service;
 
+import com.javadropbox.javadropbox.config.LoginAttemptLimiter;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
+import com.javadropbox.javadropbox.exception.TooManyRequestsException;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,10 +34,10 @@ public class SetupService {
   private static final int MAX_PASSWORD_BYTES = 72;
   private static final int MAX_USERNAME_LENGTH = 255;
 
-  // After this many wrong codes the code is replaced, so it cannot be guessed by brute force.
-  private static final int MAX_CODE_ATTEMPTS = 5;
   private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   private static final int CODE_LENGTH = 10;
+  // A configured code must be at least as long as a generated one.
+  private static final int MIN_CONFIGURED_CODE_LENGTH = CODE_LENGTH;
 
   private static final Logger log = LoggerFactory.getLogger(SetupService.class);
 
@@ -43,8 +47,10 @@ public class SetupService {
   private final String configuredCode;
   private final SecureRandom random = new SecureRandom();
 
-  private String code;
-  private int failedAttempts;
+  // Wrong codes are throttled per client, like sign-ins. The code itself never changes before a
+  // restart: replacing it after wrong guesses would let anyone make the logged code stale.
+  private final LoginAttemptLimiter codeAttempts = new LoginAttemptLimiter(Clock.systemUTC());
+  private final String code;
 
   public SetupService(
       UserRepository users,
@@ -55,6 +61,14 @@ public class SetupService {
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
     this.configuredCode = configuredCode.trim();
+    if (!this.configuredCode.isEmpty()
+        && normalize(this.configuredCode).length() < MIN_CONFIGURED_CODE_LENGTH) {
+      throw new IllegalStateException(
+          "app.setup.code must be at least "
+              + MIN_CONFIGURED_CODE_LENGTH
+              + " characters long, not counting dashes and spaces. Remove it to have a random"
+              + " code generated on each start instead.");
+    }
     this.code = this.configuredCode.isEmpty() ? generateCode() : this.configuredCode;
   }
 
@@ -68,12 +82,15 @@ public class SetupService {
   /**
    * Creates the first account. Synchronized, and the check and insert both commit before it
    * returns, so two simultaneous submissions cannot both create an account.
+   *
+   * @param client the caller's address, which wrong setup codes are throttled by
    */
-  public synchronized void createFirstUser(String setupCode, String username, String password) {
+  public synchronized void createFirstUser(
+      String client, String setupCode, String username, String password) {
     if (!authService.isSetupRequired()) {
       throw new ConflictException("Setup has already been completed");
     }
-    checkCode(setupCode);
+    checkCode(client, setupCode);
 
     String name = username == null ? "" : username.trim();
     if (name.isEmpty()) {
@@ -94,24 +111,24 @@ public class SetupService {
     log.info("Setup complete: created the account \"{}\"", name);
   }
 
-  private void checkCode(String submitted) {
+  private void checkCode(String client, String submitted) {
+    Duration wait = codeAttempts.tryAcquire(client);
+    if (!wait.isZero()) {
+      throw new TooManyRequestsException(
+          "Too many wrong setup codes. Try again in " + LoginAttemptLimiter.describe(wait) + ".",
+          wait);
+    }
+
     boolean matches =
         submitted != null
             && MessageDigest.isEqual(
                 normalize(submitted).getBytes(StandardCharsets.UTF_8),
                 normalize(code).getBytes(StandardCharsets.UTF_8));
     if (matches) {
-      failedAttempts = 0;
+      codeAttempts.recordSuccess(client);
       return;
     }
-
-    failedAttempts++;
-    if (failedAttempts >= MAX_CODE_ATTEMPTS && configuredCode.isEmpty()) {
-      failedAttempts = 0;
-      code = generateCode();
-      log.warn("Too many wrong setup codes; the old code no longer works.");
-      announce();
-    }
+    codeAttempts.recordFailure(client);
     throw new ForbiddenException("Incorrect setup code. It is printed in the server log.");
   }
 
@@ -133,6 +150,15 @@ public class SetupService {
 
   private void announce() {
     String line = "=".repeat(60);
+    // Whoever configured the code knows it; printing it would only hand it to log readers.
+    if (!configuredCode.isEmpty()) {
+      log.warn(
+          "\n{}\n No account exists yet. Open the app and create one with the setup code set in"
+              + " app.setup.code.\n{}",
+          line,
+          line);
+      return;
+    }
     log.warn(
         "\n{}\n No account exists yet. Open the app and create one with this setup code:\n\n"
             + "     {}\n\n The code changes on every restart until setup is done.\n{}",
