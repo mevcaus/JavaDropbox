@@ -1,9 +1,11 @@
 package com.javadropbox.javadropbox.service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -38,14 +40,26 @@ public final class FolderArchive {
           continue;
         }
         String name = prefix + "/" + filename;
-        if (Files.isDirectory(entry)) {
-          addFolder(entry, name, zip);
-        } else {
-          zip.putNextEntry(new ZipEntry(name));
-          Files.copy(entry, zip);
-          zip.closeEntry();
+        try {
+          if (Files.isDirectory(entry)) {
+            addFolder(entry, name, zip);
+          } else {
+            addFile(entry, name, zip);
+          }
+        } catch (NoSuchFileException e) {
+          // Removed since the folder was listed, e.g. an upload's scratch file renamed into place.
+          // The response is already under way, so failing now would only truncate the zip.
         }
       }
+    }
+  }
+
+  private static void addFile(Path file, String name, ZipOutputStream zip) throws IOException {
+    // Opened before the entry is started, so a file that has just vanished leaves nothing behind.
+    try (InputStream in = Files.newInputStream(file)) {
+      zip.putNextEntry(new ZipEntry(name));
+      in.transferTo(zip);
+      zip.closeEntry();
     }
   }
 }
