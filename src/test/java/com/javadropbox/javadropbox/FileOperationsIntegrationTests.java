@@ -99,7 +99,7 @@ class FileOperationsIntegrationTests {
             multipart("/api/files")
                 .file(new MockMultipartFile("files", "empty.txt", "text/plain", new byte[0]))
                 .param("path", "")
-                .with(csrf()))
+                .with(csrf().asHeader()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
 
@@ -122,7 +122,7 @@ class FileOperationsIntegrationTests {
                 .file(new MockMultipartFile("files", "", "application/octet-stream", new byte[0]))
                 .file(new MockMultipartFile("files", "real.txt", "text/plain", "x".getBytes()))
                 .param("path", "")
-                .with(csrf()))
+                .with(csrf().asHeader()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
 
@@ -140,7 +140,7 @@ class FileOperationsIntegrationTests {
               multipart("/api/files")
                   .file(new MockMultipartFile("files", "b.txt", "text/plain", "y".getBytes()))
                   .param("path", folder)
-                  .with(csrf()))
+                  .with(csrf().asHeader()))
           .andExpect(status().isBadRequest())
           .andExpect(jsonPath("$.message").value("\"a.txt\" is a file, not a folder"));
     }
@@ -507,7 +507,7 @@ class FileOperationsIntegrationTests {
               multipart("/api/files")
                   .file(new MockMultipartFile("files", "a.txt", "text/plain", "x".getBytes()))
                   .param("path", "locked")
-                  .with(csrf()))
+                  .with(csrf().asHeader()))
           .andExpect(status().isInternalServerError());
     } finally {
       locked.toFile().setWritable(true);
