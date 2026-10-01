@@ -3,19 +3,16 @@ package com.javadropbox.javadropbox.controller;
 import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
-import com.javadropbox.javadropbox.service.FileService;
-import com.javadropbox.javadropbox.service.ShareTokenService;
-import io.jsonwebtoken.JwtException;
+import com.javadropbox.javadropbox.service.ShareLinkService;
+import com.javadropbox.javadropbox.service.ShareLinkService.CreatedLink;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Map;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,12 +34,10 @@ public class ShareController {
   private static final long DEFAULT_EXPIRATION_MINUTES = 24 * 60;
   private static final long MAX_EXPIRATION_MINUTES = 7 * 24 * 60;
 
-  private final ShareTokenService shareTokenService;
-  private final FileService fileService;
+  private final ShareLinkService shareLinkService;
 
-  public ShareController(ShareTokenService shareTokenService, FileService fileService) {
-    this.shareTokenService = shareTokenService;
-    this.fileService = fileService;
+  public ShareController(ShareLinkService shareLinkService) {
+    this.shareLinkService = shareLinkService;
   }
 
   @PostMapping("/api/share")
@@ -50,36 +45,26 @@ public class ShareController {
       summary = "Create share link",
       description =
           "Creates a time-limited share link for a specific path. Requires authentication.")
-  public ResponseEntity<?> createShareLink(
+  public Map<String, String> createShareLink(
       @RequestParam String path,
       @RequestParam(defaultValue = "" + DEFAULT_EXPIRATION_MINUTES) long expirationMinutes,
-      HttpServletRequest request) {
+      HttpServletRequest request)
+      throws IOException {
 
     if (expirationMinutes <= 0 || expirationMinutes > MAX_EXPIRATION_MINUTES) {
-      return ResponseEntity.badRequest()
-          .body(
-              Map.of(
-                  "message", "expirationMinutes must be between 1 and " + MAX_EXPIRATION_MINUTES));
+      throw new BadRequestException(
+          "expirationMinutes must be between 1 and " + MAX_EXPIRATION_MINUTES);
     }
 
-    if (!fileService.exists(path)) {
-      return ResponseEntity.notFound().build();
-    }
-
-    String token = shareTokenService.generateToken(path, expirationMinutes);
+    CreatedLink link = shareLinkService.create(path, Duration.ofMinutes(expirationMinutes));
     String shareUrl =
         ServletUriComponentsBuilder.fromRequestUri(request)
-            .replacePath("/share/" + token)
+            .replacePath("/share/" + link.token())
             .replaceQuery(null)
             .build()
             .toUriString();
 
-    return ResponseEntity.ok(
-        Map.of(
-            "url",
-            shareUrl,
-            "expiresAt",
-            Instant.now().plus(Duration.ofMinutes(expirationMinutes)).toString()));
+    return Map.of("url", shareUrl, "expiresAt", link.expiresAt().toString());
   }
 
   @GetMapping("/share/{token}")
@@ -88,18 +73,11 @@ public class ShareController {
       description = "Downloads a file using a share token. Publicly accessible.")
   public ResponseEntity<Resource> downloadSharedFile(
       @PathVariable String token, HttpServletResponse response) throws IOException {
-    String path;
-    try {
-      path = shareTokenService.resolvePath(token);
-    } catch (JwtException e) {
-      return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-    }
-
-    // The link may name something that has since been deleted, or (for a token minted before
-    // the root was refused) the root itself; either way there is nothing to hand out.
+    // Whatever the reason a link does not open, the public gets a bare 404: the messages name
+    // paths, which are none of their business.
     Download download;
     try {
-      download = fileService.download(path);
+      download = shareLinkService.open(token);
     } catch (NotFoundException | BadRequestException e) {
       return ResponseEntity.notFound().build();
     }
