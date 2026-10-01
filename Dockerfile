@@ -29,12 +29,15 @@ RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar -Pbund
 
 # 3. The runtime image.
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S javadropbox && adduser -S javadropbox -G javadropbox \
+# A fixed uid/gid, so a bind-mounted directory can be chowned to it and a base-image change
+# cannot hand the volume's files to a different user.
+RUN addgroup -S -g 10001 javadropbox && adduser -S -u 10001 -G javadropbox javadropbox \
     && mkdir /data && chown javadropbox:javadropbox /data
 WORKDIR /app
 COPY --from=backend /app/build/libs/*.jar app.jar
 
-USER javadropbox
+# Numeric, so runtimes can verify it is not root without reading /etc/passwd.
+USER 10001:10001
 # Stored files, their versions and the generated share-link key all live here.
 ENV JAVADROPBOX_SERVING_DIRECTORY=/data
 VOLUME /data
