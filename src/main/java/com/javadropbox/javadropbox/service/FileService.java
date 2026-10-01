@@ -9,6 +9,7 @@ import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.ShareLinkRepository;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,6 +46,7 @@ public class FileService {
   private final FileMetadataRepository files;
   private final FileVersionService versions;
   private final FileHistoryService history;
+  private final ShareLinkRepository shareLinks;
   private final AuthService authService;
   private final TransactionTemplate transactions;
 
@@ -53,12 +55,14 @@ public class FileService {
       FileMetadataRepository files,
       FileVersionService versions,
       FileHistoryService history,
+      ShareLinkRepository shareLinks,
       AuthService authService,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.files = files;
     this.versions = versions;
     this.history = history;
+    this.shareLinks = shareLinks;
     this.authService = authService;
     this.transactions = new TransactionTemplate(transactionManager);
   }
@@ -360,7 +364,7 @@ public class FileService {
   /**
    * The metadata row for a new item at {@code target}. A row can outlive its file, e.g. when the
    * file was removed outside the app; that {@code leftover} is reset rather than duplicated, and
-   * its versions (which belong to the old file) are dropped.
+   * its versions and share links (which belong to the old file) are dropped.
    */
   private FileMetadata claim(
       StoragePath target,
@@ -371,6 +375,7 @@ public class FileService {
     if (leftover.isPresent()) {
       FileMetadata row = leftover.get();
       versions.discardAll(row);
+      shareLinks.deleteByFile(row);
       row.startOver(size, isDirectory, owner);
       return files.save(row);
     }

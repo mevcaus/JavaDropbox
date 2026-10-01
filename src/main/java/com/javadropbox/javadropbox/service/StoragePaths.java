@@ -36,7 +36,7 @@ public class StoragePaths {
   /** Where previous versions of files are kept. */
   public static final String VERSIONS_DIR = ".versions";
 
-  /** Where the app keeps its own state, such as the generated share-link key. */
+  /** Where the app keeps its own state. */
   public static final String INTERNAL_DIR = ".javadropbox";
 
   private static final Set<String> RESERVED_DIRS = Set.of(VERSIONS_DIR, INTERNAL_DIR);

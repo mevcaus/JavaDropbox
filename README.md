@@ -58,12 +58,13 @@ A **full-stack, self-hosted cloud storage platform** built from scratch — insp
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │                       Service Layer                       │  │
 │  │  StoragePaths · FileService · FileTreeService             │  │
-│  │  FileVersionService · SetupService · ShareTokenService    │  │
+│  │  FileVersionService · SetupService · ShareLinkService     │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │                Spring Data JPA Repositories               │  │
-│  │      User · FileMetadata · FileVersion · FileHistory      │  │
+│  │             User · FileMetadata · FileVersion             │  │
+│  │                  FileHistory · ShareLink                  │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └────────────────────────────────┬────────────────────────────────┘
                                  │  JDBC
@@ -83,7 +84,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 | Layer | Responsibility | Key Classes |
 |-------|---------------|-------------|
 | **Controller** | Request routing, HTTP response formatting, serving the built SPA | `FileController`, `FileVersionController`, `HistoryController`, `ShareController`, `SetupController`, `AuthController`, `SpaController`, `ApiExceptionHandler` |
-| **Service** | Path validation, file I/O, versioning, audit log, setup, share tokens | `StoragePaths`, `FileService`, `FileTreeService`, `FileVersionService`, `FileHistoryService`, `SetupService`, `AuthService`, `ShareTokenService` |
+| **Service** | Path validation, file I/O, versioning, audit log, setup, share links | `StoragePaths`, `FileService`, `FileTreeService`, `FileVersionService`, `FileHistoryService`, `SetupService`, `AuthService`, `ShareLinkService` |
 | **Repository** | Data access via Spring Data JPA | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `UserRepository` |
 | **Model** | JPA entities mapping to PostgreSQL tables | `User`, `FileMetadata`, `FileVersion`, `FileHistory` |
 | **DTO** | API response shaping, decoupling internal models from API contracts | `FileTreeNode`, `FileVersionDto`, `FileHistoryDto`, `HistoryPage`, `Download` |
@@ -118,11 +119,12 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **Session-based auth** with `JSESSIONID` cookie and automatic 401 interception on the frontend via Axios interceptors
 
 ### Share Links
-- **Time-limited public links** — `POST /api/share` issues a stateless, HMAC-SHA256 signed JWT encoding the file path and expiry; no server-side token storage
-- **Per-install signing key** — Generated on first start and kept in `.javadropbox/share-jwt.key` (owner-only permissions) unless `APP_SHARE_JWT_SECRET` is set; no key ships with the code
-- **Public download** — `GET /share/{token}` validates signature and expiration, then streams the file through the same path-traversal-safe serving logic
-- **Bounded lifetime** — Expiration is capped at 7 days; links for nonexistent paths, and for the root folder, are rejected at creation
-- **Frontend** — Share icon in the file table opens a modal to pick an expiry and copy the generated link
+- **Time-limited public links** — `POST /api/share` creates a link stored in the `share_links` table. The URL carries only a random 32-byte token, which reveals nothing about the path; the server keeps just its SHA-256 hash, so the table cannot be used to rebuild a link
+- **Bound to the item** — A link belongs to the metadata row of the file or folder it was made for and is deleted with it, so a different item created later at the same path is never served by an old link. Sharing a file copied in by hand starts tracking it
+- **Revocable** — `GET /api/share?path=` lists a path's active links and `DELETE /api/share/{id}` revokes one; it then returns 404 like any unknown link
+- **Public download** — `GET /share/{token}` looks up the hash, refuses expired or revoked links and items that have moved or changed between file and folder, then streams the item through the same path-traversal-safe serving logic
+- **Bounded lifetime** — Expiration is capped at 7 days; links for nonexistent paths, and for the root folder, are rejected at creation. Expired links are pruned whenever a new one is made
+- **Frontend** — Share icon in the file table opens a modal to pick an expiry, copy the generated link (shown once), and see and revoke the item's active links
 
 ### API Documentation
 - **OpenAPI 3 spec** generated at runtime by springdoc from the actual Spring mappings, so it cannot drift from the code
@@ -157,8 +159,8 @@ Rather than shipping hardcoded credentials or requiring environment variables, t
 
 Reachable without authentication also means reachable by whoever finds the server first. So setup additionally needs a one-time code that the server prints to its log on startup (the approach Jupyter takes): the person who installed the server can read it, someone who merely found the address cannot.
 
-### Why Stateless JWT Share Links?
-Share links encode the file path and expiry in an HMAC-SHA256 signed JWT rather than storing tokens in a database table. The signature makes the link tamper-evident and the expiry self-enforcing, so no table needs cleaning up and no lookup happens on the download path. The tradeoff is that a link cannot be revoked before it expires — acceptable given the 7-day cap, and the share dialog says so. A folder link also serves the folder as it is at download time, including files added after the link was made.
+### Why Server-Side Share Links?
+Share links used to be stateless JWTs naming a path. That avoided a table, but a link could not be withdrawn without changing the signing key (killing every link), its path was readable by anyone holding it, it served whatever was at the path when opened, and the key itself had to live somewhere: in the served folder, where anything else exposing that folder exposed it. Storing links as rows with a random token fixes all of that at the cost of one indexed lookup per download. Only the token's hash is stored, so a database leak does not hand out working links. A folder link still serves the folder as it is at download time, including files added after the link was made.
 
 ### Why Redux Toolkit Over React Context?
 With async thunks for file operations (upload, delete, fetch, create directory), Redux Toolkit provides structured side-effect management via `createAsyncThunk`, built-in loading/error states, and DevTools integration — capabilities that would require significant boilerplate with plain Context + useReducer.
@@ -174,7 +176,6 @@ With async thunks for file operations (upload, delete, fetch, create directory),
 | **ORM** | Spring Data JPA + Hibernate | Object-relational mapping, repository pattern |
 | **Migrations** | Flyway | Versioned SQL schema migrations; Hibernate only validates |
 | **Database** | PostgreSQL 15 | Persistent storage for users, metadata, versions, history |
-| **Auth Tokens** | JJWT 0.12 | Signed, stateless share-link tokens (HMAC-SHA256) |
 | **API Docs** | springdoc-openapi 2.8 | OpenAPI 3 spec + Swagger UI generated from controllers |
 | **Testing** | JUnit 5, MockMvc, H2, Testcontainers | Backend integration tests on H2, plus real PostgreSQL for schema and setup tests |
 | **Frontend Testing** | Vitest, Testing Library, jsdom | Component tests driving the real DOM with real user events |
@@ -230,20 +231,21 @@ JavaDropbox/
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
 │   │   │   ├── StartupBanner.java       # Logs the bound port and serving directory
+│   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
 │   │   │   └── PasswordConfig.java      # BCrypt encoder bean
 │   │   ├── controller/
 │   │   │   ├── FileController.java      # Tree, upload, download, delete, folders, storage info
 │   │   │   ├── FileVersionController.java  # Version listing + restore
 │   │   │   ├── HistoryController.java   # Paged audit log
-│   │   │   ├── ShareController.java     # Share-link creation + public download
+│   │   │   ├── ShareController.java     # Share-link creation, listing, revoking + public download
 │   │   │   ├── SetupController.java     # First-run account creation
 │   │   │   ├── AuthController.java      # Current user
 │   │   │   ├── SpaController.java       # Serves the built app for client-side routes
 │   │   │   ├── DownloadResponses.java   # File/zip responses, Content-Disposition
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
-│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download
+│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, ShareLinkDto
 │   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
-│   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory
+│   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink
 │   │   ├── repository/             # Spring Data repositories
 │   │   └── service/
 │   │       ├── StoragePaths.java        # The one place client paths become filesystem paths
@@ -253,7 +255,7 @@ JavaDropbox/
 │   │       ├── FileHistoryService.java  # Audit log, including failures
 │   │       ├── FolderArchive.java       # Streams a folder as a zip
 │   │       ├── SetupService.java        # Setup code + first account
-│   │       ├── ShareTokenService.java   # JWT signing/validation, generated key
+│   │       ├── ShareLinkService.java    # Share links: random tokens, stored hashed, bound to their item
 │   │       └── AuthService.java         # Current user, setup state
 │   └── db/migration/
 │       └── V3__timestamps_with_time_zone.java  # Java migration (needs the JVM's zone)
@@ -333,7 +335,7 @@ The image bundles the frontend into the backend, so one container serves the who
 docker compose --profile app up --build
 ```
 
-Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files, their versions and the share-link key live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
 
 Behind a reverse proxy that terminates TLS, forward `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, so the sign-in throttle sees each client's real address and share links carry your public `https://` address. The app only believes these headers from the proxies in `server.tomcat.remoteip.internal-proxies`, a regular expression matched against the connecting address; from anyone else they are ignored, so a client cannot choose its own address. It trusts loopback only by default, which suits a proxy on the same host. For a proxy anywhere else, such as another container, set `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES` to its address, e.g. `172\.18\.0\.2`. Don't widen it to a whole network that untrusted machines can connect from.
 
@@ -346,11 +348,12 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
-| `app.share.jwt-secret` | generated per install | Share-link signing key (base64, ≥ 256 bits); set only to share a key between instances |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
+
+`app.share.jwt-secret` (`APP_SHARE_JWT_SECRET`) is gone: share links are stored on the server and no longer signed. The app refuses to start while it is set, so remove it when upgrading. A `.javadropbox/share-jwt.key` left by an earlier version is deleted on startup.
 
 ---
 
@@ -368,7 +371,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 **Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
 
-**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history.
+**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`).
 
 **Tests.** The H2 integration tests keep `ddl-auto=create-drop` with Flyway disabled, because the migrations are PostgreSQL SQL. Tests that need the real schema run against Testcontainers PostgreSQL through `PostgresTestSupport`, which applies the production Flyway and `ddl-auto` settings unchanged.
 
@@ -411,7 +414,9 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Issue a signed, time-limited share link (max 7 days; not for the root) |
+| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Create a time-limited share link (max 7 days; not for the root): `{url, expiresAt}`. The URL is only returned here |
+| `GET` | `/api/share?path=<path>` | ✅ | The path's links that have not expired or been revoked, soonest to expire first: `[{id, createdAt, expiresAt, createdBy}]` |
+| `DELETE` | `/api/share/{id}` | ✅ | Revoke a link; it stops working at once |
 | `GET` | `/share/{token}` | ❌ | Download a shared file or folder via its token |
 
 ### History
@@ -440,14 +445,15 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `MultipartErrorIntegrationTests` | On a real Tomcat: a server fault storing an upload is a 500, a malformed upload a 400 |
 | `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, in-root symlinks aliasing the root or a reserved folder, the reserved `.versions`/`.javadropbox` directories in any letter case, dot-named uploads and folders, single-segment upload names |
 | `StoragePathsTests`, `SymlinkSwapTests`, `StorageFilesTests`, `DownloadResponsesTests` | Path resolution on disk and on an in-memory case-insensitive filesystem (Jimfs), symlinks swapped in after the check for zip, delete, upload and download, upload scratch-file permissions |
-| `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items or the root |
+| `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
 | `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
 | `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
 | `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
 | `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
-| `ShareLinkIntegrationTests` / `ShareTokenServiceTests` | Link issue/expiry/tamper and public download; the generated per-install key, and rejection of tokens signed with the formerly published key |
+| `ShareLinkIntegrationTests` | Link creation, expiry, listing and revoking, public download; tokens that reveal no path and are stored only hashed; links dying with their item even when the path is reused or the item changes type |
+| `RetiredShareKeyTests` / `FlywayShareLinksMigrationTests` | No signing key is created, a leftover (even empty) key file is deleted, a configured secret stops startup; on PostgreSQL, links are deleted with their file and token hashes are unique |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
 | `FlywayMigrationIntegrationTests` / `FlywayBaselineIntegrationTests` | Migrations build an empty PostgreSQL database, and a pre-Flyway database is adopted; Hibernate validates both |
@@ -475,7 +481,7 @@ npm test
 | `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting |
 | `Modal.test.jsx` | Escape, focus trap (including focus outside the panel or on a removed control) and focus restore with a fallback |
 | `CreateFolderModal.test.jsx` | Closing only once the folder exists, the pending state, inline server errors, the dot-name rule |
-| `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item |
+| `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item, listing and revoking active links |
 | `VersionHistoryModal.test.jsx` | Listing versions, restoring in either mode, a restore for one file not affecting the next file's dialog |
 | `Login.test.jsx`, `Setup.test.jsx`, `Navbar.test.jsx` | Offering setup only while no account exists, errors announced as alerts, setup code and password checks, a failed logout keeping the user signed in |
 | `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
