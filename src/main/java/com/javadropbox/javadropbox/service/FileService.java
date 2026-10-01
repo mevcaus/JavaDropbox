@@ -113,8 +113,12 @@ public class FileService {
       existing = existing.getParent();
     }
     if (!Files.isDirectory(existing)) {
-      throw new BadRequestException(
-          "\"" + storagePaths.keyOf(existing) + "\" is a file, not a folder");
+      // existing is an ancestor of the folder, so its key is the folder's with segments dropped.
+      String key = folder.key();
+      for (int up = folder.path().getNameCount() - existing.getNameCount(); up > 0; up--) {
+        key = parentKey(key);
+      }
+      throw new BadRequestException("\"" + key + "\" is a file, not a folder");
     }
     Files.createDirectories(folder.path());
   }
@@ -142,7 +146,7 @@ public class FileService {
                     ? row.orElseGet(() -> track(target, size, user))
                     : claim(target, row, false, size, user);
             if (replacing) {
-              versions.archive(file, target.path(), user);
+              versions.archive(file, StoragePaths.recheck(target.path()), user);
             }
             moveIntoPlace(scratch, target.path(), replacing);
 
@@ -204,7 +208,7 @@ public class FileService {
       inTransaction(
           () -> {
             FileMetadata folder = claim(target, files.lockByPath(target.key()), true, 0, user);
-            Files.createDirectory(target.path());
+            Files.createDirectory(StoragePaths.recheck(target.path()));
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
           });
     } catch (IOException | RuntimeException e) {
@@ -254,7 +258,7 @@ public class FileService {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
       boolean replacing = Files.exists(live.path());
       if (replacing) {
-        versions.archive(file, live.path(), user);
+        versions.archive(file, StoragePaths.recheck(live.path()), user);
       }
       moveIntoPlace(scratch, live.path(), replacing);
     } finally {
@@ -305,7 +309,7 @@ public class FileService {
       StoragePath candidate =
           storagePaths.resolveChild(parent, base + "_v" + number + suffix + extension);
       try {
-        Files.createFile(candidate.path());
+        Files.createFile(StoragePaths.recheck(candidate.path()));
         return candidate;
       } catch (FileAlreadyExistsException e) {
         // Taken; try the next one.

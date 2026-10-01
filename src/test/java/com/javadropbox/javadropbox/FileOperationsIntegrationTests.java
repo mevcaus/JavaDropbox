@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -26,13 +27,16 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.AfterEach;
@@ -265,6 +269,23 @@ class FileOperationsIntegrationTests {
 
     assertThat(servingDir.resolve("a/report.txt")).hasContent("a1");
     assertThat(servingDir.resolve("b/report.txt")).hasContent("b1");
+  }
+
+  @Test
+  @DisplayName("uploaded and restored files get the permissions of any new file")
+  void uploadedAndRestoredFilesHaveDefaultPermissions() throws Exception {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
+    Set<PosixFilePermission> ordinary =
+        Files.getPosixFilePermissions(Files.createFile(servingDir.resolve("ordinary.txt")));
+
+    upload("", "report.txt", "one");
+    upload("", "report.txt", "two");
+    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report.txt"))).isEqualTo(ordinary);
+    restore(idOf("report.txt"), 1, "OVERWRITE");
+    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report.txt"))).isEqualTo(ordinary);
+    restore(idOf("report.txt"), 1, "COPY");
+    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report_v1.txt")))
+        .isEqualTo(ordinary);
   }
 
   @Test
@@ -558,6 +579,35 @@ class FileOperationsIntegrationTests {
     mockMvc
         .perform(post("/api/files/" + idOf("one.txt") + "/versions/7/restore").with(csrf()))
         .andExpect(status().isNotFound());
+  }
+
+  // --- letter case -------------------------------------------------------------
+
+  @Test
+  @DisplayName("an upload spelled in a different letter case replaces the file under its one row")
+  void caseVariantUploadKeepsOneRow() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    upload("", "report.txt", "one");
+    upload("", "report.txt", "two");
+    upload("", "Report.txt", "three");
+
+    assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("report.txt");
+    assertThat(versions.findAll()).hasSize(2);
+    assertThat(servingDir.resolve("report.txt")).hasContent("three");
+  }
+
+  @Test
+  @DisplayName("deleting a file spelled in a different letter case removes its row")
+  void caseVariantDeleteRemovesTheRow() throws Exception {
+    FileSystemAssumptions.assumeCaseInsensitive(servingDir);
+    upload("", "notes.txt", "a");
+    upload("", "notes.txt", "b");
+
+    deletePath("NOTES.TXT");
+
+    assertThat(servingDir.resolve("notes.txt")).doesNotExist();
+    assertThat(metadata.findAll()).isEmpty();
+    assertThat(versions.findAll()).isEmpty();
   }
 
   // --- helpers ------------------------------------------------------------------
