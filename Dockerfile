@@ -39,5 +39,8 @@ USER javadropbox
 ENV JAVADROPBOX_SERVING_DIRECTORY=/data
 VOLUME /data
 EXPOSE 8080
+# The app shell is served without signing in, even before setup. Startup includes the migrations.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/index.html || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

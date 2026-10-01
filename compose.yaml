@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:15
+    # Back after a crash or a reboot, like the app that needs it.
+    restart: unless-stopped
     environment:
       POSTGRES_DB: javadropbox
       POSTGRES_USER: postgres
@@ -23,6 +25,8 @@ services:
   app:
     profiles: ["app"]
     build: .
+    # Restarts the app if it exits. The image's HEALTHCHECK shows in docker compose ps.
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
