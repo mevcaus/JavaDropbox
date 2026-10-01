@@ -278,7 +278,7 @@ JavaDropbox/
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| **JDK** | 21+ | [Download](https://www.oracle.com/java/technologies/downloads/) |
+| **JDK** | 17–24 to run Gradle; the build uses JDK 21 and downloads it if missing | [Download](https://adoptium.net/temurin/releases/?version=21) |
 | **Node.js** | 20.19+ or 22.12+ | [Download](https://nodejs.org/) |
 | **Docker** | Latest | [Download](https://www.docker.com/get-started) |
 
