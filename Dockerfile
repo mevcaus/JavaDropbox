@@ -6,6 +6,13 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# The PNGs are Git LFS objects. A clone without git-lfs has small text pointers in their
+# place, which build without complaint and ship an app with every logo broken.
+RUN pointers=$(find src public -name '*.png' -exec grep -l '^version https://git-lfs' {} +); \
+    if [ -n "$pointers" ]; then \
+      printf 'Git LFS pointers instead of images:\n%s\nInstall git-lfs, run "git lfs pull" and build again.\n' "$pointers" >&2; \
+      exit 1; \
+    fi
 RUN npm run build
 
 # 2. The backend jar, with the bundle inside it so one container serves everything.

@@ -281,6 +281,7 @@ JavaDropbox/
 | **JDK** | 17–24 to run Gradle; the build uses JDK 21 and downloads it if missing | [Download](https://adoptium.net/temurin/releases/?version=21) |
 | **Node.js** | 20.19+ or 22.12+ | [Download](https://nodejs.org/) |
 | **Docker** | Latest | [Download](https://www.docker.com/get-started) |
+| **Git LFS** | Any; run `git lfs install` once before cloning | [Download](https://git-lfs.com/) |
 
 ### 1. Clone the Repository
 
@@ -288,6 +289,8 @@ JavaDropbox/
 git clone https://github.com/mevcaus/JavaDropbox.git
 cd JavaDropbox
 ```
+
+The logos and favicon are stored in Git LFS. Cloned without it, they are small text pointers instead of images: run `git lfs pull` to fetch them. The Docker build stops with a message saying so rather than ship broken images.
 
 ### 2. Start Everything
 
