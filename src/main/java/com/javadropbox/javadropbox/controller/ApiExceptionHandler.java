@@ -5,6 +5,7 @@ import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.exception.TooManyRequestsException;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Map;
 import org.apache.tomcat.util.http.fileupload.impl.SizeException;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 /** Turns exceptions into {@code {"message": ...}} responses with the right status. */
 @RestControllerAdvice
@@ -63,8 +65,20 @@ public class ApiExceptionHandler {
 
   // Disk failures carry absolute paths and other server details; log them, don't return them.
   @ExceptionHandler(IOException.class)
-  public ResponseEntity<Map<String, String>> handleIo(IOException ex) {
+  public ResponseEntity<Map<String, String>> handleIo(
+      IOException ex, HttpServletResponse response) {
+    // Cancelling a download, or dropping the connection once a range has arrived, is routine, and
+    // there is nobody left to send an error to.
+    if (DisconnectedClientHelper.isClientDisconnectedException(ex)) {
+      log.debug("Client went away during a file operation: {}", ex.toString());
+      return null;
+    }
     log.error("File operation failed", ex);
+    // Part of a download has been sent: the status can no longer change and an error body would
+    // only corrupt what the client has.
+    if (response.isCommitted()) {
+      return null;
+    }
     return message(HttpStatus.INTERNAL_SERVER_ERROR, "The file operation could not be completed.");
   }
 
