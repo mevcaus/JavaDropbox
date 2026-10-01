@@ -281,9 +281,10 @@ JavaDropbox/
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| **JDK** | 21+ | [Download](https://www.oracle.com/java/technologies/downloads/) |
+| **JDK** | 17–24 to run Gradle; the build uses JDK 21 and downloads it if missing | [Download](https://adoptium.net/temurin/releases/?version=21) |
 | **Node.js** | 20.19+ or 22.12+ | [Download](https://nodejs.org/) |
 | **Docker** | Latest | [Download](https://www.docker.com/get-started) |
+| **Git LFS** | Any; run `git lfs install` once before cloning | [Download](https://git-lfs.com/) |
 
 ### 1. Clone the Repository
 
@@ -291,6 +292,8 @@ JavaDropbox/
 git clone https://github.com/mevcaus/JavaDropbox.git
 cd JavaDropbox
 ```
+
+The logos and favicon are stored in Git LFS. Cloned without it, they are small text pointers instead of images: run `git lfs pull` to fetch them. The Docker build stops with a message saying so rather than ship broken images.
 
 ### 2. Start Everything
 
@@ -325,7 +328,15 @@ npm run dev
 3. Log in with your new credentials
 4. Start uploading and managing files!
 
-> **Forgot your password?** Delete all rows from the `users` table in PostgreSQL and restart the app to trigger the setup flow again; a new setup code is printed on startup.
+> **Forgot your password?** Store a new bcrypt hash on your account. `htpasswd` makes one (run it from the `httpd` image as here, or use a local `htpasswd`, which can prompt for the password if you leave out `-b` and the password); replace `admin` with your username:
+>
+> ```bash
+> HASH=$(docker run --rm httpd:2.4-alpine htpasswd -nbBC 10 "" 'my-new-password' | tr -d ':\n')
+> docker compose exec postgres psql -U postgres -d javadropbox \
+>   -c "UPDATE users SET password = '$HASH' WHERE username = 'admin'"
+> ```
+>
+> `UPDATE 1` means it worked; the new password applies from the next sign-in, without a restart, and your files are untouched. `SELECT username FROM users` lists the accounts if you've forgotten the name too.
 
 ### Run with Docker
 
@@ -335,7 +346,9 @@ The image bundles the frontend into the backend, so one container serves the who
 docker compose --profile app up --build
 ```
 
-Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+
+The container runs as uid and gid `10001`. To keep the files in a host directory instead of the volume, mount it at `/data` and hand it to that user first, e.g. `sudo chown -R 10001:10001 /srv/javadropbox`. A volume created by an image from before the uid was fixed belongs to a different uid; hand it over once with `docker compose run --rm --no-deps --user root --entrypoint chown app -R 10001:10001 /data`.
 
 Behind a reverse proxy that terminates TLS, forward `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, so the sign-in throttle sees each client's real address and share links carry your public `https://` address. The app only believes these headers from the proxies in `server.tomcat.remoteip.internal-proxies`, a regular expression matched against the connecting address; from anyone else they are ignored, so a client cannot choose its own address. It trusts loopback only by default, which suits a proxy on the same host. For a proxy anywhere else, such as another container, set `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES` to its address, e.g. `172\.18\.0\.2`. Don't widen it to a whole network that untrusted machines can connect from.
 
@@ -389,7 +402,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 |--------|----------|:---:|-------------|
 | `POST` | `/setup` | ❌ | Create the first account (`code`, `username`, `password`); only while none exists |
 | `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded) |
-| `POST` | `/logout` | ✅ | Invalidate the session (POST only, with the CSRF header) |
+| `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user |
 
 ### Files and Folders
@@ -397,7 +410,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/files` | Full tree as recursive JSON |
-| `POST` | `/api/files` | Upload (`multipart/form-data`: `files[]` + `path`); replaced files keep their previous content as a version |
+| `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, plus `path`); replaced files keep their previous content as a version |
 | `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
 | `POST` | `/api/folders` | Create a folder (`path` + `name`) |
@@ -449,12 +462,13 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `FolderArchiveTests` | Zips leave out hidden files, FIFOs and entries that vanish while zipping, and keep empty folders |
 | `ClientAbortIntegrationTests` / `IoExceptionHandlingTests` | Cancelled file and zip downloads are logged at debug only (on real Tomcat); nothing is written into a response already under way |
 | `DownloadConnectionIntegrationTests` | A paused download holds no database connection, with a one-connection pool (on real Tomcat) |
-| `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
+| `SecurityIntegrationTests` | 401 for unauthenticated users, the API open to any signed-in account whatever its role, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
 | `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
 | `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
 | `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
 | `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
+| `PasswordRecoveryIntegrationTests` | The "Forgot your password?" procedure above, on PostgreSQL with uploaded files: an `htpasswd` hash set by `UPDATE` signs in |
 | `ShareLinkIntegrationTests` | Link creation, expiry, listing and revoking, public download; tokens that reveal no path and are stored only hashed; links dying with their item even when the path is reused or the item changes type |
 | `RetiredShareKeyTests` / `FlywayShareLinksMigrationTests` | No signing key is created, a leftover (even empty) key file is deleted, a configured secret stops startup; on PostgreSQL, links are deleted with their file and token hashes are unique |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
@@ -520,13 +534,13 @@ Push/PR to main
 │       Build Job          │  │       Docker Job         │  │      Frontend CI         │
 │                          │  │                          │  │   (frontend-ci.yml)      │
 │  JDK 21 (Temurin)        │  │  Checkout with LFS       │  │  npm ci                  │
-│  ./gradlew build         │  │  docker build .          │  │  npm run lint            │
-│   ├ tests (H2 +          │  │   (frontend bundle +     │  │  npm test                │
-│   │  Testcontainers)     │  │    backend jar)          │  │  npm run build           │
+│  ./gradlew build         │  │  compose up --wait       │  │  npm run lint            │
+│   ├ tests (H2 +          │  │   (healthchecks)         │  │  npm test                │
+│   │  Testcontainers)     │  │  curl / and its script   │  │  npm run build           │
 │   └ spotlessCheck        │  │                          │  │                          │
 └──────────────────────────┘  └──────────────────────────┘  └──────────────────────────┘
 
-Dependency Submission Job: generates the dependency graph for Dependabot alerts.
+Dependency Submission Job (pushes to main only): generates the dependency graph for Dependabot alerts.
 ```
 
 ---

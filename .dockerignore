@@ -4,9 +4,12 @@ build/
 bin/
 out/
 JDB/
-frontend/node_modules/
+# node_modules anywhere: the root one (start.sh) as well as the frontend's.
+**/node_modules
 frontend/dist/
 *.log
+# Local Vite env files are per-developer and would be baked into the bundle.
+**/.env*.local
 
 # Tooling and editor files
 .git
