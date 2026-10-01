@@ -12,6 +12,7 @@ final class TestDatabase {
   private TestDatabase() {}
 
   static void wipe(JdbcTemplate jdbc) {
+    jdbc.execute("DELETE FROM share_links");
     jdbc.execute("DELETE FROM file_history");
     jdbc.execute("DELETE FROM file_versions");
     jdbc.execute("DELETE FROM file_metadata");

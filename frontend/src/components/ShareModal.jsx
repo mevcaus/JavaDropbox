@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link2, Copy, Check, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
 import { readableError } from '../utils/errors';
+import { formatDate } from '../utils/date';
 import Modal, { ModalActions } from './Modal';
 import { primaryButton, secondaryButton } from './modalStyles';
 
@@ -21,14 +22,19 @@ const ShareModal = ({ isOpen, onClose, item }) => {
     const [copied, setCopied] = useState(false);
     const linkInputRef = useRef(null);
     const copiedTimerRef = useRef(null);
+    // Counts requests and item changes. The dialog stays mounted from one share to the next, so a
+    // slow answer for the previous item must not land in the dialog for this one.
+    const requestRef = useRef(0);
     const { addToast } = useToast();
 
     useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 
     // Reset state whenever a new item is shared
     useEffect(() => {
+        requestRef.current += 1;
         setShareUrl(null);
         setError(null);
+        setLoading(false);
         setCopied(false);
         setExpirationMinutes(EXPIRATION_OPTIONS[2].minutes);
     }, [item]);
@@ -36,6 +42,8 @@ const ShareModal = ({ isOpen, onClose, item }) => {
     if (!item) return null;
 
     const handleGenerate = async () => {
+        const request = ++requestRef.current;
+        const isCurrent = () => request === requestRef.current;
         setLoading(true);
         setError(null);
 
@@ -48,11 +56,11 @@ const ShareModal = ({ isOpen, onClose, item }) => {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             });
 
-            setShareUrl(response.data.url);
+            if (isCurrent()) setShareUrl(response.data.url);
         } catch (err) {
-            setError(readableError(err, 'Failed to create share link.'));
+            if (isCurrent()) setError(readableError(err, 'Failed to create share link.'));
         } finally {
-            setLoading(false);
+            if (isCurrent()) setLoading(false);
         }
     };
 
@@ -102,9 +110,8 @@ const ShareModal = ({ isOpen, onClose, item }) => {
                         </select>
                     </div>
                     <p className="text-sm text-gray-500">
-                        Anyone with the link can download this {kind} until it expires. No account is required.
-                        {item.isDirectory && ' The link always serves the folder as it is at the time of download, including files added later.'}{' '}
-                        A link cannot be withdrawn before it expires.
+                        Anyone with the link can download this {kind} until it expires or is revoked. No account is required.
+                        {item.isDirectory && ' The link always serves the folder as it is at the time of download, including files added later.'}
                     </p>
                     {error && <p className="text-sm text-red-500">{error}</p>}
                 </div>
@@ -131,9 +138,11 @@ const ShareModal = ({ isOpen, onClose, item }) => {
                     </div>
                     <p className="text-sm text-gray-500">
                         This link expires in {EXPIRATION_OPTIONS.find((o) => o.minutes === expirationMinutes)?.label || `${expirationMinutes} minutes`}.
+                        Copy it now: it can't be shown again, though it can be revoked below.
                     </p>
                 </div>
             )}
+            <ActiveLinks path={item.path} reloadKey={shareUrl} />
             <ModalActions>
                 {!shareUrl && (
                     <button type="button" disabled={loading} className={primaryButton.blue} onClick={handleGenerate}>
@@ -145,6 +154,81 @@ const ShareModal = ({ isOpen, onClose, item }) => {
                 </button>
             </ModalActions>
         </Modal>
+    );
+};
+
+// The item's links that still work, each with a Revoke button. Only a hash of a link's token is
+// stored, so a link's URL cannot be shown again here. Reloaded when a new link is generated.
+const ActiveLinks = ({ path, reloadKey }) => {
+    const [links, setLinks] = useState([]);
+    const [error, setError] = useState(null);
+    const [revoking, setRevoking] = useState(null);
+    const headingId = useId();
+    const { addToast } = useToast();
+
+    useEffect(() => {
+        let cancelled = false;
+        setLinks([]);
+        setError(null);
+        api.get('/api/share', { params: { path } })
+            .then((response) => !cancelled && setLinks(response.data))
+            .catch((err) => !cancelled && setError(readableError(err, 'Could not load the active links.')));
+        return () => {
+            cancelled = true;
+        };
+    }, [path, reloadKey]);
+
+    const revoke = async (link) => {
+        setRevoking(link.id);
+        setError(null);
+        try {
+            await api.delete(`/api/share/${link.id}`);
+            setLinks((current) => current.filter((l) => l.id !== link.id));
+            addToast('Link revoked', 'success');
+        } catch (err) {
+            setError(readableError(err, 'Could not revoke the link.'));
+        } finally {
+            setRevoking(null);
+        }
+    };
+
+    if (links.length === 0 && !error) return null;
+
+    return (
+        <div className="mt-4">
+            {links.length > 0 && (
+                <>
+                    <h4 id={headingId} className="text-sm font-medium text-gray-700 mb-1">
+                        Active links
+                    </h4>
+                    <ul
+                        aria-labelledby={headingId}
+                        className="divide-y divide-gray-200 border border-gray-200 rounded-md max-h-48 overflow-y-auto"
+                    >
+                        {links.map((link) => (
+                            <li key={link.id} className="px-3 py-2 flex items-center gap-2 justify-between">
+                                <div className="text-sm">
+                                    <div className="text-gray-900">Expires {formatDate(link.expiresAt)}</div>
+                                    <div className="text-xs text-gray-500">
+                                        Created {formatDate(link.createdAt)} · {link.createdBy}
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={revoking !== null}
+                                    onClick={() => revoke(link)}
+                                    aria-label={`Revoke the link that expires ${formatDate(link.expiresAt)}`}
+                                    className="text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                >
+                                    {revoking === link.id ? 'Revoking…' : 'Revoke'}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </>
+            )}
+            {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
+        </div>
     );
 };
 

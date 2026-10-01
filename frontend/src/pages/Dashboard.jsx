@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSearchParams } from 'react-router-dom';
 import {
     fetchFiles,
     deleteItem,
-    setCurrentPath,
     selectCurrentFiles,
     createDirectory,
     uploadFiles,
@@ -16,6 +16,7 @@ import CreateFolderModal from '../components/CreateFolderModal';
 import ShareModal from '../components/ShareModal';
 import VersionHistoryModal from '../components/VersionHistoryModal';
 import { useToast } from '../hooks/useToast';
+import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
 import { Loader2, FolderPlus, Upload as UploadIcon } from 'lucide-react';
 
 // Search results carry their own relativePath; a plain row in this folder may not.
@@ -24,8 +25,12 @@ const pathOf = (file, currentPath) =>
 
 const Dashboard = () => {
     const dispatch = useDispatch();
-    const files = useSelector(selectCurrentFiles);
-    const { loading, loaded, error, currentPath } = useSelector((state) => state.files);
+    // The folder being viewed lives in the URL, so a reload keeps it and Back/Forward move
+    // between folders.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const currentPath = searchParams.get('path') ?? '';
+    const files = useSelector((state) => selectCurrentFiles(state, currentPath));
+    const { loading, loaded, error } = useSelector((state) => state.files);
     const { addToast } = useToast();
 
     const [itemToDelete, setItemToDelete] = useState(null);
@@ -42,23 +47,27 @@ const Dashboard = () => {
     // FileTable hands back the folder's full path, which is what search results need: a nested
     // match cannot be located by name alone.
     const handleNavigate = (path) => {
-        dispatch(setCurrentPath(path));
+        setSearchParams(path ? { path } : {});
     };
 
+    // A failure propagates to CreateFolderModal, which stays open and shows it next to the name.
     const handleCreateFolder = async (folderName) => {
-        try {
-            await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
-            addToast(`Folder "${folderName}" created successfully.`, 'success');
-        } catch (err) {
-            addToast(err, 'error');
-        }
+        await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
+        addToast(`Folder "${folderName}" created successfully.`, 'success');
     };
 
     const handleFileUpload = async (e) => {
         const input = e.target;
-        const selected = Array.from(input.files ?? []);
+        const chosen = Array.from(input.files ?? []);
         // Clear the input so choosing the same file again still fires a change event.
         input.value = '';
+
+        const skipped = chosen.filter((file) => startsWithDot(file.name));
+        if (skipped.length > 0) {
+            const names = skipped.map((file) => file.name).join(', ');
+            addToast(`${names} ${skipped.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`, 'error');
+        }
+        const selected = chosen.filter((file) => !startsWithDot(file.name));
         if (selected.length === 0) return;
 
         setIsUploading(true);

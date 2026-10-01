@@ -3,6 +3,9 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.dto.FileHistoryDto;
 import com.javadropbox.javadropbox.dto.HistoryPage;
 import com.javadropbox.javadropbox.exception.BadRequestException;
+import com.javadropbox.javadropbox.exception.ConflictException;
+import com.javadropbox.javadropbox.exception.ForbiddenException;
+import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileHistory;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.FileMetadata;
@@ -10,6 +13,8 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -44,11 +49,14 @@ public class FileHistoryService {
     if (page < 0 || size < 1) {
       throw new BadRequestException("page must be 0 or more and size at least 1");
     }
+    int pageSize = Math.min(size, MAX_PAGE_SIZE);
+    // The query's offset is an int; a page beyond it could never hold anything anyway.
+    if ((long) page * pageSize > Integer.MAX_VALUE) {
+      throw new BadRequestException("page is out of range");
+    }
     PageRequest request =
         PageRequest.of(
-            page,
-            Math.min(size, MAX_PAGE_SIZE),
-            Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id")));
+            page, pageSize, Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id")));
     Page<FileHistory> result = repository.findAll(request);
     return new HistoryPage(
         result.getContent().stream().map(FileHistoryDto::fromEntity).toList(),
@@ -78,7 +86,7 @@ public class FileHistoryService {
    */
   public void recordFailure(
       String path, String filename, ChangeType changeType, User user, Exception cause) {
-    String message = cause.getMessage() != null ? cause.getMessage() : cause.getClass().getName();
+    String message = clientSafeMessage(cause);
     // Programmatic rather than @Transactional so the catch also covers the commit, which is where
     // a rejected insert surfaces.
     try {
@@ -88,5 +96,23 @@ public class FileHistoryService {
     } catch (RuntimeException e) {
       log.error("Could not record a failed {} of {}", changeType, path, e);
     }
+  }
+
+  // The history is shown to clients, so it gets what the API would answer them: the messages of
+  // our own 4xx exceptions, which are written for them, and a generic text otherwise -- a disk
+  // error's message carries absolute paths. The caller rethrows the exception, and the exception
+  // handler (or the servlet container) logs the details.
+  private static String clientSafeMessage(Exception cause) {
+    if (cause instanceof BadRequestException
+        || cause instanceof NotFoundException
+        || cause instanceof ConflictException
+        || cause instanceof ForbiddenException) {
+      return cause.getMessage();
+    }
+    if (cause instanceof DataIntegrityViolationException
+        || cause instanceof ConcurrencyFailureException) {
+      return "It conflicted with another change.";
+    }
+    return "The operation could not be completed.";
   }
 }

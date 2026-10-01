@@ -80,8 +80,8 @@ public class FileController {
       @RequestParam("files") MultipartFile[] files,
       @RequestParam(value = "path", defaultValue = "") String path)
       throws IOException {
-    fileService.upload(files, path);
-    return Map.of("message", "Uploaded " + files.length + (files.length == 1 ? " file" : " files"));
+    int stored = fileService.upload(files, path);
+    return Map.of("message", "Uploaded " + stored + (stored == 1 ? " file" : " files"));
   }
 
   @DeleteMapping("/api/files")

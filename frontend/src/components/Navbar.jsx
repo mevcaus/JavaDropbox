@@ -2,13 +2,19 @@ import { Menu, LogOut, User } from 'lucide-react';
 import Logo from './Logo';
 import { useDispatch, useSelector } from 'react-redux';
 import { logoutUser } from '../features/authSlice';
+import { useToast } from '../hooks/useToast';
 
 const Navbar = ({ onMenuClick }) => {
     const dispatch = useDispatch();
     const { user } = useSelector((state) => state.auth);
+    const { addToast } = useToast();
 
-    const handleLogout = () => {
-        dispatch(logoutUser());
+    const handleLogout = async () => {
+        try {
+            await dispatch(logoutUser()).unwrap();
+        } catch {
+            addToast('Logout failed. Please try again.', 'error');
+        }
     };
 
     return (

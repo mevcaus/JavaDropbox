@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { History, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
@@ -18,9 +18,14 @@ const VersionHistoryModal = ({ isOpen, onClose, file, onRestored }) => {
     const [versions, setVersions] = useState(null);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(null);
+    // Changes whenever the dialog is closed or shows another file. It stays mounted from one file
+    // to the next, so a restore that finishes later must not close or mark up another file's view.
+    const viewRef = useRef(0);
     const { addToast } = useToast();
 
     useEffect(() => {
+        viewRef.current += 1;
+        setBusy(null);
         if (!isOpen || !file) return undefined;
         let cancelled = false;
         setVersions(null);
@@ -36,20 +41,26 @@ const VersionHistoryModal = ({ isOpen, onClose, file, onRestored }) => {
     if (!file) return null;
 
     const restore = async (version, mode) => {
+        const view = viewRef.current;
+        const isCurrent = () => view === viewRef.current;
         setBusy(`${version}:${mode}`);
         setError(null);
         try {
             await api.post(`${versionsUrl(file.id)}/${version}/restore`, null, { params: { mode } });
+            // The restore happened whichever file is on screen now, so report it and refresh.
             addToast(
                 mode === 'COPY' ? `Version ${version} restored as a copy.` : `Version ${version} restored.`,
                 'success',
             );
             onRestored?.();
-            onClose();
+            if (isCurrent()) onClose();
         } catch (err) {
-            setError(readableError(err, 'Could not restore that version.'));
+            const message = readableError(err, 'Could not restore that version.');
+            // Once the dialog has moved on, a toast is the only place left to say so.
+            if (isCurrent()) setError(message);
+            else addToast(message, 'error');
         } finally {
-            setBusy(null);
+            if (isCurrent()) setBusy(null);
         }
     };
 

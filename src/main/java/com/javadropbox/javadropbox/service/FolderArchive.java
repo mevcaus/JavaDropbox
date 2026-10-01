@@ -29,7 +29,7 @@ public final class FolderArchive {
 
   private static void addFolder(Path folder, String prefix, ZipOutputStream zip)
       throws IOException {
-    try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
+    try (DirectoryStream<Path> entries = Files.newDirectoryStream(StoragePaths.recheck(folder))) {
       // An entry of its own, so a folder with nothing to archive still appears in the zip. Written
       // once the folder is open, so one that has just vanished leaves nothing behind.
       zip.putNextEntry(new ZipEntry(prefix + "/"));
@@ -62,7 +62,7 @@ public final class FolderArchive {
 
   private static void addFile(Path file, String name, ZipOutputStream zip) throws IOException {
     // Opened before the entry is started, so a file that has just vanished leaves nothing behind.
-    try (InputStream in = Files.newInputStream(file)) {
+    try (InputStream in = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
       zip.putNextEntry(new ZipEntry(name));
       in.transferTo(zip);
       zip.closeEntry();
