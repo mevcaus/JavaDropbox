@@ -567,7 +567,7 @@ class FileOperationsIntegrationTests {
         new MockMultipartFile(
             "files", name, "text/plain", content.getBytes(StandardCharsets.UTF_8));
     mockMvc
-        .perform(multipart("/api/files").file(file).param("path", folder).with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", folder).with(csrf().asHeader()))
         .andExpect(status().isOk());
   }
 

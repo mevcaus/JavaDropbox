@@ -4,6 +4,7 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
+import com.javadropbox.javadropbox.exception.TooManyRequestsException;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
@@ -16,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -50,6 +52,13 @@ public class ApiExceptionHandler {
   @ExceptionHandler(ConflictException.class)
   public ResponseEntity<Map<String, String>> handleConflict(ConflictException ex) {
     return message(HttpStatus.CONFLICT, ex.getMessage());
+  }
+
+  @ExceptionHandler(TooManyRequestsException.class)
+  public ResponseEntity<Map<String, String>> handleTooManyRequests(TooManyRequestsException ex) {
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfter().toSeconds()))
+        .body(Map.of("message", ex.getMessage()));
   }
 
   // Two requests creating the same path at once: the unique constraint on the path lets one win.

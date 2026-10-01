@@ -111,7 +111,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 ### Security
 - **Spring Security** integration with form-based login, session management and cookie-based CSRF protection
 - **BCrypt password hashing** via `PasswordEncoder`
-- **First-run setup flow** — `SetupFilter` redirects every request to `/setup` until the first account exists, and creating it requires a **one-time setup code printed in the server log**, so only whoever runs the server can claim it; five wrong guesses rotate the code
+- **First-run setup flow** — `SetupFilter` redirects every request to `/setup` until the first account exists, and creating it requires a **one-time setup code printed in the server log**, so only whoever runs the server can claim it; five wrong codes from one address lock that address out for 15 minutes, without changing the code
 - **Path safety** — Every client-supplied path goes through `StoragePaths`, which rejects anything outside the serving directory (after `..` is normalized *and* after symlinks are followed), the app's own `.versions/` and `.javadropbox/` directories, and the root itself for delete and share
 - **Sign-in throttling** — Five failed sign-ins from one address within 15 minutes lock it out for 15 minutes (`429` with `Retry-After`)
 - **CORS** — Off unless `app.cors.allowed-origins` lists origins (the dev profile allows the Vite dev server)
@@ -335,7 +335,7 @@ docker compose --profile app up --build
 
 Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files, their versions and the share-link key live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
 
-Behind a reverse proxy that terminates TLS, forward `X-Forwarded-Proto` and `X-Forwarded-Host` so share links carry your public `https://` address.
+Behind a reverse proxy that terminates TLS, forward `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, so the sign-in throttle sees each client's real address and share links carry your public `https://` address. The app only believes these headers from the proxies in `server.tomcat.remoteip.internal-proxies`, a regular expression matched against the connecting address; from anyone else they are ignored, so a client cannot choose its own address. It trusts loopback only by default, which suits a proxy on the same host. For a proxy anywhere else, such as another container, set `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES` to its address, e.g. `172\.18\.0\.2`. Don't widen it to a whole network that untrusted machines can connect from.
 
 ### Configuration
 
@@ -347,8 +347,9 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
 | `app.share.jwt-secret` | generated per install | Share-link signing key (base64, ≥ 256 bits); set only to share a key between instances |
-| `app.setup.code` | generated per start | Fixed setup code for scripted installs |
+| `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
+| `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
 
 ---
@@ -377,7 +378,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 All endpoints require authentication unless noted otherwise. For a live, interactive reference of all REST API endpoints, visit the [Swagger UI](http://localhost:8080/swagger-ui.html) while the backend runs with the `dev` profile (`./gradlew bootRun`).
 
-Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in is throttled.
+Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in or setup is throttled.
 
 ### Authentication
 
@@ -441,14 +442,17 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items or the root |
 | `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
-| `SetupIntegrationTests` | First-run redirects, the setup code, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
+| `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
+| `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
+| `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
+| `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
 | `ShareLinkIntegrationTests` / `ShareTokenServiceTests` | Link issue/expiry/tamper and public download; the generated per-install key, and rejection of tokens signed with the formerly published key |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
 | `FlywayMigrationIntegrationTests` / `FlywayBaselineIntegrationTests` | Migrations build an empty PostgreSQL database, and a pre-Flyway database is adopted; Hibernate validates both |
 | `FlywayFileVersionMigrationTests` | V4 drops duplicate version rows before making versions unique; V5 lets deletes find history rows through an index |
 | `FlywayIntegrityMigrationTests` / `FlywayTimestampMigrationTests` | V2 cleans up duplicate rows before adding constraints; V3 keeps each timestamp's instant under UTC, region and offset-style (`GMT+01:00`) JVM zones |
-| `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup-code rotation, lockout timing, command-line shorthands |
+| `SetupServiceTests`, `LoginAttemptLimiterTests`, `JavadropboxApplicationArgumentsTests` | Setup codes throttled per client, lockout timing and bounds, command-line shorthands |
 | `FileVersionServiceTests`, `ApiExceptionHandlerTests` | A negative retention limit stops startup; statuses for lost races and for upload parsing failures |
 
 ### Test Design Highlights

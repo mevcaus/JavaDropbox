@@ -159,7 +159,7 @@ class StoragePathSecurityTests {
         new MockMultipartFile("files", "notes..v2.txt", "text/plain", "hello".getBytes());
 
     mockMvc
-        .perform(multipart("/api/files").file(file).param("path", "").with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", "").with(csrf().asHeader()))
         .andExpect(status().isOk());
 
     assertThat(servingDir.resolve("notes..v2.txt")).hasContent("hello");
@@ -172,7 +172,7 @@ class StoragePathSecurityTests {
     MockMultipartFile file = new MockMultipartFile("files", name, "text/plain", "x".getBytes());
 
     mockMvc
-        .perform(multipart("/api/files").file(file).param("path", "").with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", "").with(csrf().asHeader()))
         .andExpect(status().isBadRequest());
   }
 }

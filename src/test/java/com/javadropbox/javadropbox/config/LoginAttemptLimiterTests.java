@@ -69,6 +69,86 @@ class LoginAttemptLimiterTests {
     assertThat(limiter.retryAfter(CLIENT)).isZero();
   }
 
+  @Test
+  @DisplayName("attempts still in progress count towards the limit")
+  void attemptsInProgressCount() {
+    for (int i = 0; i < 5; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+    }
+
+    assertThat(limiter.tryAcquire(CLIENT)).isPositive();
+  }
+
+  @Test
+  @DisplayName("an attempt in progress becomes a failure, and the fifth locks the address out")
+  void reservedAttemptsBecomeFailures() {
+    for (int i = 0; i < 5; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+      limiter.recordFailure(CLIENT);
+    }
+
+    assertThat(limiter.tryAcquire(CLIENT)).isEqualTo(Duration.ofMinutes(15));
+  }
+
+  @Test
+  @DisplayName("an attempt that ends without a verdict does not count")
+  void releasedAttemptsDoNotCount() {
+    for (int i = 0; i < 10; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+      limiter.release(CLIENT);
+    }
+
+    assertThat(limiter.retryAfter(CLIENT)).isZero();
+  }
+
+  @Test
+  @DisplayName("a lockout outlasting the window is still enforced")
+  void lockoutOutlastsTheWindow() {
+    fail(4);
+    clock.advance(Duration.ofMinutes(14));
+    fail(1);
+    clock.advance(Duration.ofMinutes(10));
+
+    assertThat(limiter.tryAcquire(CLIENT)).isEqualTo(Duration.ofMinutes(5));
+  }
+
+  @Test
+  @DisplayName("memory stays bounded however many addresses fail")
+  void trackedClientsAreBounded() {
+    for (int i = 0; i < LoginAttemptLimiter.MAX_CLIENTS * 2; i++) {
+      limiter.recordFailure("client-" + i);
+    }
+
+    assertThat(limiter.trackedClients()).isLessThanOrEqualTo(LoginAttemptLimiter.MAX_CLIENTS);
+    assertThat(limiter.retryAfter("client-" + (LoginAttemptLimiter.MAX_CLIENTS * 2 - 1))).isZero();
+  }
+
+  @Test
+  @DisplayName("when full, the address that failed longest ago is forgotten first")
+  void oldestClientIsEvictedFirst() {
+    fail(5);
+    for (int i = 0; i < LoginAttemptLimiter.MAX_CLIENTS; i++) {
+      limiter.recordFailure("client-" + i);
+    }
+
+    assertThat(limiter.trackedClients()).isEqualTo(LoginAttemptLimiter.MAX_CLIENTS);
+    assertThat(limiter.retryAfter(CLIENT)).as("the oldest entry was dropped").isZero();
+  }
+
+  @Test
+  @DisplayName("an address is forgotten once its window and lockout are both over")
+  void expiredClientsAreForgotten() {
+    fail(5);
+    for (int i = 0; i < 100; i++) {
+      limiter.recordFailure("client-" + i);
+    }
+
+    clock.advance(Duration.ofMinutes(15));
+    limiter.recordFailure("latecomer");
+
+    assertThat(limiter.trackedClients()).isEqualTo(1);
+  }
+
   private void fail(int times) {
     for (int i = 0; i < times; i++) {
       limiter.recordFailure(CLIENT);
