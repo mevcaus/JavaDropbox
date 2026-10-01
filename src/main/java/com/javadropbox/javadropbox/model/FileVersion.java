@@ -9,13 +9,19 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 /** A previous version of a file, kept under the versions directory. */
 @Entity
-@Table(name = "file_versions")
+@Table(
+    name = "file_versions",
+    uniqueConstraints =
+        @UniqueConstraint(
+            name = "uk_file_versions_file_version",
+            columnNames = {"file_id", "version"}))
 public class FileVersion {
 
   @Id
