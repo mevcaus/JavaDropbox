@@ -1,15 +1,19 @@
 package com.javadropbox.javadropbox.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -77,10 +81,39 @@ class FolderArchiveTests {
         (name, content) -> assertThat(content).isEqualTo("content " + name.replaceAll("\\D", "")));
   }
 
+  @Test
+  @DisplayName("a FIFO is left out rather than read, which would block forever")
+  void fifoIsSkipped() throws Exception {
+    Files.writeString(folder.resolve("a.txt"), "a");
+    Path fifo = folder.resolve("pipe");
+    makeFifo(fifo);
+
+    try {
+      byte[] zip = assertTimeoutPreemptively(Duration.ofSeconds(5), this::archive);
+
+      assertThat(unzip(zip)).containsOnlyKeys("project/a.txt");
+    } finally {
+      // If the archive did open the FIFO, a writer lets that thread finish instead of leaking.
+      // Opened read-write, which unlike write-only does not wait for a reader.
+      new RandomAccessFile(fifo.toFile(), "rw").close();
+    }
+  }
+
   private byte[] archive() throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     FolderArchive.write(folder, "project", out);
     return out.toByteArray();
+  }
+
+  /** Skips the test where there is no mkfifo, e.g. on Windows. */
+  private static void makeFifo(Path path) throws InterruptedException {
+    int exit;
+    try {
+      exit = new ProcessBuilder("mkfifo", path.toString()).inheritIO().start().waitFor();
+    } catch (IOException e) {
+      exit = -1;
+    }
+    assumeTrue(exit == 0, "needs mkfifo");
   }
 
   private static void deleteContents(Path dir) throws IOException {

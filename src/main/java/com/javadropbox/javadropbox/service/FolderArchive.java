@@ -5,8 +5,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -35,17 +37,17 @@ public final class FolderArchive {
         if (filename.startsWith(".")) {
           continue;
         }
-        // A symlink could lead outside the serving directory or back into this folder.
-        if (Files.isSymbolicLink(entry)) {
-          continue;
-        }
         String name = prefix + "/" + filename;
         try {
-          if (Files.isDirectory(entry)) {
+          BasicFileAttributes attributes =
+              Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+          if (attributes.isDirectory()) {
             addFolder(entry, name, zip);
-          } else {
+          } else if (attributes.isRegularFile()) {
             addFile(entry, name, zip);
           }
+          // Anything else is left out. A symlink could lead outside the serving directory or
+          // back into this folder; reading a FIFO or a device could block or never end.
         } catch (NoSuchFileException e) {
           // Removed since the folder was listed, e.g. an upload's scratch file renamed into place.
           // The response is already under way, so failing now would only truncate the zip.
