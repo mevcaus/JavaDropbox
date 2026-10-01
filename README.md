@@ -343,7 +343,7 @@ The image bundles the frontend into the backend, so one container serves the who
 docker compose --profile app up --build
 ```
 
-Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files, their versions and the share-link key live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files, their versions and the share-link key live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
 
 The container runs as uid and gid `10001`. To keep the files in a host directory instead of the volume, mount it at `/data` and hand it to that user first, e.g. `sudo chown -R 10001:10001 /srv/javadropbox`. A volume created by an image from before the uid was fixed belongs to a different uid; hand it over once with `docker compose run --rm --no-deps --user root --entrypoint chown app -R 10001:10001 /data`.
 
@@ -398,7 +398,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 |--------|----------|:---:|-------------|
 | `POST` | `/setup` | ❌ | Create the first account (`code`, `username`, `password`); only while none exists |
 | `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded) |
-| `POST` | `/logout` | ✅ | Invalidate the session (POST only, with the CSRF header) |
+| `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user |
 
 ### Files and Folders
@@ -406,7 +406,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/files` | Full tree as recursive JSON |
-| `POST` | `/api/files` | Upload (`multipart/form-data`: `files[]` + `path`); replaced files keep their previous content as a version |
+| `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, plus `path`); replaced files keep their previous content as a version |
 | `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
 | `POST` | `/api/folders` | Create a folder (`path` + `name`) |
@@ -450,7 +450,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `FileOperationsIntegrationTests` | Delete-then-recreate, folder deletes removing child rows and versions, restore in place and as a copy (twice), versions kept per path, pruning, untracked files versioned before replace, failed uploads keeping the old content, failures recorded despite rollback, attribution to the signed-in user, 404s, history paging |
 | `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, the reserved `.versions`/`.javadropbox` directories, single-segment upload names |
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items or the root |
-| `SecurityIntegrationTests` | 401 for unauthenticated users, role-based access, logout, JSON errors, the SPA shell served for client-side routes |
+| `SecurityIntegrationTests` | 401 for unauthenticated users, the API open to any signed-in account whatever its role, logout, JSON errors, the SPA shell served for client-side routes |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
 | `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
 | `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |

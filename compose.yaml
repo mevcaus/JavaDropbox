@@ -6,7 +6,8 @@ services:
     environment:
       POSTGRES_DB: javadropbox
       POSTGRES_USER: postgres
-      # Fine for local development. For anything else, set POSTGRES_PASSWORD.
+      # Fine for local development. For anything else, set POSTGRES_PASSWORD before
+      # the first start: Postgres only reads it when it creates the postgres-data volume.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
       # Local connections only: the app reaches it over the compose network.
