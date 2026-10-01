@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,6 +29,13 @@ import org.junit.jupiter.api.io.TempDir;
 class FolderArchiveTests {
 
   @TempDir Path folder;
+
+  // The app archives paths built on the real storage root, and FolderArchive refuses a path with a
+  // symlink along it, which a temp directory can have (/var on macOS).
+  @BeforeEach
+  void useRealPath() throws IOException {
+    folder = folder.toRealPath();
+  }
 
   @Test
   @DisplayName("hidden files and folders are left out, as in the file tree")

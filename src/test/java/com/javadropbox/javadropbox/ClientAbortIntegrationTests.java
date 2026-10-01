@@ -5,7 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import com.javadropbox.javadropbox.service.ShareTokenService;
+import com.javadropbox.javadropbox.service.ShareLinkService;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
@@ -55,7 +55,7 @@ class ClientAbortIntegrationTests {
   @LocalServerPort private int port;
 
   @Autowired private UserRepository users;
-  @Autowired private ShareTokenService shareTokens;
+  @Autowired private ShareLinkService shareLinks;
   @Autowired private JdbcTemplate jdbc;
 
   @BeforeAll
@@ -109,7 +109,7 @@ class ClientAbortIntegrationTests {
     int before = output.getOut().length();
     try (Socket socket = new Socket("localhost", port)) {
       OutputStream out = socket.getOutputStream();
-      String target = "/share/" + shareTokens.generateToken(path, 60);
+      String target = "/share/" + shareLinks.create(path, Duration.ofHours(1)).token();
       out.write(
           ("GET " + target + " HTTP/1.1\r\nHost: localhost\r\n\r\n")
               .getBytes(StandardCharsets.US_ASCII));

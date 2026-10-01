@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import com.javadropbox.javadropbox.service.ShareTokenService;
+import com.javadropbox.javadropbox.service.ShareLinkService;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,6 +13,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,7 +54,7 @@ class DownloadConnectionIntegrationTests {
   @LocalServerPort private int port;
 
   @Autowired private UserRepository users;
-  @Autowired private ShareTokenService shareTokens;
+  @Autowired private ShareLinkService shareLinks;
   @Autowired private JdbcTemplate jdbc;
 
   @BeforeEach
@@ -78,14 +79,14 @@ class DownloadConnectionIntegrationTests {
   @DisplayName("a paused download leaves the connection free for other requests")
   void pausedDownloadDoesNotHoldTheConnection() throws Exception {
     HttpTestClient http = new HttpTestClient(port);
-    String small = "/share/" + shareTokens.generateToken("small.txt", 60);
+    String small = "/share/" + shareLinks.create("small.txt", Duration.ofHours(1)).token();
     // Also lets the setup filter see that an account exists, so it stops asking the database.
     assertThat(http.get(small, Map.of()).statusCode()).isEqualTo(200);
 
     try (Socket slow = new Socket("localhost", port)) {
       slow.setReceiveBufferSize(4096);
       OutputStream out = slow.getOutputStream();
-      String path = "/share/" + shareTokens.generateToken("big.bin", 60);
+      String path = "/share/" + shareLinks.create("big.bin", Duration.ofHours(1)).token();
       out.write(
           ("GET " + path + " HTTP/1.1\r\nHost: localhost\r\n\r\n")
               .getBytes(StandardCharsets.US_ASCII));

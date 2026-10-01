@@ -150,8 +150,7 @@ class DownloadIntegrationTests {
     for (String path : new String[] {"page.html", "image.svg", "docs"}) {
       for (var request :
           new MockHttpServletRequestBuilder[] {
-            get("/api/files/download").param("path", path),
-            get("/share/" + shareTokens.generateToken(path, 60))
+            get("/api/files/download").param("path", path), get(share(path))
           }) {
         mockMvc
             .perform(request)
