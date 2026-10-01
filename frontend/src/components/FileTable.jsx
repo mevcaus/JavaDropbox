@@ -158,7 +158,9 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                 </p>
             )}
 
-            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+            {/* Scrolls sideways on a narrow screen, where the unwrapped columns are wider than the
+                viewport; clipping instead would cut off the actions column. */}
+            <div className="bg-white shadow overflow-x-auto sm:rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
@@ -196,7 +198,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                             e.stopPropagation(); // Prevent double trigger
                                                             onFolderClick(file.relativePath);
                                                         }}
-                                                        className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
+                                                        className="rounded-sm text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                                     >
                                                         {file.name}
                                                     </button>
@@ -213,8 +215,13 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         {formatDate(file.lastModified)}
                                     </td>
-                                    {/* Revealed on hover, and whenever one of the buttons has keyboard focus. */}
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                    {/* Each action names its file: a screen reader listing the buttons, or
+                                        tabbing through them, would otherwise hear only "Download, Share,
+                                        Delete" over and over.
+                                        Where the device can hover, revealed on hover and whenever one of the
+                                        buttons has keyboard focus. Touch screens cannot hover, so there
+                                        the actions are always shown. */}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                                         {onVersions && file.id && !file.isDirectory && (
                                             <button
                                                 onClick={(e) => {
@@ -223,7 +230,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                 }}
                                                 className="text-gray-500 hover:text-gray-800 mr-4"
                                                 title="Versions"
-                                                aria-label="Versions"
+                                                aria-label={`Versions of ${file.name}`}
                                             >
                                                 <History className="h-5 w-5" />
                                             </button>
@@ -235,7 +242,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                             }}
                                             className="text-indigo-600 hover:text-indigo-900 mr-4"
                                             title="Download"
-                                            aria-label="Download"
+                                            aria-label={`Download ${file.name}`}
                                         >
                                             <Download className="h-5 w-5" />
                                         </button>
@@ -246,7 +253,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                             }}
                                             className="text-blue-600 hover:text-blue-900 mr-4"
                                             title="Share"
-                                            aria-label="Share"
+                                            aria-label={`Share ${file.name}`}
                                         >
                                             <Share2 className="h-5 w-5" />
                                         </button>
@@ -257,7 +264,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                             }}
                                             className="text-red-600 hover:text-red-900"
                                             title="Delete"
-                                            aria-label="Delete"
+                                            aria-label={`Delete ${file.name}`}
                                         >
                                             <Trash2 className="h-5 w-5" />
                                         </button>

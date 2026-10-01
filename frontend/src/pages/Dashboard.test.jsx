@@ -3,8 +3,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import Dashboard from './Dashboard';
-import filesReducer from '../features/filesSlice';
+import filesReducer, { fetchFiles } from '../features/filesSlice';
 import authReducer from '../features/authSlice';
 import api from '../services/api';
 
@@ -17,15 +18,40 @@ vi.mock('../hooks/useToast', () => ({
 
 const TREE = [{ name: 'report.pdf', isDirectory: false, size: 10, lastModified: '2026-01-01T00:00:00Z', relativePath: 'report.pdf' }];
 
-const renderDashboard = () => {
+const PHOTOS_TREE = [
+    {
+        name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos',
+        children: [{ name: 'beach.jpg', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos/beach.jpg' }],
+    },
+    ...TREE,
+];
+
+// Shows the router's location and offers the browser's Back button.
+const LocationProbe = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    return (
+        <>
+            <output aria-label="Location">{`${location.pathname}${location.search}`}</output>
+            <button onClick={() => navigate(-1)}>Browser back</button>
+        </>
+    );
+};
+
+const renderDashboard = ({ url = '/dashboard' } = {}) => {
     const store = configureStore({ reducer: { auth: authReducer, files: filesReducer } });
     render(
         <Provider store={store}>
-            <Dashboard />
+            <MemoryRouter initialEntries={[url]}>
+                <Dashboard />
+                <LocationProbe />
+            </MemoryRouter>
         </Provider>,
     );
     return store;
 };
+
+const currentLocation = () => screen.getByLabelText('Location').textContent;
 
 describe('Dashboard', () => {
     afterEach(() => {
@@ -43,7 +69,7 @@ describe('Dashboard', () => {
         });
         renderDashboard();
 
-        await user.click(await screen.findByRole('button', { name: 'Download' }));
+        await user.click(await screen.findByRole('button', { name: 'Download report.pdf' }));
 
         expect(clicked).toEqual(['/api/files/download?path=report.pdf']);
         // Only the tree was fetched; the file itself never went through XHR.
@@ -56,7 +82,7 @@ describe('Dashboard', () => {
         api.post.mockResolvedValue({ data: {} });
         const user = userEvent.setup();
         renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
         const input = document.querySelector('input[type="file"]');
 
         await user.upload(input, new File(['x'], 'again.txt'));
@@ -65,21 +91,111 @@ describe('Dashboard', () => {
         expect(input.value).toBe('');
     });
 
+    it('skips files whose names start with a dot and says why', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        api.post.mockResolvedValue({ data: {} });
+        const user = userEvent.setup();
+        renderDashboard();
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+
+        await user.upload(document.querySelector('input[type="file"]'), [
+            new File(['x'], 'notes.txt'),
+            new File(['SECRET=1'], '.env'),
+        ]);
+
+        expect(addToast).toHaveBeenCalledWith('.env was not uploaded. Names cannot start with a dot.', 'error');
+        await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+        expect(api.post.mock.calls[0][1].getAll('files').map((file) => file.name)).toEqual(['notes.txt']);
+    });
+
+    it('sends nothing when every file starts with a dot', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        const user = userEvent.setup();
+        renderDashboard();
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+
+        await user.upload(document.querySelector('input[type="file"]'), [new File(['a'], '.env'), new File(['b'], '.npmrc')]);
+
+        expect(addToast).toHaveBeenCalledWith('.env, .npmrc were not uploaded. Names cannot start with a dot.', 'error');
+        expect(api.post).not.toHaveBeenCalled();
+    });
+
     it('keeps the table on screen while the list refreshes', async () => {
         api.get.mockResolvedValueOnce({ data: TREE });
         const store = renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
 
-        store.dispatch({ type: 'files/fetchFiles/pending' });
+        store.dispatch(fetchFiles.pending('refresh'));
 
-        expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Download report.pdf' })).toBeInTheDocument();
         expect(screen.queryByLabelText('Loading files')).not.toBeInTheDocument();
+    });
+
+    it('keeps the new-folder dialog open with the reason when the folder already exists', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'Photos already exists' } } });
+        const user = userEvent.setup();
+        renderDashboard();
+
+        await user.click(await screen.findByRole('button', { name: /New Folder/ }));
+        await user.type(screen.getByPlaceholderText('Folder Name'), 'Photos');
+        await user.click(screen.getByRole('button', { name: 'Create' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Photos already exists');
+        expect(screen.getByRole('dialog', { name: /Create New Folder/ })).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Folder Name')).toHaveValue('Photos');
+    });
+
+    describe('the current folder', () => {
+        it('is kept in the URL when a folder is opened', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            const user = userEvent.setup();
+            renderDashboard();
+
+            await user.click(await screen.findByRole('button', { name: 'Photos' }));
+
+            expect(currentLocation()).toBe('/dashboard?path=Photos');
+            expect(screen.getByText('beach.jpg')).toBeInTheDocument();
+        });
+
+        it('is read back from the URL, so a reload stays in the folder', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            renderDashboard({ url: '/dashboard?path=Photos' });
+
+            expect(await screen.findByText('beach.jpg')).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Photos' })).not.toBeInTheDocument();
+        });
+
+        it('follows Back to the previous folder', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            const user = userEvent.setup();
+            renderDashboard();
+
+            await user.click(await screen.findByRole('button', { name: 'Photos' }));
+            await user.click(screen.getByRole('button', { name: 'Browser back' }));
+
+            expect(currentLocation()).toBe('/dashboard');
+            expect(screen.getByRole('button', { name: 'Photos' })).toBeInTheDocument();
+        });
+
+        it('is where uploads go', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            api.post.mockResolvedValue({ data: {} });
+            const user = userEvent.setup();
+            renderDashboard({ url: '/dashboard?path=Photos' });
+            await screen.findByText('beach.jpg');
+
+            await user.upload(document.querySelector('input[type="file"]'), new File(['x'], 'sunset.jpg'));
+
+            await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+            expect(api.post.mock.calls[0][1].get('path')).toBe('Photos');
+        });
     });
 
     it('does not offer upload sources or installers that do not exist', async () => {
         api.get.mockResolvedValue({ data: TREE });
         renderDashboard();
-        await screen.findByRole('button', { name: 'Download' });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
 
         expect(screen.queryByText(/Google Drive|OneDrive|Install App/)).not.toBeInTheDocument();
     });

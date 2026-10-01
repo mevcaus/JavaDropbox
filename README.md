@@ -134,7 +134,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 
 ### Frontend
 - **React 19** SPA with **Redux Toolkit** for global state management
-- **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu
+- **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu; the open folder is kept in the URL (`/dashboard?path=...`), so a reload and Back/Forward keep it
 - **Smart file icons** — Context-aware icons based on file extension (images, video, audio, code, documents)
 - **File search** — Search box above the file table matches filenames (case-insensitive substring) across the open folder **and every folder beneath it**, flattening results into a list labelled with each match's full path; runs entirely client-side against the already-loaded tree, so no extra request is made
 - **Column sorting** — Name, Size, and Last Modified headers sort in either direction, keyboard-operable and annotated with `aria-sort`; folders stay grouped ahead of files in every ordering
@@ -319,7 +319,7 @@ npm run dev
 ### 3. Initial Setup
 
 1. Navigate to `http://localhost:5173`
-2. You'll be redirected to the **setup page**. Enter the **setup code** printed in the backend's log (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), then choose your admin username and password (at least 8 characters)
+2. While no account exists, the sign-in page offers **Set up the first user**; follow it to the **setup page** (the backend on port 8080 redirects there by itself). Enter the **setup code** printed in the backend's log (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), then choose your admin username and password (at least 8 characters)
 3. Log in with your new credentials
 4. Start uploading and managing files!
 
@@ -472,12 +472,15 @@ npm test
 
 | Test Suite | What It Covers |
 |-----------|----------------|
-| `Dashboard.test.jsx` | Downloads through a link rather than into memory, re-uploading the same file, keeping the table during refreshes |
-| `Modal.test.jsx` | Escape, focus trap and focus restore |
-| `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http |
-| `VersionHistoryModal.test.jsx` | Listing versions and restoring in either mode |
-| `Setup.test.jsx`, `authSlice.test.js`, `filesSlice.test.js`, `api.test.js` | Setup code and password checks, session handling (logout is a POST), CSRF priming, 401 handling |
-| `FileTable.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, and search clearing on folder navigation |
+| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting |
+| `Modal.test.jsx` | Escape, focus trap (including focus outside the panel or on a removed control) and focus restore with a fallback |
+| `CreateFolderModal.test.jsx` | Closing only once the folder exists, the pending state, inline server errors, the dot-name rule |
+| `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item |
+| `VersionHistoryModal.test.jsx` | Listing versions, restoring in either mode, a restore for one file not affecting the next file's dialog |
+| `Login.test.jsx`, `Setup.test.jsx`, `Navbar.test.jsx` | Offering setup only while no account exists, errors announced as alerts, setup code and password checks, a failed logout keeping the user signed in |
+| `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
+| `ToastContext.test.jsx` | Errors announced assertively, toasts held while hovered or focused |
+| `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, visible keyboard focus, the breadcrumb landmark |
 
 ### Code Style
 

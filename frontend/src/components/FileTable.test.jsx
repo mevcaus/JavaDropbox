@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FileTable from './FileTable';
+import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
 afterEach(cleanup);
 
@@ -253,7 +254,7 @@ describe('FileTable row actions', () => {
         screen.getAllByRole('row').find((row) => within(row).queryAllByText(name).length > 0);
 
     const actionButton = (name, action) =>
-        within(rowFor(name)).getByRole('button', { name: action });
+        within(rowFor(name)).getByRole('button', { name: `${action} ${name}` });
 
     it.each([
         ['onDownload', 'Download'],
@@ -322,6 +323,22 @@ describe('FileTable row actions', () => {
     });
 });
 
+describe('FileTable action names', () => {
+    it('says which file each action is for', () => {
+        const files = [
+            { name: 'a.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'a.txt', id: 1 },
+            { name: 'b.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'b.txt', id: 2 },
+        ];
+        render(<FileTable files={files} currentPath="" {...noopHandlers} onVersions={vi.fn()} />);
+
+        for (const name of ['a.txt', 'b.txt']) {
+            for (const label of [`Download ${name}`, `Share ${name}`, `Delete ${name}`, `Versions of ${name}`]) {
+                expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+            }
+        }
+    });
+});
+
 describe('FileTable versions action', () => {
     it('offers version history only for tracked files', async () => {
         const user = userEvent.setup();
@@ -330,8 +347,8 @@ describe('FileTable versions action', () => {
         const untracked = { name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' };
         render(<FileTable files={[tracked, untracked]} currentPath="" {...noopHandlers} onVersions={onVersions} />);
 
-        expect(screen.getAllByRole('button', { name: 'Versions' })).toHaveLength(1);
-        await user.click(screen.getByRole('button', { name: 'Versions' }));
+        expect(screen.getAllByRole('button', { name: /^Versions of/ })).toHaveLength(1);
+        await user.click(screen.getByRole('button', { name: 'Versions of kept.txt' }));
         expect(onVersions).toHaveBeenCalledWith(tracked);
     });
 
@@ -340,6 +357,35 @@ describe('FileTable versions action', () => {
 
         expect(screen.queryByText('Only You')).not.toBeInTheDocument();
         expect(screen.queryByRole('columnheader', { name: /Access/i })).not.toBeInTheDocument();
+    });
+});
+
+// jsdom has no layout engine, so these check the classes that decide it.
+describe('FileTable on narrow touch screens', () => {
+    const classesOf = (element) => element.className.split(/\s+/);
+
+    it('scrolls the table sideways instead of clipping the actions column', () => {
+        renderTable();
+        const wrapper = screen.getByRole('table').parentElement;
+
+        expect(classesOf(wrapper)).not.toContain('overflow-hidden');
+        expect(classesOf(wrapper)).toContain('overflow-x-auto');
+    });
+
+    it('hides the actions until hover only on devices that can hover', () => {
+        renderTable();
+        const actionsCell = within(screen.getAllByRole('row')[1]).getAllByRole('cell').at(-1);
+
+        // A bare opacity-0 would apply on phones too, where nothing ever hovers.
+        expect(classesOf(actionsCell)).not.toContain('opacity-0');
+        expect(classesOf(actionsCell)).toContain('[@media(hover:hover)]:opacity-0');
+    });
+});
+
+describe('FileTable keyboard focus', () => {
+    it('shows where focus is on every control, folder names included', () => {
+        const { container } = renderTable();
+        expect(controlsWithoutFocusIndicator(container)).toEqual([]);
     });
 });
 

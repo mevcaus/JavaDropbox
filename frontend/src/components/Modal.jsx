@@ -4,6 +4,14 @@ import { X } from 'lucide-react';
 const FOCUSABLE =
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// Where focus goes on close when the element that opened the dialog is gone (a deleted row's
+// button, say). MainLayout makes its <main> focusable for this.
+const FALLBACK_FOCUS = 'main[tabindex]';
+
+// Whether focus has nowhere sensible to be: on <body>, or on an element that was just disabled or
+// removed (browsers differ in when they move focus off those, so check for them directly).
+const isFocusLost = (active) => !active || active === document.body || active.disabled || !active.isConnected;
+
 /**
  * The dialog shell every modal shares. It behaves the way aria-modal promises: Escape closes it,
  * Tab stays inside it, focus moves in when it opens and back to where it was when it closes.
@@ -36,23 +44,40 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
             const focusable = [...panel.querySelectorAll(FOCUSABLE)];
             if (focusable.length === 0) {
                 event.preventDefault();
+                panel.focus();
                 return;
             }
             const first = focusable[0];
             const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
+            const active = document.activeElement;
+            // Focus can be outside (a toast above the overlay was clicked), on <body> (the focused
+            // control went away) or on the panel itself; the browser's own Tab would then step to
+            // the page behind, so bring it back in at the matching end.
+            if (active === panel || !panel.contains(active)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            } else if (event.shiftKey && active === first) {
                 event.preventDefault();
                 last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
+            } else if (!event.shiftKey && active === last) {
                 event.preventDefault();
                 first.focus();
             }
         };
 
+        // A focused button that is disabled or replaced (Generate turning into the link) drops
+        // focus to <body>; keep it in the dialog instead.
+        const observer = new MutationObserver(() => {
+            if (isFocusLost(document.activeElement)) panel.focus();
+        });
+        observer.observe(panel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+
         document.addEventListener('keydown', onKeyDown);
         return () => {
             document.removeEventListener('keydown', onKeyDown);
-            previouslyFocused?.focus?.();
+            observer.disconnect();
+            const target = isFocusLost(previouslyFocused) ? document.querySelector(FALLBACK_FOCUS) : previouslyFocused;
+            target?.focus?.();
         };
     }, [isOpen, initialFocusRef]);
 

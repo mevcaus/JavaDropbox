@@ -50,10 +50,13 @@ export const uploadFiles = createAsyncThunk(
             fileArray.forEach((file) => formData.append('files', file));
 
             const response = await api.post(FILES_ENDPOINT, formData);
-            dispatch(fetchFiles());
             return response.data;
         } catch (error) {
             return rejectWithValue(readableError(error, 'Failed to upload files.'));
+        } finally {
+            // Refresh even after a failure: the files are stored one at a time, so the ones before
+            // the failing file are already there.
+            dispatch(fetchFiles());
         }
     }
 );
@@ -64,44 +67,55 @@ export const deleteItem = createAsyncThunk(
     async (path, { rejectWithValue, dispatch }) => {
         try {
             await api.delete(FILES_ENDPOINT, { params: { path } });
-            dispatch(fetchFiles());
             return path;
         } catch (error) {
             return rejectWithValue(readableError(error, 'Failed to delete item.'));
+        } finally {
+            // Refresh even after a failure: the item may already be gone (a 404), or a folder may
+            // have been partly removed before the error.
+            dispatch(fetchFiles());
         }
     }
 );
 
+// The folder being viewed is not kept here: it lives in the URL (/dashboard?path=...), so a reload
+// or Back keeps it. Dashboard reads it from there and passes it to selectCurrentFiles.
 const initialState = {
     files: [],
-    currentPath: '',
     loading: false,
     // Whether the tree has loaded at least once. Refreshes after an upload or delete keep showing
     // the current tree instead of swapping the page for a spinner.
     loaded: false,
     error: null,
+    // The request whose answer the store is waiting for. Every mutation fires its own refresh, so
+    // answers can arrive out of order, and a reset (logout, expired session) clears this so that a
+    // request still in flight cannot put the previous session's tree back.
+    latestRequestId: null,
 };
+
+const isLatest = (state, action) => action.meta.requestId === state.latestRequestId;
 
 const filesSlice = createSlice({
     name: 'files',
     initialState,
-    reducers: {
-        setCurrentPath: (state, action) => {
-            state.currentPath = action.payload;
-        },
-    },
+    reducers: {},
     extraReducers: (builder) => {
         builder
-            .addCase(fetchFiles.pending, (state) => {
+            .addCase(fetchFiles.pending, (state, action) => {
+                state.latestRequestId = action.meta.requestId;
                 state.loading = true;
                 state.error = null;
             })
             .addCase(fetchFiles.fulfilled, (state, action) => {
+                if (!isLatest(state, action)) return;
+                state.latestRequestId = null;
                 state.loading = false;
                 state.loaded = true;
                 state.files = action.payload;
             })
             .addCase(fetchFiles.rejected, (state, action) => {
+                if (!isLatest(state, action)) return;
+                state.latestRequestId = null;
                 state.loading = false;
                 state.error = action.payload;
             })
@@ -111,19 +125,21 @@ const filesSlice = createSlice({
     },
 });
 
-
-export const { setCurrentPath } = filesSlice.actions;
+// One shared empty result: useSelector compares by reference, so a new [] on every call would
+// count as a change on every store update.
+const NO_FILES = Object.freeze([]);
 
 /**
- * Selector to get files for the current path from the file tree
+ * Selector to get the files in a folder of the file tree
  * @param {Object} state - Redux state
- * @returns {Array} Files in the current path
+ * @param {string} currentPath - The folder, as a path like "docs/2026"; empty for the root
+ * @returns {Array} Files in that folder
  */
-export const selectCurrentFiles = (state) => {
-    const { files, currentPath } = state.files;
+export const selectCurrentFiles = (state, currentPath) => {
+    const { files } = state.files;
 
     if (!Array.isArray(files)) {
-        return [];
+        return NO_FILES;
     }
 
     if (!currentPath) {
@@ -135,7 +151,7 @@ export const selectCurrentFiles = (state) => {
 
     for (const part of parts) {
         if (!Array.isArray(currentLevel)) {
-            return [];
+            return NO_FILES;
         }
 
         const folderNode = currentLevel.find(node => node.name === part && node.isDirectory);
@@ -143,11 +159,11 @@ export const selectCurrentFiles = (state) => {
         if (folderNode && folderNode.children) {
             currentLevel = folderNode.children;
         } else {
-            return [];
+            return NO_FILES;
         }
     }
 
-    return Array.isArray(currentLevel) ? currentLevel : [];
+    return Array.isArray(currentLevel) ? currentLevel : NO_FILES;
 };
 
 /**

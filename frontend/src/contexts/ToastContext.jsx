@@ -23,20 +23,23 @@ export const ToastProvider = ({ children }) => {
         <ToastContext.Provider value={contextValue}>
             {children}
             {/*
-                The live region is this always-mounted container, not the individual
+                The live regions are these always-mounted containers, not the individual
                 toasts: screen readers only announce changes inside a region that was
                 already in the DOM, so a region arriving together with its own text
-                tends to go unannounced.
+                tends to go unannounced. Errors go in an assertive region so they
+                interrupt; everything else waits its turn.
             */}
-            <div
-                role="status"
-                aria-live="polite"
-                aria-atomic="false"
-                className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2"
-            >
-                {toasts.map((toast) => (
-                    <Toast key={toast.id} toast={toast} onRemove={removeToast} />
-                ))}
+            <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+                <div role="alert" aria-atomic="false" className="flex flex-col gap-2">
+                    {toasts.filter((toast) => toast.type === 'error').map((toast) => (
+                        <Toast key={toast.id} toast={toast} onRemove={removeToast} />
+                    ))}
+                </div>
+                <div role="status" aria-live="polite" aria-atomic="false" className="flex flex-col gap-2">
+                    {toasts.filter((toast) => toast.type !== 'error').map((toast) => (
+                        <Toast key={toast.id} toast={toast} onRemove={removeToast} />
+                    ))}
+                </div>
             </div>
         </ToastContext.Provider>
     );
@@ -46,6 +49,11 @@ const Toast = ({ toast, onRemove }) => {
     const { id, type, message, duration = 4000 } = toast;
     const [isVisible, setIsVisible] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
+    // Hovered or holding keyboard focus: someone is reading it or about to act on it, so it
+    // must not vanish from under them (WCAG 2.2.1).
+    const [isHovered, setIsHovered] = useState(false);
+    const [isFocused, setIsFocused] = useState(false);
+    const isPaused = isHovered || isFocused;
 
     // Flip to the visible state on a later frame so the enter transition actually
     // runs. requestAnimationFrame never fires while the tab is hidden, so a timer
@@ -64,12 +72,13 @@ const Toast = ({ toast, onRemove }) => {
     }, []);
 
     // Count down only once the toast is on screen, so duration is the time it is
-    // actually visible rather than the time since it mounted.
+    // actually visible rather than the time since it mounted. A pause stops the
+    // countdown, and it starts over once the pointer and focus have left.
     useEffect(() => {
-        if (!isVisible) return undefined;
+        if (!isVisible || isPaused) return undefined;
         const timer = setTimeout(() => setIsClosing(true), duration);
         return () => clearTimeout(timer);
-    }, [isVisible, duration]);
+    }, [isVisible, isPaused, duration]);
 
     // transitionend never fires while nothing is painting, which would strand the
     // toast in the DOM permanently, so drop it on a timer as well.
@@ -81,6 +90,11 @@ const Toast = ({ toast, onRemove }) => {
 
     const handleClose = () => {
         setIsClosing(true);
+    };
+
+    const handleBlur = (event) => {
+        // Focus moving between the toast's own elements is not leaving it.
+        if (!event.currentTarget.contains(event.relatedTarget)) setIsFocused(false);
     };
 
     const handleTransitionEnd = (event) => {
@@ -111,6 +125,10 @@ const Toast = ({ toast, onRemove }) => {
                 show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
             } ${styles[type] || styles.info}`}
             onTransitionEnd={handleTransitionEnd}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={handleBlur}
         >
             <div className="flex-shrink-0">{icons[type] || icons.info}</div>
             <div className="flex-1 min-w-0">
