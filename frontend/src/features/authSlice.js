@@ -120,6 +120,11 @@ const authSlice = createSlice({
             .addCase(loginUser.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.payload || 'Login failed';
+                // Whoever just failed to sign in is not the previous user, so do not keep showing
+                // that user's session.
+                state.user = null;
+                state.isAuthenticated = false;
+                localStorage.removeItem('user');
             })
             .addCase(logoutUser.fulfilled, (state) => {
                 state.user = null;

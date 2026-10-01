@@ -124,8 +124,13 @@ describe('authSlice', () => {
             await store.dispatch(loginUser({ username: 'ada', password: 'wrong' }));
 
             // A rejected login must not silently keep the old session alive
-            expect(authState(store).error).toBe('Invalid credentials');
-            expect(authState(store).loading).toBe(false);
+            expect(authState(store)).toMatchObject({
+                error: 'Invalid credentials',
+                loading: false,
+                isAuthenticated: false,
+                user: null,
+            });
+            expect(localStorage.getItem('user')).toBeNull();
         });
     });
 
