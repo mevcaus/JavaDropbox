@@ -514,9 +514,9 @@ Push/PR to main
 │       Build Job          │  │       Docker Job         │  │      Frontend CI         │
 │                          │  │                          │  │   (frontend-ci.yml)      │
 │  JDK 21 (Temurin)        │  │  Checkout with LFS       │  │  npm ci                  │
-│  ./gradlew build         │  │  docker build .          │  │  npm run lint            │
-│   ├ tests (H2 +          │  │   (frontend bundle +     │  │  npm test                │
-│   │  Testcontainers)     │  │    backend jar)          │  │  npm run build           │
+│  ./gradlew build         │  │  compose up --wait       │  │  npm run lint            │
+│   ├ tests (H2 +          │  │   (healthchecks)         │  │  npm test                │
+│   │  Testcontainers)     │  │  curl / and its script   │  │  npm run build           │
 │   └ spotlessCheck        │  │                          │  │                          │
 └──────────────────────────┘  └──────────────────────────┘  └──────────────────────────┘
 

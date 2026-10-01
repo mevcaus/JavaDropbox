@@ -50,10 +50,29 @@ jobs:
         # The image bundles the frontend, whose logos are LFS objects.
         lfs: true
 
-    # The image compose.yaml runs; building it catches a broken Dockerfile or a
-    # frontend bundle that no longer builds into the jar.
-    - name: Build the Docker image
-      run: docker build -t javadropbox:ci .
+    # Runs the stack as the README tells users to. --wait returns once both
+    # services pass their healthchecks, and fails if either never does.
+    - name: Start the app with Docker Compose
+      run: docker compose --profile app up --build --detach --wait --wait-timeout 180
+
+    # The healthcheck only proves /index.html answers. Check that / (which
+    # redirects to the setup page on a fresh install) serves the built app
+    # shell, and that the script it loads is in the jar too.
+    - name: Check the app serves the frontend
+      run: |
+        shell=$(curl -fsSL http://localhost:8080/)
+        grep -q '<div id="root">' <<< "$shell"
+        script=$(grep -o '/assets/[^"]*\.js' <<< "$shell" | head -n 1)
+        test -n "$script"
+        curl -fsS -o /dev/null "http://localhost:8080$script"
+
+    - name: Show the logs
+      if: failure()
+      run: docker compose --profile app logs
+
+    - name: Stop the app
+      if: always()
+      run: docker compose --profile app down --volumes
 
   dependency-submission:
 
