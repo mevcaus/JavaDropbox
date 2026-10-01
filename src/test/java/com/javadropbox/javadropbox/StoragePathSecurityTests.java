@@ -140,7 +140,11 @@ class StoragePathSecurityTests {
         .perform(post("/api/share").param("path", ".Versions").with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
-        .perform(multipart("/api/files").file(forgedKey).param("path", ".Javadropbox").with(csrf()))
+        .perform(
+            multipart("/api/files")
+                .file(forgedKey)
+                .param("path", ".Javadropbox")
+                .with(csrf().asHeader()))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(post("/api/folders").param("path", ".VERSIONS").param("name", "x").with(csrf()))
@@ -226,7 +230,7 @@ class StoragePathSecurityTests {
     MockMultipartFile file = new MockMultipartFile("files", "x.txt", "text/plain", "x".getBytes());
     try {
       mockMvc
-          .perform(multipart("/api/files").file(file).param("path", "link").with(csrf()))
+          .perform(multipart("/api/files").file(file).param("path", "link").with(csrf().asHeader()))
           .andExpect(status().isBadRequest());
 
       assertThat(servingDir.resolve("sub/x.txt")).doesNotExist();
@@ -266,7 +270,7 @@ class StoragePathSecurityTests {
     MockMultipartFile file = new MockMultipartFile("files", "a.txt", "text/plain", "x".getBytes());
 
     mockMvc
-        .perform(multipart("/api/files").file(env).param("path", "").with(csrf()))
+        .perform(multipart("/api/files").file(env).param("path", "").with(csrf().asHeader()))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("dot")));
     mockMvc
@@ -274,7 +278,7 @@ class StoragePathSecurityTests {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("dot")));
     mockMvc
-        .perform(multipart("/api/files").file(file).param("path", ".cache").with(csrf()))
+        .perform(multipart("/api/files").file(file).param("path", ".cache").with(csrf().asHeader()))
         .andExpect(status().isBadRequest());
 
     assertThat(servingDir.resolve(".env")).doesNotExist();
