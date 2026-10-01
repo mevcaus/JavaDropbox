@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ShareModal from './ShareModal';
 import api from '../services/api';
+import { formatDate } from '../utils/date';
 
 vi.mock('../services/api');
 
@@ -15,6 +16,8 @@ afterEach(cleanup);
 
 const FILE = { name: 'document.pdf', path: 'documents/document.pdf', isDirectory: false };
 const SHARE_URL = 'http://localhost/share/12345';
+const LINK = { id: 7, createdAt: '2026-10-01T09:00:00Z', expiresAt: '2026-10-02T09:00:00Z', createdBy: 'ada' };
+const OTHER_LINK = { id: 8, createdAt: '2026-10-01T10:00:00Z', expiresAt: '2026-10-08T10:00:00Z', createdBy: 'ada' };
 
 const renderModal = (props = {}) => {
     const onClose = vi.fn();
@@ -37,6 +40,7 @@ describe('ShareModal', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         addToast.mockClear();
+        api.get.mockResolvedValue({ data: [] });
     });
 
     it('renders nothing when closed or when no item is selected', () => {
@@ -188,6 +192,98 @@ describe('ShareModal', () => {
         expect(screen.queryByDisplayValue(SHARE_URL)).not.toBeInTheDocument();
         expect(expirationSelect()).toHaveValue(String(60 * 24));
         expect(generateButton()).toBeInTheDocument();
+    });
+
+    it('says a link can be revoked, not that it cannot be withdrawn', () => {
+        renderModal();
+
+        expect(screen.getByText(/until it expires or is revoked/i)).toBeInTheDocument();
+        expect(screen.queryByText(/cannot be withdrawn/i)).not.toBeInTheDocument();
+    });
+
+    it('lists the active links of the item with their expiry', async () => {
+        api.get.mockResolvedValueOnce({ data: [LINK, OTHER_LINK] });
+        renderModal();
+
+        const list = await screen.findByRole('list', { name: /Active links/i });
+        expect(api.get).toHaveBeenCalledWith('/api/share', { params: { path: 'documents/document.pdf' } });
+        expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+        expect(within(list).getByText(`Expires ${formatDate(LINK.expiresAt)}`)).toBeInTheDocument();
+        expect(within(list).getAllByRole('button', { name: /Revoke/i })).toHaveLength(2);
+    });
+
+    it('shows no list when the item has no active links', async () => {
+        renderModal();
+
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+        expect(screen.queryByRole('list', { name: /Active links/i })).not.toBeInTheDocument();
+    });
+
+    it('revokes a link and removes it from the list', async () => {
+        const user = userEvent.setup();
+        api.get.mockResolvedValueOnce({ data: [LINK, OTHER_LINK] });
+        api.delete.mockResolvedValueOnce({ data: { message: 'Share link revoked' } });
+        renderModal();
+
+        const list = await screen.findByRole('list', { name: /Active links/i });
+        await user.click(within(list).getAllByRole('button', { name: /Revoke/i })[0]);
+
+        expect(api.delete).toHaveBeenCalledWith('/api/share/7');
+        expect(addToast).toHaveBeenCalledWith('Link revoked', 'success');
+        expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+        expect(within(list).queryByText(`Expires ${formatDate(LINK.expiresAt)}`)).not.toBeInTheDocument();
+    });
+
+    it('keeps a link listed and reports the error when revoking fails', async () => {
+        const user = userEvent.setup();
+        api.get.mockResolvedValueOnce({ data: [LINK] });
+        api.delete.mockRejectedValueOnce({ response: { data: { message: 'Share link not found' } } });
+        renderModal();
+
+        const list = await screen.findByRole('list', { name: /Active links/i });
+        await user.click(within(list).getByRole('button', { name: /Revoke/i }));
+
+        expect(await screen.findByText('Share link not found')).toBeInTheDocument();
+        expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it('adds a newly generated link to the list', async () => {
+        const user = userEvent.setup();
+        api.post.mockResolvedValueOnce({ data: { url: SHARE_URL } });
+        renderModal();
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+
+        api.get.mockResolvedValueOnce({ data: [LINK] });
+        await user.click(generateButton());
+
+        const list = await screen.findByRole('list', { name: /Active links/i });
+        expect(api.get).toHaveBeenCalledTimes(2);
+        expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it('says the new link is shown only once', async () => {
+        const user = userEvent.setup();
+        api.post.mockResolvedValueOnce({ data: { url: SHARE_URL } });
+        renderModal();
+
+        await user.click(generateButton());
+
+        expect(await screen.findByText(/can't be shown again/i)).toBeInTheDocument();
+    });
+
+    it('ignores a list that arrives after a different item is shown', async () => {
+        let resolveFirst;
+        api.get.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+        const { rerender } = renderModal();
+
+        const otherFile = { name: 'photo.png', path: 'photo.png', isDirectory: false };
+        rerender(<ShareModal isOpen onClose={vi.fn()} item={otherFile} />);
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/share', { params: { path: 'photo.png' } }));
+        resolveFirst({ data: [LINK] });
+
+        // Let the stale response settle before checking it was dropped.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(screen.queryByRole('list', { name: /Active links/i })).not.toBeInTheDocument();
     });
 
     it('describes a folder share as a folder', () => {
