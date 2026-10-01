@@ -1,10 +1,12 @@
+import { AxiosError } from 'axios';
 import { configureStore } from '@reduxjs/toolkit';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import authReducer, {
     clearUser,
     fetchCurrentUser,
     loginUser,
     logoutUser,
+    setupCompleted,
 } from './authSlice';
 import api from '../services/api';
 
@@ -16,6 +18,15 @@ const makeStore = () => configureStore({ reducer: { auth: authReducer } });
 const authState = (store) => store.getState().auth;
 // Seeds a signed-in session the way a successful login leaves it.
 const signIn = (store, username) => store.dispatch(loginUser.fulfilled({ username }, 'seed'));
+
+// Whether a secret appears anywhere in a value, however deeply nested (cycle-safe).
+const mentions = (value, secret, seen = new WeakSet()) => {
+    if (typeof value === 'string') return value.includes(secret);
+    if (value instanceof URLSearchParams) return value.toString().includes(secret);
+    if (value === null || typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    return Object.values(value).some((child) => mentions(child, secret, seen));
+};
 
 describe('authSlice', () => {
     let store;
@@ -83,6 +94,28 @@ describe('authSlice', () => {
             expect(authState(store).error).toBe('Login failed');
         });
 
+        describe('console output', () => {
+            const methods = ['log', 'info', 'warn', 'error', 'debug'];
+            afterEach(() => vi.restoreAllMocks());
+
+            it('never contains the submitted password', async () => {
+                const spies = methods.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+                // Shaped like a real axios failure: the request config, body included, rides along
+                // on both the error and its response.
+                const config = { method: 'post', url: '/login', data: 'username=ada&password=hunter2-secret' };
+                const response = { status: 401, statusText: 'Unauthorized', data: '', headers: {}, config };
+                api.post.mockRejectedValueOnce(
+                    new AxiosError('Request failed with status code 401', 'ERR_BAD_REQUEST', config, null, response),
+                );
+
+                await store.dispatch(loginUser({ username: 'ada', password: 'hunter2-secret' }));
+
+                expect(authState(store).error).toBe('Invalid username or password.');
+                const logged = spies.flatMap((spy) => spy.mock.calls);
+                expect(mentions(logged, 'hunter2-secret')).toBe(false);
+            });
+        });
+
         it('does not leave a failed login authenticated from a previous session', async () => {
             signIn(store, 'ada');
             expect(authState(store).isAuthenticated).toBe(true);
@@ -91,8 +124,13 @@ describe('authSlice', () => {
             await store.dispatch(loginUser({ username: 'ada', password: 'wrong' }));
 
             // A rejected login must not silently keep the old session alive
-            expect(authState(store).error).toBe('Invalid credentials');
-            expect(authState(store).loading).toBe(false);
+            expect(authState(store)).toMatchObject({
+                error: 'Invalid credentials',
+                loading: false,
+                isAuthenticated: false,
+                user: null,
+            });
+            expect(localStorage.getItem('user')).toBeNull();
         });
     });
 
@@ -110,13 +148,30 @@ describe('authSlice', () => {
             expect(api.get).not.toHaveBeenCalled();
         });
 
-        it('still clears the session when the logout request fails', async () => {
+        // The server session may still be alive after any of these, so showing the user as signed
+        // out would leave the next person at the machine signed in as them.
+        it.each([
+            ['a 403 (stale CSRF token)', { response: { status: 403, data: '' } }],
+            ['a network error', new Error('Network Error')],
+            ['a 500', { response: { status: 500, data: '' } }],
+        ])('rejects and keeps the session after %s', async (_label, failure) => {
             signIn(store, 'ada');
-            api.post.mockRejectedValueOnce(new Error('Network Error'));
+            api.post.mockRejectedValueOnce(failure);
 
-            await store.dispatch(logoutUser());
+            const action = await store.dispatch(logoutUser());
 
-            // The thunk swallows the error so a dead backend cannot strand the user logged in
+            expect(action.type).toBe(logoutUser.rejected.type);
+            expect(authState(store)).toMatchObject({ user: 'ada', isAuthenticated: true });
+            expect(localStorage.getItem('user')).toBe('ada');
+        });
+
+        it('treats a 401 as signed out, since the session is already gone', async () => {
+            signIn(store, 'ada');
+            api.post.mockRejectedValueOnce({ response: { status: 401, data: '' } });
+
+            const action = await store.dispatch(logoutUser());
+
+            expect(action.type).toBe(logoutUser.fulfilled.type);
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
         });
@@ -153,8 +208,12 @@ describe('authSlice', () => {
         });
 
         it('does not treat the setup-page redirect as a signed-in session', async () => {
-            // Pending first-run setup redirects /api/me to /setup, which resolves 200 with HTML
-            api.get.mockResolvedValueOnce({ data: '<!doctype html><title>Setup</title>' });
+            // Pending first-run setup redirects /api/me to /setup; the browser follows it and the
+            // request resolves 200 with the app's HTML
+            api.get.mockResolvedValueOnce({
+                data: '<!doctype html><title>Setup</title>',
+                request: { responseURL: 'http://localhost:5173/setup' },
+            });
 
             await store.dispatch(fetchCurrentUser());
 
@@ -164,6 +223,51 @@ describe('authSlice', () => {
                 user: null,
             });
             expect(localStorage.getItem('user')).toBeNull();
+        });
+
+        describe('first-run setup', () => {
+            it('is required when the session check was redirected to the setup page', async () => {
+                api.get.mockResolvedValueOnce({
+                    data: '<!doctype html><title>Setup</title>',
+                    request: { responseURL: 'http://localhost:5173/setup' },
+                });
+
+                await store.dispatch(fetchCurrentUser());
+
+                expect(authState(store).setupRequired).toBe(true);
+            });
+
+            it('is not required when the backend answers 401: an account exists', async () => {
+                api.get.mockRejectedValueOnce({ response: { status: 401, data: '' } });
+
+                await store.dispatch(fetchCurrentUser());
+
+                expect(authState(store).setupRequired).toBe(false);
+            });
+
+            it('is not assumed from some other page that is not a session', async () => {
+                // e.g. a proxy's error page: no session, but no sign that setup is pending either
+                api.get.mockResolvedValueOnce({
+                    data: '<!doctype html><title>Bad gateway</title>',
+                    request: { responseURL: 'http://localhost:5173/api/me' },
+                });
+
+                await store.dispatch(fetchCurrentUser());
+
+                expect(authState(store)).toMatchObject({ isAuthenticated: false, setupRequired: false });
+            });
+
+            it('is no longer required once the first account is created', async () => {
+                api.get.mockResolvedValueOnce({
+                    data: '<!doctype html><title>Setup</title>',
+                    request: { responseURL: 'http://localhost:5173/setup' },
+                });
+                await store.dispatch(fetchCurrentUser());
+
+                store.dispatch(setupCompleted());
+
+                expect(authState(store).setupRequired).toBe(false);
+            });
         });
 
         it('lifts the loading gate when the backend never answers', async () => {

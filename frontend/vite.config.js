@@ -13,6 +13,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
+        // Before the first account exists the backend redirects /api/me to /setup, with an absolute
+        // URL built from the Host header that changeOrigin rewrote to :8080. Point it back at the
+        // dev server: a cross-origin redirect would fail CORS, and the app would never learn that
+        // setup is pending (see fetchCurrentUser).
+        autoRewrite: true,
       },
       // Public share links. The backend builds them from the request's host, which changeOrigin
       // rewrites to the backend's, so they point at :8080 directly; this entry makes a link that

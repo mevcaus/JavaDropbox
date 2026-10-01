@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
+import { setupCompleted } from '../features/authSlice';
+import { readableError } from '../utils/errors';
 import { Loader2 } from 'lucide-react';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
 
@@ -15,6 +18,7 @@ const Setup = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const navigate = useNavigate();
+    const dispatch = useDispatch();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -41,14 +45,11 @@ const Setup = () => {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             });
 
-            // Account created — send the user to the login screen.
+            // Account created — send the user to the login screen, which stops offering setup.
+            dispatch(setupCompleted());
             navigate('/login', { replace: true });
         } catch (err) {
-            const message =
-                err.response?.data?.error ||
-                err.response?.data?.message ||
-                'Setup failed. An account may already exist.';
-            setError(message);
+            setError(readableError(err, 'Setup failed. An account may already exist.'));
         } finally {
             setLoading(false);
         }
@@ -148,7 +149,7 @@ const Setup = () => {
                     <p className="text-xs text-gray-500">At least {MIN_PASSWORD_LENGTH} characters.</p>
 
                     {error && (
-                        <div className="text-red-500 text-sm text-center">
+                        <div role="alert" className="text-red-500 text-sm text-center">
                             {typeof error === 'string' ? error : 'Setup failed'}
                         </div>
                     )}

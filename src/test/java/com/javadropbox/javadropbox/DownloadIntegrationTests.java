@@ -1,14 +1,17 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import com.javadropbox.javadropbox.service.ShareTokenService;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +38,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -51,7 +55,7 @@ class DownloadIntegrationTests {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;
-  @Autowired private ShareTokenService shareTokens;
+  @Autowired private ObjectMapper json;
 
   @Autowired private JdbcTemplate jdbc;
 
@@ -89,20 +93,20 @@ class DownloadIntegrationTests {
 
     assertThat(filename(response)).isEqualTo("docs.zip");
     assertThat(unzip(response.getContentAsByteArray()))
-        .containsOnly(Map.entry("docs/top.txt", "top"), Map.entry("docs/nested/deep.txt", "deep"));
+        .containsOnly(
+            Map.entry("docs/", ""),
+            Map.entry("docs/top.txt", "top"),
+            Map.entry("docs/nested/", ""),
+            Map.entry("docs/nested/deep.txt", "deep"));
   }
 
   @Test
   @DisplayName("a share link to a folder streams the zip without signing in")
   void sharedFolderDownloads() throws Exception {
-    String token = shareTokens.generateToken("docs", 60);
+    String url = share("docs");
 
     MockHttpServletResponse response =
-        mockMvc
-            .perform(get("/share/" + token))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse();
+        mockMvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse();
 
     assertThat(unzip(response.getContentAsByteArray())).containsKey("docs/nested/deep.txt");
   }
@@ -136,22 +140,51 @@ class DownloadIntegrationTests {
   }
 
   @Test
-  @DisplayName("a share link to something since deleted is a 404")
-  void sharedMissingFileIsNotFound() throws Exception {
-    String token = shareTokens.generateToken("gone.txt", 60);
+  @WithMockUser(username = "owner")
+  @DisplayName("file and folder downloads are sandboxed, so active content cannot run as the app")
+  void downloadsAreSandboxed() throws Exception {
+    Files.writeString(servingDir.resolve("page.html"), "<script>alert(1)</script>");
+    Files.writeString(
+        servingDir.resolve("image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
 
-    mockMvc.perform(get("/share/" + token)).andExpect(status().isNotFound());
+    for (String path : new String[] {"page.html", "image.svg", "docs"}) {
+      for (var request :
+          new MockHttpServletRequestBuilder[] {
+            get("/api/files/download").param("path", path), get(share(path))
+          }) {
+        mockMvc
+            .perform(request)
+            .andExpect(status().isOk())
+            .andExpect(header().string("Content-Security-Policy", "sandbox"))
+            .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+      }
+    }
   }
 
   @Test
-  @DisplayName("a share link naming the root, e.g. minted with the old public key, is a 404")
-  void sharedRootIsNotFound() throws Exception {
-    String token = shareTokens.generateToken("", 60);
+  @DisplayName("a share link to something since deleted is a 404")
+  void sharedMissingFileIsNotFound() throws Exception {
+    Files.writeString(servingDir.resolve("gone.txt"), "soon gone");
+    String url = share("gone.txt");
+    Files.delete(servingDir.resolve("gone.txt"));
 
     mockMvc
-        .perform(get("/share/" + token))
+        .perform(get(url))
         .andExpect(status().isNotFound())
         .andExpect(header().doesNotExist(HttpHeaders.CONTENT_DISPOSITION));
+  }
+
+  // Shares a path as the signed-in owner and returns the link's path, e.g. /share/abc.
+  private String share(String path) throws Exception {
+    String body =
+        mockMvc
+            .perform(post("/api/share").param("path", path).with(user("owner")).with(csrf()))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String url = json.readTree(body).get("url").asText();
+    return url.substring(url.indexOf("/share/"));
   }
 
   private static String filename(MockHttpServletResponse response) {
