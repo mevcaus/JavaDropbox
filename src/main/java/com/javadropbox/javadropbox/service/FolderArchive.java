@@ -27,11 +27,17 @@ public final class FolderArchive {
       throws IOException {
     try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
       for (Path entry : entries) {
+        String filename = entry.getFileName().toString();
+        // Hidden as in the file tree: the app's own directories and upload scratch files, and
+        // things like .git or .env that the owner never sees and so never meant to share.
+        if (filename.startsWith(".")) {
+          continue;
+        }
         // A symlink could lead outside the serving directory or back into this folder.
         if (Files.isSymbolicLink(entry)) {
           continue;
         }
-        String name = prefix + "/" + entry.getFileName();
+        String name = prefix + "/" + filename;
         if (Files.isDirectory(entry)) {
           addFolder(entry, name, zip);
         } else {
