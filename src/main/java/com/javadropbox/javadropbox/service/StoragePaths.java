@@ -76,12 +76,14 @@ public class StoragePaths {
     return root;
   }
 
+  // Built on the real root, like resolved paths: recheck refuses any symlink along a path, and the
+  // configured directory may itself sit under one (/var on macOS, a symlinked mount).
   public Path versionsDir() {
-    return root.resolve(VERSIONS_DIR);
+    return realRoot.resolve(VERSIONS_DIR);
   }
 
   public Path internalDir() {
-    return root.resolve(INTERNAL_DIR);
+    return realRoot.resolve(INTERNAL_DIR);
   }
 
   /**

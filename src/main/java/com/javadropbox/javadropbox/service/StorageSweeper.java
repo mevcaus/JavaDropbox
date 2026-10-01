@@ -63,7 +63,8 @@ public class StorageSweeper {
   }
 
   private void removeScratchFiles(FileTime cutoff) throws IOException {
-    Path root = storagePaths.root();
+    // The real root, which the app's own folders are built on, so the walk can recognise them.
+    Path root = storagePaths.versionsDir().getParent();
     Set<Path> ownDirs = Set.of(storagePaths.versionsDir(), storagePaths.internalDir());
     Files.walkFileTree(
         root,
