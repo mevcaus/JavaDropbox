@@ -18,7 +18,7 @@ jobs:
         working-directory: frontend
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
         # The logo assets are stored in lfs. Without this the checkout leaves
         # 130-byte pointer files in their place, which still build successfully
@@ -28,7 +28,7 @@ jobs:
     # Vite 7 and Vitest 5 only run on Node 20.19+ or 22.12+. Pin the floor here so
     # CI fails on the version line rather than on a confusing missing-export error.
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: '22.12'
         cache: 'npm'
