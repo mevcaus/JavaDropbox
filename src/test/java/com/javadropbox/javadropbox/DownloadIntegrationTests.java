@@ -89,7 +89,11 @@ class DownloadIntegrationTests {
 
     assertThat(filename(response)).isEqualTo("docs.zip");
     assertThat(unzip(response.getContentAsByteArray()))
-        .containsOnly(Map.entry("docs/top.txt", "top"), Map.entry("docs/nested/deep.txt", "deep"));
+        .containsOnly(
+            Map.entry("docs/", ""),
+            Map.entry("docs/top.txt", "top"),
+            Map.entry("docs/nested/", ""),
+            Map.entry("docs/nested/deep.txt", "deep"));
   }
 
   @Test

@@ -44,7 +44,21 @@ class FolderArchiveTests {
 
     assertThat(unzip(archive()))
         .containsOnly(
-            Map.entry("project/README.md", "visible"), Map.entry("project/sub/kept.txt", "kept"));
+            Map.entry("project/", ""),
+            Map.entry("project/README.md", "visible"),
+            Map.entry("project/sub/", ""),
+            Map.entry("project/sub/kept.txt", "kept"));
+  }
+
+  @Test
+  @DisplayName("empty folders, and folders with nothing to archive, appear in the zip")
+  void emptyFoldersAreKept() throws IOException {
+    Files.createDirectories(folder.resolve("empty"));
+    Files.createDirectories(folder.resolve("only-hidden"));
+    Files.writeString(folder.resolve("only-hidden/.env"), "secret");
+
+    assertThat(unzip(archive()))
+        .containsOnlyKeys("project/", "project/empty/", "project/only-hidden/");
   }
 
   @Test
@@ -91,7 +105,7 @@ class FolderArchiveTests {
     try {
       byte[] zip = assertTimeoutPreemptively(Duration.ofSeconds(5), this::archive);
 
-      assertThat(unzip(zip)).containsOnlyKeys("project/a.txt");
+      assertThat(unzip(zip)).containsOnlyKeys("project/", "project/a.txt");
     } finally {
       // If the archive did open the FIFO, a writer lets that thread finish instead of leaking.
       // Opened read-write, which unlike write-only does not wait for a reader.

@@ -30,6 +30,10 @@ public final class FolderArchive {
   private static void addFolder(Path folder, String prefix, ZipOutputStream zip)
       throws IOException {
     try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
+      // An entry of its own, so a folder with nothing to archive still appears in the zip. Written
+      // once the folder is open, so one that has just vanished leaves nothing behind.
+      zip.putNextEntry(new ZipEntry(prefix + "/"));
+      zip.closeEntry();
       for (Path entry : entries) {
         String filename = entry.getFileName().toString();
         // Hidden as in the file tree: the app's own directories and upload scratch files, and
