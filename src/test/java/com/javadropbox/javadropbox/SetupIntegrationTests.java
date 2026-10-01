@@ -26,6 +26,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -152,6 +153,42 @@ class SetupIntegrationTests {
     }
 
     @Test
+    @DisplayName("A client that keeps sending wrong codes is throttled; others are not")
+    void repeatedWrongCodesAreThrottledPerClient() throws Exception {
+      for (int i = 0; i < 5; i++) {
+        mockMvc
+            .perform(
+                post("/setup")
+                    .with(csrf())
+                    .with(remoteAddr("198.51.100.66"))
+                    .param("code", "WRONG-CODE" + i)
+                    .param("username", "intruder")
+                    .param("password", "testpassword123"))
+            .andExpect(status().isForbidden());
+      }
+
+      mockMvc
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .with(remoteAddr("198.51.100.66"))
+                  .param("code", "ABCDE-FGHJK")
+                  .param("username", "intruder")
+                  .param("password", "testpassword123"))
+          .andExpect(status().isTooManyRequests())
+          .andExpect(header().exists("Retry-After"));
+      mockMvc
+          .perform(
+              post("/setup")
+                  .with(csrf())
+                  .with(remoteAddr("192.0.2.1"))
+                  .param("code", "ABCDE-FGHJK")
+                  .param("username", "testadmin")
+                  .param("password", "testpassword123"))
+          .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("Setup form submission with missing username should show error")
     void setupWithMissingUsernameHandled() throws Exception {
       mockMvc
@@ -198,6 +235,13 @@ class SetupIntegrationTests {
                   .param("password", ""))
           .andExpect(status().isBadRequest());
     }
+  }
+
+  private static RequestPostProcessor remoteAddr(String address) {
+    return request -> {
+      request.setRemoteAddr(address);
+      return request;
+    };
   }
 
   // ------------------------------
