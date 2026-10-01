@@ -322,7 +322,15 @@ npm run dev
 3. Log in with your new credentials
 4. Start uploading and managing files!
 
-> **Forgot your password?** Delete all rows from the `users` table in PostgreSQL and restart the app to trigger the setup flow again; a new setup code is printed on startup.
+> **Forgot your password?** Store a new bcrypt hash on your account. `htpasswd` makes one (run it from the `httpd` image as here, or use a local `htpasswd`, which can prompt for the password if you leave out `-b` and the password); replace `admin` with your username:
+>
+> ```bash
+> HASH=$(docker run --rm httpd:2.4-alpine htpasswd -nbBC 10 "" 'my-new-password' | tr -d ':\n')
+> docker compose exec postgres psql -U postgres -d javadropbox \
+>   -c "UPDATE users SET password = '$HASH' WHERE username = 'admin'"
+> ```
+>
+> `UPDATE 1` means it worked; the new password applies from the next sign-in, without a restart, and your files are untouched. `SELECT username FROM users` lists the accounts if you've forgotten the name too.
 
 ### Run with Docker
 
@@ -443,6 +451,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
 | `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
 | `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
+| `PasswordRecoveryIntegrationTests` | The "Forgot your password?" procedure above, on PostgreSQL with uploaded files: an `htpasswd` hash set by `UPDATE` signs in |
 | `ShareLinkIntegrationTests` / `ShareTokenServiceTests` | Link issue/expiry/tamper and public download; the generated per-install key, and rejection of tokens signed with the formerly published key |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
