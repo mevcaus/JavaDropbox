@@ -113,8 +113,12 @@ public class FileService {
       existing = existing.getParent();
     }
     if (!Files.isDirectory(existing)) {
-      throw new BadRequestException(
-          "\"" + storagePaths.keyOf(existing) + "\" is a file, not a folder");
+      // existing is an ancestor of the folder, so its key is the folder's with segments dropped.
+      String key = folder.key();
+      for (int up = folder.path().getNameCount() - existing.getNameCount(); up > 0; up--) {
+        key = parentKey(key);
+      }
+      throw new BadRequestException("\"" + key + "\" is a file, not a folder");
     }
     Files.createDirectories(folder.path());
   }
