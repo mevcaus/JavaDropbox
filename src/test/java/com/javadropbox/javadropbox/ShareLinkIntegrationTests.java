@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -217,6 +218,83 @@ class ShareLinkIntegrationTests {
             jdbc.queryForObject(
                 "SELECT count(*) FROM file_metadata WHERE path = 'shared.txt'", Integer.class))
         .isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("A path's active links are listed without their tokens")
+  void listsActiveLinks() throws Exception {
+    Files.writeString(servingDir.resolve("other.txt"), "other");
+    share("shared.txt");
+    share("shared.txt");
+    share("other.txt");
+    String expired = share("shared.txt");
+    jdbc.update(
+        "UPDATE share_links SET expires_at = created_at - INTERVAL '1' MINUTE"
+            + " WHERE id = (SELECT max(id) FROM share_links)");
+
+    String body =
+        mockMvc
+            .perform(get("/api/share").param("path", "shared.txt"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$[0].id").isNumber())
+            .andExpect(jsonPath("$[0].createdAt").exists())
+            .andExpect(jsonPath("$[0].expiresAt").exists())
+            .andExpect(jsonPath("$[0].createdBy").value("testadmin"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    assertThat(body).doesNotContain(expired).doesNotContain("/share/");
+  }
+
+  @Test
+  @DisplayName("A path that was never shared has no links")
+  void listsNothingForAnUnsharedPath() throws Exception {
+    mockMvc
+        .perform(get("/api/share").param("path", "shared.txt"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(0));
+  }
+
+  @Test
+  @DisplayName("A revoked link stops working and is no longer listed")
+  void revokedLinkStopsWorking() throws Exception {
+    String revoked = share("shared.txt");
+    long revokedId = jdbc.queryForObject("SELECT id FROM share_links", Long.class);
+    String kept = share("shared.txt");
+
+    mockMvc.perform(delete("/api/share/" + revokedId).with(csrf())).andExpect(status().isOk());
+
+    download(revoked).andExpect(status().isNotFound());
+    download(kept).andExpect(status().isOk());
+    mockMvc
+        .perform(get("/api/share").param("path", "shared.txt"))
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].id").value(not((int) revokedId)));
+  }
+
+  @Test
+  @DisplayName("Revoking a link that does not exist returns 404")
+  void revokingAnUnknownLinkReturns404() throws Exception {
+    mockMvc
+        .perform(delete("/api/share/12345").with(csrf()))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message").exists());
+  }
+
+  @Test
+  @DisplayName("Listing and revoking links require signing in")
+  void listingAndRevokingRequireAuth() throws Exception {
+    share("shared.txt");
+    long id = jdbc.queryForObject("SELECT id FROM share_links", Long.class);
+
+    mockMvc
+        .perform(get("/api/share").param("path", "shared.txt").with(anonymous()))
+        .andExpect(status().isUnauthorized());
+    mockMvc
+        .perform(delete("/api/share/" + id).with(csrf()).with(anonymous()))
+        .andExpect(status().isUnauthorized());
   }
 
   // The token at the end of the share URL.

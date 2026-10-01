@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.dto.ShareLinkDto;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.service.ShareLinkService;
@@ -11,9 +12,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,10 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
- * Time-limited share links. {@code POST /api/share} requires the normal session auth (covered by
- * SecurityConfig's default rule). {@code GET /share/{token}} is public &mdash; it is explicitly
- * permitted in SecurityConfig because the whole point is that someone without an account can use
- * the link.
+ * Time-limited share links. Creating, listing and revoking them under {@code /api/share} requires
+ * the normal session auth (covered by SecurityConfig's default rule). {@code GET /share/{token}} is
+ * public &mdash; it is explicitly permitted in SecurityConfig because the whole point is that
+ * someone without an account can use the link.
  */
 @RestController
 @Tag(name = "Share", description = "Endpoints for creating and accessing time-limited share links")
@@ -65,6 +68,25 @@ public class ShareController {
             .toUriString();
 
     return Map.of("url", shareUrl, "expiresAt", link.expiresAt().toString());
+  }
+
+  @GetMapping("/api/share")
+  @Operation(
+      summary = "List share links",
+      description =
+          "Lists the links to a path that have not expired or been revoked, the soonest to expire"
+              + " first. Requires authentication.")
+  public List<ShareLinkDto> listShareLinks(@RequestParam String path) {
+    return shareLinkService.listActive(path);
+  }
+
+  @DeleteMapping("/api/share/{id}")
+  @Operation(
+      summary = "Revoke share link",
+      description = "Revokes a share link so it stops working at once. Requires authentication.")
+  public Map<String, String> revokeShareLink(@PathVariable Long id) {
+    shareLinkService.revoke(id);
+    return Map.of("message", "Share link revoked");
   }
 
   @GetMapping("/share/{token}")

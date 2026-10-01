@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.dto.ShareLinkDto;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.ShareLink;
@@ -17,6 +18,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -106,6 +108,29 @@ public class ShareLinkService {
       throw linkNotFound();
     }
     return fileService.download(link.getPath());
+  }
+
+  /** The links to the item at {@code path} that still open, the soonest to expire first. */
+  @Transactional(readOnly = true)
+  public List<ShareLinkDto> listActive(String path) {
+    StoragePath target = storagePaths.resolveItem(path);
+    return files
+        .findByPath(target.key())
+        .map(file -> links.findActive(file, Instant.now()))
+        .orElse(List.of())
+        .stream()
+        .map(ShareLinkDto::fromEntity)
+        .toList();
+  }
+
+  /**
+   * Revokes a link so it no longer opens. Revoking it again changes nothing.
+   *
+   * @throws NotFoundException if there is no such link
+   */
+  @Transactional
+  public void revoke(Long id) {
+    links.findById(id).orElseThrow(ShareLinkService::linkNotFound).revoke(Instant.now());
   }
 
   private String newToken() {
