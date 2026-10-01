@@ -76,6 +76,9 @@ jobs:
 
   dependency-submission:
 
+    # Submitting the graph needs contents: write, which pull requests from forks
+    # never get, and only main's dependencies matter for Dependabot alerts.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write

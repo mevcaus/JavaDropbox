@@ -522,7 +522,7 @@ Push/PR to main
 │   └ spotlessCheck        │  │                          │  │                          │
 └──────────────────────────┘  └──────────────────────────┘  └──────────────────────────┘
 
-Dependency Submission Job: generates the dependency graph for Dependabot alerts.
+Dependency Submission Job (pushes to main only): generates the dependency graph for Dependabot alerts.
 ```
 
 ---
