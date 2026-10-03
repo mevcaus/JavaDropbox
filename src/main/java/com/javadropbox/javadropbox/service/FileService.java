@@ -1,11 +1,13 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
@@ -354,6 +356,31 @@ public class FileService {
         target.path(),
         target.name(),
         contentType != null ? contentType : "application/octet-stream");
+  }
+
+  /**
+   * A file to show in the browser. Only the kinds {@link PreviewType} knows are offered; anything
+   * else has to be downloaded.
+   *
+   * @throws NotFoundException if nothing is there
+   * @throws BadRequestException for a folder, or a file of a kind that cannot be previewed
+   */
+  public Preview preview(String path) throws IOException {
+    StoragePath target = storagePaths.resolveItem(path);
+    if (!Files.exists(target.path())) {
+      throw new NotFoundException("Not found: " + target.key());
+    }
+    if (Files.isDirectory(target.path())) {
+      throw new BadRequestException("Folders cannot be previewed: " + target.key());
+    }
+    PreviewType type =
+        PreviewType.of(target.name())
+            .orElseThrow(
+                () ->
+                    new BadRequestException(
+                        "This kind of file cannot be previewed: " + target.key()));
+    files.markAccessed(target.key(), Instant.now());
+    return new Preview(target.path(), target.name(), type, PreviewType.contentType(target.name()));
   }
 
   /** Whether something exists at a path. Refuses the root, which can never be shared. */

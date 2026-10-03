@@ -36,6 +36,8 @@ public class SecurityConfig {
 
   private static final String DEFAULT_ROLE = "ROLE_USER";
 
+  private static final String X_FRAME_OPTIONS = "X-Frame-Options";
+
   /** The built single-page app: its shell and assets load before anyone has signed in. */
   private static final String[] SPA_ASSETS = {"/index.html", "/assets/**", "/favicon.png"};
 
@@ -146,7 +148,20 @@ public class SecurityConfig {
         .csrf(
             csrf ->
                 csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                    .csrfTokenRequestHandler(csrfTokenRequestHandler()));
+                    .csrfTokenRequestHandler(csrfTokenRequestHandler()))
+        // No response may be framed, as by default, unless it has already said otherwise: a PDF
+        // preview allows the app's own pages (see DownloadResponses.preview). The stock writer
+        // would overwrite that when the response commits.
+        .headers(
+            headers ->
+                headers
+                    .frameOptions(frameOptions -> frameOptions.disable())
+                    .addHeaderWriter(
+                        (request, response) -> {
+                          if (!response.containsHeader(X_FRAME_OPTIONS)) {
+                            response.setHeader(X_FRAME_OPTIONS, "DENY");
+                          }
+                        }));
 
     return http.build();
   }
