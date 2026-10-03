@@ -9,3 +9,16 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+
+  # The frontend and the root start script. Minor and patch updates come as
+  # one weekly PR; a major (Tailwind 4, say) gets a PR of its own.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
