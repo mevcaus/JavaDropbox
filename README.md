@@ -88,7 +88,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 | **Repository** | Data access via Spring Data JPA | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `UserRepository` |
 | **Model** | JPA entities mapping to PostgreSQL tables | `User`, `FileMetadata`, `FileVersion`, `FileHistory` |
 | **DTO** | API response shaping, decoupling internal models from API contracts | `FileTreeNode`, `FileVersionDto`, `FileHistoryDto`, `HistoryPage`, `Download` |
-| **Config** | Cross-cutting concerns: security, CORS, filters, sign-in throttling | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `PasswordConfig`, `StartupBanner` |
+| **Config** | Cross-cutting concerns: security, CORS, filters, sign-in throttling | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `SpaFallbackFilter`, `PasswordConfig`, `StartupBanner` |
 
 ---
 
@@ -145,6 +145,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **Version history** — Browse a file's previous versions and restore one in place or as a copy
 - **Accessible dialogs** — One `Modal` shell: Escape closes, focus is trapped inside and restored on close
 - **Protected routes** — `MainLayout` guards routes via Redux auth state with redirect-to-login
+- **Unknown URLs** — Opening or refreshing a page the app doesn't have (`/dashbord`, an old bookmark) loads the app, which redirects to the dashboard or sign-in, instead of a bare 401. The backend serves the app shell for any page a browser opens outside `/api`, `/share`, the API docs and static files (`SpaFallbackFilter`)
 
 ---
 
@@ -241,6 +242,7 @@ JavaDropbox/
 │   │   │   ├── SetupFilter.java         # First-run redirect filter
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
+│   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
 │   │   │   ├── StartupBanner.java       # Logs the bound port and serving directory
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
 │   │   │   └── PasswordConfig.java      # BCrypt encoder bean
@@ -475,7 +477,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `FolderArchiveTests` | Zips leave out hidden files, FIFOs and entries that vanish while zipping, and keep empty folders |
 | `ClientAbortIntegrationTests` / `IoExceptionHandlingTests` | Cancelled file and zip downloads are logged at debug only (on real Tomcat); nothing is written into a response already under way |
 | `DownloadConnectionIntegrationTests` | A paused download holds no database connection, with a one-connection pool (on real Tomcat) |
-| `SecurityIntegrationTests` | 401 for unauthenticated users, the API open to any signed-in account whatever its role, logout, JSON errors, the SPA shell served for client-side routes |
+| `SecurityIntegrationTests` | 401 for unauthenticated users, the API open to any signed-in account whatever its role, logout, JSON errors, the SPA shell served for client-side routes and for any other page a browser opens, but not for API calls, share links, missing files or non-HTML requests |
 | `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
 | `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
 | `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
