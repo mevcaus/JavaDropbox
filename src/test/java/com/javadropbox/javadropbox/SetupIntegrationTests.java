@@ -273,6 +273,11 @@ class SetupIntegrationTests {
         .perform(get("/dashboard"))
         .andExpect(status().is3xxRedirection())
         .andExpect(redirectedUrl("/setup"));
+    // An unknown page is not let past setup either.
+    mockMvc
+        .perform(get("/no/such/page").header("Accept", "text/html"))
+        .andExpect(status().is3xxRedirection())
+        .andExpect(redirectedUrl("/setup"));
   }
 
   @Test

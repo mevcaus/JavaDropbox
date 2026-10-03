@@ -111,6 +111,11 @@ public class SecurityConfig {
                         "/v3/api-docs",
                         "/v3/api-docs/**")
                     .permitAll()
+                    // A browser opening any other page gets the app shell, which sends it on to
+                    // sign-in itself. SpaFallbackFilter answers every request this lets through
+                    // with the shell, so nothing else is reached without a session this way.
+                    .requestMatchers(SpaFallbackFilter::isNavigation)
+                    .permitAll()
                     .anyRequest()
                     .authenticated())
         // A JSON API: answer 401 rather than redirecting to a login page.

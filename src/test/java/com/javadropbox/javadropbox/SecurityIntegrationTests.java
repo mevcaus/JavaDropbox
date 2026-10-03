@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.javadropbox.javadropbox.model.User;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -90,6 +92,54 @@ class SecurityIntegrationTests {
         .perform(get("/index.html"))
         .andExpect(status().isOk())
         .andExpect(content().string(Matchers.containsString("<div id=\"root\">")));
+  }
+
+  // What a browser sends when it opens a page; axios sends application/json, text/plain, */*.
+  private static final String BROWSER_ACCEPT =
+      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+  @Test
+  @DisplayName("Any other page a browser opens gets the app shell, so the app can redirect it")
+  void unknownPagesServeTheAppShell() throws Exception {
+    for (String path : new String[] {"/no/such/page", "/dashbord", "/dashboard/extra/"}) {
+      mockMvc
+          .perform(get(path).header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+          .andExpect(status().isOk())
+          .andExpect(forwardedUrl("/index.html"));
+    }
+  }
+
+  @Test
+  @DisplayName(
+      "Only page navigations get the shell; API calls, share links and files answer as before")
+  void onlyNavigationsGetTheShell() throws Exception {
+    // Not asking for HTML: an API client, or no Accept header at all.
+    mockMvc
+        .perform(
+            get("/no/such/page").header(HttpHeaders.ACCEPT, "application/json, text/plain, */*"))
+        .andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/no/such/page")).andExpect(status().isUnauthorized());
+    // HTML explicitly refused.
+    mockMvc
+        .perform(get("/no/such/page").header(HttpHeaders.ACCEPT, "text/html;q=0, */*"))
+        .andExpect(status().isUnauthorized());
+    // Not a GET.
+    mockMvc
+        .perform(post("/no/such/page").with(csrf()).header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+        .andExpect(status().isUnauthorized());
+    // The server's own paths keep their answers, even when a browser asks for HTML.
+    mockMvc
+        .perform(get("/api/no-such-endpoint").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+        .andExpect(status().isUnauthorized());
+    mockMvc
+        .perform(get("/share/not-a-token").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+        .andExpect(status().isNotFound())
+        .andExpect(forwardedUrl(null));
+    // A missing file is a 404, not the app.
+    mockMvc
+        .perform(get("/assets/missing.js").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+        .andExpect(status().isNotFound())
+        .andExpect(forwardedUrl(null));
   }
 
   @Test
