@@ -99,6 +99,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 - **Download** — File downloads with MIME type detection and HTTP range support (resumable); folder downloads are **ZIP archives streamed straight to the response**, so their size never has to fit in memory
 - **Delete** — Recursive deletion that also removes the metadata rows and stored versions of everything inside
 - **Create Folders** — Folder creation with single-segment name validation
+- **Previews** — Images (PNG, JPEG, GIF, WebP, AVIF, BMP, SVG), PDFs, and text and source files open in a dialog instead of downloading. The server decides from the extension which files can be previewed and says so in the tree (`previewType`); text previews fetch only the first 256 KB through a range request
 
 ### File Versioning System
 - **Automatic snapshotting** — On re-upload, the previous content is moved to `.versions/<file id>/v<n>` and tracked in the database (so same-named files in different folders never share storage)
@@ -137,6 +138,7 @@ The system follows a **layered architecture** with clear separation of concerns:
 ### Frontend
 - **React 19** SPA with **Redux Toolkit** for global state management
 - **Responsive layout** with collapsible sidebar, breadcrumb navigation, and mobile hamburger menu; the open folder is kept in the URL (`/dashboard?path=...`), so a reload and Back/Forward keep it
+- **File previews** — Clicking a previewable file's name opens it in a dialog: images in an `<img>`, PDFs in the browser's own viewer, text in a `<pre>` (shown as source, never rendered), with a Download button alongside
 - **Smart file icons** — Context-aware icons based on file extension (images, video, audio, code, documents)
 - **File search** — Search box above the file table matches filenames (case-insensitive substring) across the open folder **and every folder beneath it**, flattening results into a list labelled with each match's full path; runs entirely client-side against the already-loaded tree, so no extra request is made
 - **Column sorting** — Name, Size, and Last Modified headers sort in either direction, keyboard-operable and annotated with `aria-sort`; folders stay grouped ahead of files in every ordering
@@ -158,6 +160,14 @@ Folder downloads write a `ZipOutputStream` straight to the HTTP response (`Folde
 Rather than shipping hardcoded credentials or requiring environment variables, the application detects first-run state (no users in the database) and redirects to a setup wizard. This is implemented as a filter (`SetupFilter`) inside Spring Security's chain, ahead of `UsernamePasswordAuthenticationFilter`, so the setup flow is reachable without authentication.
 
 Reachable without authentication also means reachable by whoever finds the server first. So setup additionally needs a one-time code that the server prints to its log on startup (the approach Jupyter takes): the person who installed the server can read it, someone who merely found the address cannot.
+
+### Why Do Previews Have Their Own Route?
+Downloads are deliberately unable to render: every one is `Content-Disposition: attachment` with `Content-Security-Policy: sandbox`, and no response may be framed (`X-Frame-Options: DENY`). They also serve the public share route. So rather than a flag that relaxes all of that, `GET /api/files/preview` serves only an allowlist of types, signed in only, each with the narrowest headers that still let the browser show it:
+- **Text and source files** are always `text/plain; charset=UTF-8`, so an `.html` file shows its markup instead of running it. With `nosniff`, a file named `.png` that is really HTML is never sniffed into a page either.
+- **Images and text** keep the sandbox: an SVG opened on its own runs no script on the app's origin.
+- **PDFs** cannot keep it, because browsers' PDF viewers refuse to render a sandboxed document. Instead they may be framed by the app's own pages and no other (`frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`), which is how the preview dialog shows them. Every other response still refuses to be framed.
+
+The list of previewable types lives on the server (`PreviewType`) and reaches the UI through the tree, so the two cannot disagree about which files open.
 
 ### Why Server-Side Share Links?
 Share links used to be stateless JWTs naming a path. That avoided a table, but a link could not be withdrawn without changing the signing key (killing every link), its path was readable by anyone holding it, it served whatever was at the path when opened, and the key itself had to live somewhere: in the served folder, where anything else exposing that folder exposed it. Storing links as rows with a random token fixes all of that at the cost of one indexed lookup per download. Only the token's hash is stored, so a database leak does not hand out working links. A folder link still serves the folder as it is at download time, including files added after the link was made.
@@ -206,6 +216,7 @@ JavaDropbox/
 │   │   │   ├── DeleteConfirmationModal.jsx
 │   │   │   ├── ShareModal.jsx      #   Share-link creation, clipboard fallback for plain http
 │   │   │   ├── VersionHistoryModal.jsx  # List and restore previous versions
+│   │   │   ├── PreviewModal.jsx    #   Image, PDF and text previews
 │   │   │   ├── FileTable.jsx       #   File listing with recursive search, sorting, row actions
 │   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
 │   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
@@ -234,22 +245,22 @@ JavaDropbox/
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
 │   │   │   └── PasswordConfig.java      # BCrypt encoder bean
 │   │   ├── controller/
-│   │   │   ├── FileController.java      # Tree, upload, download, delete, folders, storage info
+│   │   │   ├── FileController.java      # Tree, upload, download, preview, delete, folders, storage info
 │   │   │   ├── FileVersionController.java  # Version listing + restore
 │   │   │   ├── HistoryController.java   # Paged audit log
 │   │   │   ├── ShareController.java     # Share-link creation, listing, revoking + public download
 │   │   │   ├── SetupController.java     # First-run account creation
 │   │   │   ├── AuthController.java      # Current user
 │   │   │   ├── SpaController.java       # Serves the built app for client-side routes
-│   │   │   ├── DownloadResponses.java   # File/zip responses, Content-Disposition
+│   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
-│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, ShareLinkDto
+│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto
 │   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
-│   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink
+│   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
 │   │   └── service/
 │   │       ├── StoragePaths.java        # The one place client paths become filesystem paths
-│   │       ├── FileService.java         # Upload, delete, create folder, restore, download
+│   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree
 │   │       ├── FileVersionService.java  # Archiving, pruning and looking up versions
 │   │       ├── FileHistoryService.java  # Audit log, including failures
@@ -413,6 +424,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, plus `path`); replaced files keep their previous content as a version |
 | `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
+| `GET` | `/api/files/preview?path=<path>` | Serve a previewable file inline: images and PDFs as themselves, text and source files as `text/plain`; supports range requests. `400` for folders and other kinds of file |
 | `POST` | `/api/folders` | Create a folder (`path` + `name`) |
 | `GET` | `/api/storage` | Serving directory path + read/write status |
 
@@ -458,6 +470,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `MultipartErrorIntegrationTests` | On a real Tomcat: a server fault storing an upload is a 500, a malformed upload a 400 |
 | `StoragePathSecurityTests` | The root under every spelling, `..` traversal, symlink escapes and loops, in-root symlinks aliasing the root or a reserved folder, the reserved `.versions`/`.javadropbox` directories in any letter case, dot-named uploads and folders, single-segment upload names |
 | `StoragePathsTests`, `SymlinkSwapTests`, `StorageFilesTests`, `DownloadResponsesTests` | Path resolution on disk and on an in-memory case-insensitive filesystem (Jimfs), symlinks swapped in after the check for zip, delete, upload and download, upload scratch-file permissions |
+| `PreviewIntegrationTests`, `PreviewTypeTests` | Inline serving and the `Content-Type` per kind, markup served as plain text, the sandbox on images and text, PDFs frameable by the app only while downloads stay unframeable, range requests, `400` for folders and other files, traversal, `401` when signed out, `previewType` in the tree, the extension rules |
 | `DownloadIntegrationTests` | Folder zips (without symlinks), shared folder downloads, `Content-Disposition` for awkward names, range requests, links to deleted items, `Content-Security-Policy: sandbox` on every download |
 | `FolderArchiveTests` | Zips leave out hidden files, FIFOs and entries that vanish while zipping, and keep empty folders |
 | `ClientAbortIntegrationTests` / `IoExceptionHandlingTests` | Cancelled file and zip downloads are logged at debug only (on real Tomcat); nothing is written into a response already under way |
@@ -495,15 +508,16 @@ npm test
 
 | Test Suite | What It Covers |
 |-----------|----------------|
-| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting |
+| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, previewing a file in the open folder by its full path, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting |
 | `Modal.test.jsx` | Escape, focus trap (including focus outside the panel or on a removed control) and focus restore with a fallback |
 | `CreateFolderModal.test.jsx` | Closing only once the folder exists, the pending state, inline server errors, the dot-name rule |
 | `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item, listing and revoking active links |
+| `PreviewModal.test.jsx` | Images and PDFs from the preview endpoint, text fetched by range and shown unrendered, the cut-short notice ending on a whole line, empty files, server errors, starting over for the next file |
 | `VersionHistoryModal.test.jsx` | Listing versions, restoring in either mode, a restore for one file not affecting the next file's dialog |
 | `Login.test.jsx`, `Setup.test.jsx`, `Navbar.test.jsx` | Offering setup only while no account exists, errors announced as alerts, setup code and password checks, a failed logout keeping the user signed in |
 | `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
 | `ToastContext.test.jsx` | Errors announced assertively, toasts held while hovered or focused |
-| `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, visible keyboard focus, the breadcrumb landmark |
+| `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, previews offered only for files the server marks previewable, visible keyboard focus, the breadcrumb landmark |
 
 ### Code Style
 
@@ -547,7 +561,7 @@ Dependency Submission Job (pushes to main only): generates the dependency graph 
 
 ## Future Roadmap
 
-- [ ] **File Previews** — In-browser preview for images, PDFs, and text files
+- [x] **File Previews** — In-browser preview for images, PDFs, and text files
 - [ ] **Full-text Search** — Server-side search across file *contents* and metadata (filename search across the folder tree already works client-side)
 - [ ] **Folder Upload** — Upload entire directory structures
 - [ ] **Desktop Sync Client** — Background daemon that syncs a local folder with the server

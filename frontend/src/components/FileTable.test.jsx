@@ -397,3 +397,44 @@ describe('FileTable empty state', () => {
         expect(screen.queryByRole('table')).not.toBeInTheDocument();
     });
 });
+
+describe('FileTable previews', () => {
+    const FILES = [
+        { name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos', children: [] },
+        { name: 'notes.txt', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'notes.txt', previewType: 'text' },
+        { name: 'Big.zip', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Big.zip', previewType: null },
+    ];
+
+    it("opens a previewable file's preview from its name", async () => {
+        const user = userEvent.setup();
+        const onPreview = vi.fn();
+        render(<FileTable files={FILES} {...noopHandlers} onPreview={onPreview} />);
+
+        await user.click(screen.getByRole('button', { name: 'Preview notes.txt' }));
+
+        expect(onPreview).toHaveBeenCalledWith(FILES[1]);
+        expect(noopHandlers.onFolderClick).not.toHaveBeenCalled();
+    });
+
+    it('leaves files the server cannot preview, and folders, as they were', () => {
+        render(<FileTable files={FILES} {...noopHandlers} onPreview={vi.fn()} />);
+
+        expect(screen.queryByRole('button', { name: 'Preview Big.zip' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Preview Photos' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Photos' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Download Big.zip' })).toBeInTheDocument();
+    });
+
+    it('offers no preview when the table is given nowhere to show one', () => {
+        render(<FileTable files={FILES} {...noopHandlers} />);
+
+        expect(screen.queryByRole('button', { name: 'Preview notes.txt' })).not.toBeInTheDocument();
+        expect(visibleOrder()).toContain('notes.txt');
+    });
+
+    it('draws a focus indicator on the preview button', () => {
+        const { container } = render(<FileTable files={FILES} {...noopHandlers} onPreview={vi.fn()} />);
+
+        expect(controlsWithoutFocusIndicator(container)).toEqual([]);
+    });
+});

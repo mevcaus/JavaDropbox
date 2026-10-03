@@ -92,7 +92,7 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
     );
 };
 
-const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick, onVersions }) => {
+const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick, onVersions, onPreview }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
@@ -199,6 +199,20 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                             onFolderClick(file.relativePath);
                                                         }}
                                                         className="rounded-sm text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                                                    >
+                                                        {file.name}
+                                                    </button>
+                                                ) : onPreview && file.previewType ? (
+                                                    // The server marks which files a browser can show (previewType);
+                                                    // the rest stay plain text and are only downloaded.
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onPreview(file);
+                                                        }}
+                                                        title="Preview"
+                                                        aria-label={`Preview ${file.name}`}
+                                                        className="rounded-sm text-left text-sm font-medium text-gray-900 hover:text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                                     >
                                                         {file.name}
                                                     </button>

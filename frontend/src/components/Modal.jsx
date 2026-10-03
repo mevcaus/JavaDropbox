@@ -12,11 +12,17 @@ const FALLBACK_FOCUS = 'main[tabindex]';
 // removed (browsers differ in when they move focus off those, so check for them directly).
 const isFocusLost = (active) => !active || active === document.body || active.disabled || !active.isConnected;
 
+// Written out in full: Tailwind only generates classes it finds as complete strings in the source.
+const WIDTHS = {
+    default: 'sm:max-w-lg',
+    wide: 'sm:max-w-4xl',
+};
+
 /**
  * The dialog shell every modal shares. It behaves the way aria-modal promises: Escape closes it,
  * Tab stays inside it, focus moves in when it opens and back to where it was when it closes.
  */
-const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusRef, children }) => {
+const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusRef, size = 'default', children }) => {
     const titleId = useId();
     const panelRef = useRef(null);
 
@@ -93,7 +99,7 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
                 <div
                     ref={panelRef}
                     tabIndex={-1}
-                    className="relative inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6 focus:outline-none"
+                    className={`relative inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle ${WIDTHS[size]} sm:w-full sm:p-6 focus:outline-none`}
                 >
                     <div className="absolute top-0 right-0 pt-4 pr-4">
                         <button

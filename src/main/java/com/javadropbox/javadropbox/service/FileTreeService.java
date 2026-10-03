@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -107,6 +108,8 @@ public class FileTreeService {
       List<FileTreeNode> children = children(entry, key, metadata);
       node.setChildren(children);
       node.setSize(children.stream().mapToLong(FileTreeNode::getSize).sum());
+    } else {
+      node.setPreviewType(PreviewType.of(name).orElse(null));
     }
     return node;
   }

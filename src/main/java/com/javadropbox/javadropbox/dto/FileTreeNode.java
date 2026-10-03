@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox.dto;
 
+import com.javadropbox.javadropbox.model.PreviewType;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +14,7 @@ public class FileTreeNode {
   private Instant lastModified;
   private String ownerName;
   private String relativePath; // Added relative path for navigation
+  private PreviewType previewType; // null for folders and files that can only be downloaded
   private List<FileTreeNode> children;
 
   public FileTreeNode(String name, boolean isDirectory, long size) {
@@ -97,5 +99,13 @@ public class FileTreeNode {
 
   public void setRelativePath(String relativePath) {
     this.relativePath = relativePath;
+  }
+
+  public PreviewType getPreviewType() {
+    return previewType;
+  }
+
+  public void setPreviewType(PreviewType previewType) {
+    this.previewType = previewType;
   }
 }

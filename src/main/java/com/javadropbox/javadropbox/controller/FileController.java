@@ -70,6 +70,17 @@ public class FileController {
     return DownloadResponses.send(fileService.download(path), response);
   }
 
+  @GetMapping("/api/files/preview")
+  @Operation(
+      summary = "Preview a file",
+      description =
+          "The file at the path served for display in the browser: images and PDFs as"
+              + " themselves, text and source files as text/plain. Supports range requests."
+              + " Folders, and kinds of file that cannot be previewed, are refused with 400.")
+  public ResponseEntity<Resource> preview(@RequestParam String path) throws IOException {
+    return DownloadResponses.preview(fileService.preview(path));
+  }
+
   @PostMapping("/api/files")
   @Operation(
       summary = "Upload files",
