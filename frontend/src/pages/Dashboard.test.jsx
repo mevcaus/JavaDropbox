@@ -77,6 +77,29 @@ describe('Dashboard', () => {
         click.mockRestore();
     });
 
+    it("previews a file in the open folder by its full path, and downloads it from there", async () => {
+        const tree = [
+            { ...PHOTOS_TREE[0], children: [{ ...PHOTOS_TREE[0].children[0], previewType: 'image' }] },
+            ...TREE,
+        ];
+        api.get.mockResolvedValue({ data: tree });
+        const user = userEvent.setup();
+        const clicked = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function record() {
+            clicked.push(this.getAttribute('href'));
+        });
+        renderDashboard({ url: '/dashboard?path=Photos' });
+
+        await user.click(await screen.findByRole('button', { name: 'Preview beach.jpg' }));
+
+        expect(screen.getByRole('dialog', { name: 'beach.jpg' })).toBeInTheDocument();
+        expect(screen.getByRole('img', { name: 'beach.jpg' })).toHaveAttribute('src', '/api/files/preview?path=Photos%2Fbeach.jpg');
+
+        await user.click(screen.getByRole('button', { name: 'Download' }));
+        expect(clicked).toEqual(['/api/files/download?path=Photos%2Fbeach.jpg']);
+        click.mockRestore();
+    });
+
     it('clears the file input so the same file can be uploaded again', async () => {
         api.get.mockResolvedValue({ data: TREE });
         api.post.mockResolvedValue({ data: {} });

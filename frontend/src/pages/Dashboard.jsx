@@ -15,6 +15,7 @@ import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import CreateFolderModal from '../components/CreateFolderModal';
 import ShareModal from '../components/ShareModal';
 import VersionHistoryModal from '../components/VersionHistoryModal';
+import PreviewModal from '../components/PreviewModal';
 import { useToast } from '../hooks/useToast';
 import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
 import { Loader2, FolderPlus, Upload as UploadIcon } from 'lucide-react';
@@ -38,6 +39,7 @@ const Dashboard = () => {
     const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
     const [itemToShare, setItemToShare] = useState(null);
     const [versionsFile, setVersionsFile] = useState(null);
+    const [previewItem, setPreviewItem] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
 
     useEffect(() => {
@@ -106,6 +108,10 @@ const Dashboard = () => {
         link.remove();
     };
 
+    const handlePreview = (file) => {
+        setPreviewItem({ ...file, path: pathOf(file, currentPath) });
+    };
+
     const handleShare = (file) => {
         setItemToShare({ name: file.name, isDirectory: file.isDirectory, path: pathOf(file, currentPath) });
     };
@@ -168,6 +174,7 @@ const Dashboard = () => {
                 onDownload={handleDownload}
                 onShare={handleShare}
                 onVersions={setVersionsFile}
+                onPreview={handlePreview}
                 onFolderClick={handleNavigate}
             />
 
@@ -186,6 +193,13 @@ const Dashboard = () => {
             />
 
             <ShareModal isOpen={itemToShare !== null} onClose={() => setItemToShare(null)} item={itemToShare} />
+
+            <PreviewModal
+                isOpen={previewItem !== null}
+                onClose={() => setPreviewItem(null)}
+                item={previewItem}
+                onDownload={handleDownload}
+            />
 
             <VersionHistoryModal
                 isOpen={versionsFile !== null}
