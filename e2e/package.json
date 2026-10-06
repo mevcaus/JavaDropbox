@@ -1,0 +1,17 @@
+{
+  "name": "javadropbox-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser tests against the running JavaDropbox stack",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}
