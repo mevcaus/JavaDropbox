@@ -116,7 +116,7 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
                         </select>
                     </div>
                     <p className="text-sm text-gray-500">
-                        Anyone with the link can download this {kind} until it expires or is revoked. No account is required.
+                        Anyone with the link can see and download this {kind} until it expires or is revoked. No account is required.
                         {item.isDirectory && ' The link always serves the folder as it is at the time of download, including files added later.'}
                     </p>
                     {error && <p className="text-sm text-red-500">{error}</p>}

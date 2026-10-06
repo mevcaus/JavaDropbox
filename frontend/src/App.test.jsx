@@ -49,4 +49,17 @@ describe('App routing', () => {
         await waitFor(() => expect(window.location.pathname).toBe('/login'));
         expect(await screen.findByRole('heading', { name: 'Sign in to your account' })).toBeInTheDocument();
     });
+
+    it('shows a share link\'s page without a session, instead of sending it to sign in', async () => {
+        api.get.mockImplementation(async (url) => {
+            if (url === '/api/me') throw { response: { status: 401, data: '' } };
+            return { data: { name: 'photo.zip', isDirectory: false, size: 10, expiresAt: '2026-01-02T00:00:00Z' } };
+        });
+
+        renderAppAt('/share/abc123');
+
+        expect(await screen.findByRole('heading', { name: 'photo.zip' })).toBeInTheDocument();
+        expect(window.location.pathname).toBe('/share/abc123');
+        expect(api.get).toHaveBeenCalledWith('/share/abc123/info');
+    });
 });

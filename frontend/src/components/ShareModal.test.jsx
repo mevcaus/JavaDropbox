@@ -375,6 +375,6 @@ describe('ShareModal', () => {
 
     it('describes a folder share as a folder', () => {
         render(<ShareModal isOpen onClose={vi.fn()} item={{ name: 'apples', path: 'apples', isDirectory: true }} />);
-        expect(screen.getByText(/can download this folder/i)).toBeInTheDocument();
+        expect(screen.getByText(/can see and download this folder/i)).toBeInTheDocument();
     });
 });
