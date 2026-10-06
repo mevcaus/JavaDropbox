@@ -42,8 +42,9 @@ USER 10001:10001
 ENV JAVADROPBOX_SERVING_DIRECTORY=/data
 VOLUME /data
 EXPOSE 8080
-# The app shell is served without signing in, even before setup. Startup includes the migrations.
+# Public even before setup, and 503 (so wget fails) while the database or the storage disk is not
+# healthy. Startup includes the migrations.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:8080/index.html || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

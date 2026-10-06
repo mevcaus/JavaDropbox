@@ -111,6 +111,13 @@ public class SecurityConfig {
                         "/v3/api-docs",
                         "/v3/api-docs/**")
                     .permitAll()
+                    // Health checks come from load balancers and Docker, which have no session.
+                    // Anonymous callers only see UP or DOWN (management.endpoint.health.show-
+                    // details). Metrics fall to the rule below: every account is the owner today,
+                    // and installs from before the setup code have a ROLE_USER owner, so this
+                    // becomes an ADMIN rule only once there are accounts that are not the owner's.
+                    .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
+                    .permitAll()
                     // A browser opening any other page gets the app shell, which sends it on to
                     // sign-in itself. SpaFallbackFilter answers every request this lets through
                     // with the shell, so nothing else is reached without a session this way.

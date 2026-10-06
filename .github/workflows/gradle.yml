@@ -61,7 +61,7 @@ jobs:
     - name: Start the app with Docker Compose
       run: docker compose --profile app up --build --detach --wait --wait-timeout 180
 
-    # The healthcheck only proves /index.html answers. Check that / (which
+    # The healthcheck only proves the app and its database are up. Check that / (which
     # redirects to the setup page on a fresh install) serves the built app
     # shell, and that the script it loads is in the jar too.
     - name: Check the app serves the frontend

@@ -50,6 +50,7 @@ public class FileService {
   private final FileHistoryService history;
   private final ShareLinkRepository shareLinks;
   private final AuthService authService;
+  private final UsageMetrics metrics;
   private final TransactionTemplate transactions;
 
   public FileService(
@@ -59,6 +60,7 @@ public class FileService {
       FileHistoryService history,
       ShareLinkRepository shareLinks,
       AuthService authService,
+      UsageMetrics metrics,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.files = files;
@@ -66,6 +68,7 @@ public class FileService {
     this.history = history;
     this.shareLinks = shareLinks;
     this.authService = authService;
+    this.metrics = metrics;
     this.transactions = new TransactionTemplate(transactionManager);
   }
 
@@ -160,6 +163,7 @@ public class FileService {
             file.setUpdatedAt(Instant.now());
             history.recordSuccess(file, ChangeType.UPLOAD, user, null);
           });
+      metrics.fileUploaded(size);
     } finally {
       Files.deleteIfExists(scratch);
     }

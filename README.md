@@ -32,6 +32,7 @@ A **full-stack, self-hosted cloud storage platform** built from scratch — insp
 - [API Reference](#api-reference)
 - [Testing](#testing)
 - [CI/CD Pipeline](#cicd-pipeline)
+- [Observability](#observability)
 - [Future Roadmap](#future-roadmap)
 - [License](#license)
 
@@ -558,6 +559,34 @@ Push/PR to main
 
 Dependency Submission Job (pushes to main only): generates the dependency graph for Dependabot alerts.
 ```
+
+---
+
+## Observability
+
+[Spring Boot Actuator](https://docs.spring.io/spring-boot/reference/actuator/) exposes two endpoints and nothing else (no `env`, `beans`, `heapdump` and the like, which describe the server rather than its health):
+
+| Endpoint | Access | What it reports |
+|----------|--------|-----------------|
+| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable or the disk the files are stored on is nearly full. Signed in, it also shows each check (`db`, `diskSpace` for the serving directory, `ping`) |
+| `GET /actuator/metrics` | Signed in | The names of all meters; `/actuator/metrics/<name>` gives one meter's values, filtered with `?tag=key:value` |
+
+Health is public because load balancers and the Docker `HEALTHCHECK` call it without a session, and an anonymous caller learns only `UP` or `DOWN`. Metrics need a session. Every account is the owner today, and installs from before the setup code have a `ROLE_USER` owner, so this is a sign-in rule rather than an `ADMIN` one until there are accounts that aren't the owner's.
+
+Beside the JVM, HTTP, Tomcat and connection-pool meters Spring Boot records, the app records what it is used for:
+
+| Meter | Type | Counts |
+|-------|------|--------|
+| `javadropbox.files.served` | Counter, tagged `route` = `download`, `preview` or `share-link` | Files and zipped folders served. Requests for something missing aren't counted; each range request is, so a PDF viewer reading a file in parts counts more than once |
+| `javadropbox.uploads.size` | Distribution summary, in bytes | One sample per stored file once its upload has committed: `COUNT` is files uploaded, `TOTAL` the bytes, `MAX` the largest |
+| `javadropbox.share.links.created` | Counter | Share links created |
+
+```bash
+# Signed-in session cookie from the browser's dev tools
+curl -b JSESSIONID=... 'http://localhost:8080/actuator/metrics/javadropbox.files.served?tag=route:share-link'
+```
+
+There is no Prometheus endpoint yet: a scraper has no way to sign in through the form login, and opening metrics to anonymous callers would publish usage figures. Scraping needs either a separate management port that only the monitoring network can reach, or a scrape credential that is throttled like sign-in.
 
 ---
 
