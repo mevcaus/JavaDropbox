@@ -404,7 +404,7 @@ Setting it up again from scratch (the deploy itself is [`fly.toml`](fly.toml)):
 
 ```bash
 fly apps create javadropbox
-fly volumes create javadropbox_data --region sea --size 1 -a javadropbox
+fly volumes create javadropbox_data --region sjc --size 1 -a javadropbox
 # The Neon connection details, without pooling (Flyway's lock needs a direct
 # connection): SPRING_DATASOURCE_URL=jdbc:postgresql://<host>/neondb?sslmode=require,
 # SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD, one per line, then Ctrl-D.

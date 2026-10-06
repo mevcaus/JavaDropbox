@@ -3,7 +3,7 @@
 # README's "Live demo" section has the one-time setup.
 
 app = "javadropbox"
-primary_region = "sea"
+primary_region = "sjc"
 
 [build]
   dockerfile = "Dockerfile"
@@ -38,7 +38,7 @@ primary_region = "sea"
     path = "/actuator/health"
 
 # Stored files and their versions. Created once with:
-#   fly volumes create javadropbox_data --region sea --size 1 -a javadropbox
+#   fly volumes create javadropbox_data --region sjc --size 1 -a javadropbox
 [mounts]
   source = "javadropbox_data"
   destination = "/data"
