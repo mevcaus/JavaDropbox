@@ -35,7 +35,9 @@ primary_region = "sjc"
     interval = "30s"
     timeout = "5s"
     method = "GET"
-    path = "/actuator/health"
+    # Not /actuator/health, which queries the database and would keep a connection from ever
+    # going idle (see application-demo.properties).
+    path = "/actuator/health/liveness"
 
 # Stored files and their versions. Created once with:
 #   fly volumes create javadropbox_data --region sjc --size 1 -a javadropbox
