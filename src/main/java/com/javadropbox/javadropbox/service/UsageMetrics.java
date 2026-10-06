@@ -21,7 +21,8 @@ public class UsageMetrics {
   public enum Route {
     DOWNLOAD("download"),
     PREVIEW("preview"),
-    SHARE_LINK("share-link");
+    SHARE_LINK("share-link"),
+    SHARE_LINK_PREVIEW("share-link-preview");
 
     private final String tag;
 
@@ -33,6 +34,7 @@ public class UsageMetrics {
   private final Counter downloads;
   private final Counter previews;
   private final Counter shareLinkDownloads;
+  private final Counter shareLinkPreviews;
   private final DistributionSummary uploadSize;
   private final Counter shareLinksCreated;
 
@@ -40,6 +42,7 @@ public class UsageMetrics {
     downloads = filesServed(registry, Route.DOWNLOAD);
     previews = filesServed(registry, Route.PREVIEW);
     shareLinkDownloads = filesServed(registry, Route.SHARE_LINK);
+    shareLinkPreviews = filesServed(registry, Route.SHARE_LINK_PREVIEW);
     uploadSize =
         DistributionSummary.builder(UPLOAD_SIZE)
             .description("Files stored by uploads; the total is the bytes uploaded")
@@ -62,6 +65,7 @@ public class UsageMetrics {
       case DOWNLOAD -> downloads.increment();
       case PREVIEW -> previews.increment();
       case SHARE_LINK -> shareLinkDownloads.increment();
+      case SHARE_LINK_PREVIEW -> shareLinkPreviews.increment();
     }
   }
 

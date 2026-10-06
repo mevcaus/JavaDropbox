@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -295,6 +296,147 @@ class ShareLinkIntegrationTests {
     mockMvc
         .perform(delete("/api/share/" + id).with(csrf()).with(anonymous()))
         .andExpect(status().isUnauthorized());
+  }
+
+  // What a browser sends when it opens a page; curl and wget send */*.
+  private static final String BROWSER_ACCEPT =
+      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+  @Test
+  @DisplayName("A browser opening a link gets the app's page for it; other clients get the file")
+  void browsersGetThePageOthersTheFile() throws Exception {
+    String token = share("shared.txt");
+
+    mockMvc
+        .perform(get("/share/" + token).header("Accept", BROWSER_ACCEPT).with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(forwardedUrl("/index.html"));
+    // The page says so itself when a link does not open.
+    mockMvc
+        .perform(get("/share/not-a-real-token").header("Accept", BROWSER_ACCEPT).with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(forwardedUrl("/index.html"));
+
+    mockMvc
+        .perform(get("/share/" + token).header("Accept", "*/*").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(forwardedUrl(null))
+        .andExpect(content().string("share me"));
+    // The page's Download button: the file, even for a browser.
+    mockMvc
+        .perform(
+            get("/share/" + token + "/download").header("Accept", BROWSER_ACCEPT).with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Disposition", containsString("attachment")))
+        .andExpect(content().string("share me"));
+  }
+
+  @Test
+  @DisplayName("A file's page is described by name, size and expiry, without its path")
+  void describesASharedFile() throws Exception {
+    Files.createDirectories(servingDir.resolve("clients/acme"));
+    Files.writeString(servingDir.resolve("clients/acme/report.pdf"), "%PDF-1");
+    String token = share("clients/acme/report.pdf");
+
+    mockMvc
+        .perform(get("/share/" + token + "/info").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("report.pdf"))
+        .andExpect(jsonPath("$.isDirectory").value(false))
+        .andExpect(jsonPath("$.size").value(6))
+        .andExpect(jsonPath("$.previewType").value("pdf"))
+        .andExpect(jsonPath("$.expiresAt").isNotEmpty())
+        .andExpect(jsonPath("$.lastModified").isNotEmpty())
+        .andExpect(jsonPath("$.contents").value(nullValue()))
+        // Nothing about the folders around it, or whose it is.
+        .andExpect(content().string(not(containsString("clients"))))
+        .andExpect(content().string(not(containsString("acme"))))
+        .andExpect(content().string(not(containsString("testadmin"))));
+  }
+
+  @Test
+  @DisplayName("A folder's page lists what it holds by name, folders first, without paths")
+  void describesASharedFolder() throws Exception {
+    Files.createDirectories(servingDir.resolve("clients/acme/drafts"));
+    Files.writeString(servingDir.resolve("clients/acme/notes.txt"), "four");
+    Files.writeString(servingDir.resolve("clients/acme/drafts/v1.txt"), "draft");
+    Files.writeString(servingDir.resolve("clients/acme/.hidden"), "not listed");
+    String token = share("clients/acme");
+
+    mockMvc
+        .perform(get("/share/" + token + "/info").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("acme"))
+        .andExpect(jsonPath("$.isDirectory").value(true))
+        .andExpect(jsonPath("$.size").value(9))
+        .andExpect(jsonPath("$.previewType").value(nullValue()))
+        .andExpect(jsonPath("$.contents.length()").value(2))
+        .andExpect(jsonPath("$.contents[0].name").value("drafts"))
+        .andExpect(jsonPath("$.contents[0].isDirectory").value(true))
+        .andExpect(jsonPath("$.contents[0].size").value(5))
+        .andExpect(jsonPath("$.contents[0].children[0].name").value("v1.txt"))
+        .andExpect(jsonPath("$.contents[0].children[0].children").value(nullValue()))
+        .andExpect(jsonPath("$.contents[1].name").value("notes.txt"))
+        .andExpect(jsonPath("$.contents[1].size").value(4))
+        .andExpect(content().string(not(containsString("clients"))))
+        .andExpect(content().string(not(containsString(".hidden"))))
+        .andExpect(content().string(not(containsString("testadmin"))))
+        .andExpect(content().string(not(containsString("\"id\""))));
+  }
+
+  @Test
+  @DisplayName("A shared file previews inline with the same headers as a private preview")
+  void previewsASharedFile() throws Exception {
+    String token = share("shared.txt");
+
+    mockMvc
+        .perform(get("/share/" + token + "/preview").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "text/plain;charset=UTF-8"))
+        .andExpect(header().string("Content-Disposition", containsString("inline")))
+        .andExpect(header().string("Content-Security-Policy", "sandbox"))
+        .andExpect(content().string("share me"));
+
+    Files.writeString(servingDir.resolve("report.pdf"), "%PDF-1");
+    mockMvc
+        .perform(get("/share/" + share("report.pdf") + "/preview").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "application/pdf"))
+        // Framed by the share page, on the same origin.
+        .andExpect(header().string("X-Frame-Options", "SAMEORIGIN"));
+  }
+
+  @Test
+  @DisplayName("A folder, or a file that cannot be previewed, has no preview")
+  void noPreviewForFoldersOrOtherFiles() throws Exception {
+    Files.createDirectory(servingDir.resolve("docs"));
+    Files.write(servingDir.resolve("data.bin"), new byte[] {1, 2, 3});
+
+    for (String path : new String[] {"docs", "data.bin"}) {
+      mockMvc
+          .perform(get("/share/" + share(path) + "/preview").with(anonymous()))
+          .andExpect(status().isNotFound())
+          .andExpect(content().string(""));
+    }
+  }
+
+  @Test
+  @DisplayName("A link that does not open says nothing on any of its routes")
+  void deadLinksAreBareNotFoundEverywhere() throws Exception {
+    String expired = share("shared.txt");
+    jdbc.update("UPDATE share_links SET expires_at = created_at - INTERVAL '1' MINUTE");
+    Files.writeString(servingDir.resolve("gone.txt"), "soon gone");
+    String deleted = share("gone.txt");
+    Files.delete(servingDir.resolve("gone.txt"));
+
+    for (String token : new String[] {expired, deleted, "not-a-real-token"}) {
+      for (String route : new String[] {"", "/info", "/preview", "/download"}) {
+        mockMvc
+            .perform(get("/share/" + token + route).with(anonymous()))
+            .andExpect(status().isNotFound())
+            .andExpect(content().string(""));
+      }
+    }
   }
 
   // The token at the end of the share URL.
