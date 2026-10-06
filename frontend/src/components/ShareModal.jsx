@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link2, Copy, Check, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
+import { useDemoInfo } from '../hooks/useDemoInfo';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import Modal, { ModalActions } from './Modal';
@@ -13,6 +14,13 @@ const EXPIRATION_OPTIONS = [
     { label: '24 hours', minutes: 60 * 24 },
     { label: '7 days', minutes: 60 * 24 * 7 },
 ];
+
+// The choices a server allowing links of at most maxMinutes accepts (all of them when unlimited).
+const expirationOptions = (maxMinutes) => {
+    if (!maxMinutes) return EXPIRATION_OPTIONS;
+    const allowed = EXPIRATION_OPTIONS.filter((opt) => opt.minutes <= maxMinutes);
+    return allowed.length > 0 ? allowed : [{ label: `${maxMinutes} minutes`, minutes: maxMinutes }];
+};
 
 // Keyed by path, so sharing another item starts from a fresh dialog: no link, error or spinner from
 // the previous one carries over, and its late answers land in a dialog that is gone.
@@ -30,6 +38,12 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
     // Counts requests, so only the latest one's answer is shown.
     const requestRef = useRef(0);
     const { addToast } = useToast();
+    // The public demo only allows short links. Until its limits have loaded, all choices show.
+    const options = expirationOptions(useDemoInfo()?.maxShareMinutes);
+    // A choice the limit rules out (such as the default) falls back to the longest one allowed.
+    const minutes = options.some((opt) => opt.minutes === expirationMinutes)
+        ? expirationMinutes
+        : options[options.length - 1].minutes;
 
     useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 
@@ -42,7 +56,7 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
         try {
             const params = new URLSearchParams();
             params.append('path', item.path);
-            params.append('expirationMinutes', expirationMinutes);
+            params.append('expirationMinutes', minutes);
 
             const response = await api.post('/api/share', params, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -90,11 +104,11 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
                         </label>
                         <select
                             id="expiration"
-                            value={expirationMinutes}
+                            value={minutes}
                             onChange={(e) => setExpirationMinutes(Number(e.target.value))}
                             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
                         >
-                            {EXPIRATION_OPTIONS.map((opt) => (
+                            {options.map((opt) => (
                                 <option key={opt.minutes} value={opt.minutes}>
                                     {opt.label}
                                 </option>
@@ -129,7 +143,7 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
                         </button>
                     </div>
                     <p className="text-sm text-gray-500">
-                        This link expires in {EXPIRATION_OPTIONS.find((o) => o.minutes === expirationMinutes)?.label || `${expirationMinutes} minutes`}.
+                        This link expires in {options.find((o) => o.minutes === minutes)?.label || `${minutes} minutes`}.
                         Copy it now: it can't be shown again, though it can be revoked below.
                     </p>
                 </div>

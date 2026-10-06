@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ShareModal from './ShareModal';
 import api from '../services/api';
+import { resetDemoInfo } from '../services/demo';
 import { formatDate } from '../utils/date';
 
 vi.mock('../services/api');
@@ -58,7 +59,23 @@ describe('ShareModal', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         addToast.mockClear();
+        resetDemoInfo();
         api.get.mockResolvedValue({ data: [] });
+    });
+
+    it('offers only the expirations the public demo allows, defaulting to the longest', async () => {
+        const user = userEvent.setup();
+        api.get.mockImplementation((url) =>
+            Promise.resolve({ data: url === '/api/demo' ? { username: 'demo', maxShareMinutes: 60 } : [] }),
+        );
+        api.post.mockResolvedValueOnce({ data: { url: SHARE_URL } });
+        renderModal();
+
+        await vi.waitFor(() => expect(within(expirationSelect()).getAllByRole('option')).toHaveLength(2));
+        expect(expirationSelect()).toHaveValue('60');
+
+        await user.click(generateButton());
+        expect(postedParams().get('expirationMinutes')).toBe('60');
     });
 
     it('renders nothing when closed or when no item is selected', () => {
@@ -269,13 +286,14 @@ describe('ShareModal', () => {
         const user = userEvent.setup();
         api.post.mockResolvedValueOnce({ data: { url: SHARE_URL } });
         renderModal();
-        await vi.waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+        // The active links and the check for the public demo's limits.
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
 
         api.get.mockResolvedValueOnce({ data: [LINK] });
         await user.click(generateButton());
 
         const list = await screen.findByRole('list', { name: /Active links/i });
-        expect(api.get).toHaveBeenCalledTimes(2);
+        expect(api.get.mock.calls.filter(([url]) => url === '/api/share')).toHaveLength(2);
         expect(within(list).getAllByRole('listitem')).toHaveLength(1);
     });
 
