@@ -392,28 +392,11 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 
 ## Live Demo
 
-[javadropbox.mevcaus.dev](https://javadropbox.mevcaus.dev) runs the Docker image on [Fly.io](https://fly.io) with the `demo` profile ([`application-demo.properties`](src/main/resources/application-demo.properties)), against a [Neon](https://neon.tech) PostgreSQL database. Every merge to `main` that passes CI is deployed to it.
+[javadropbox.mevcaus.dev](https://javadropbox.mevcaus.dev) is the same Docker image, deployed to [Fly.io](https://fly.io) with a [Neon](https://neon.tech) PostgreSQL database every time a merge to `main` passes CI. A `demo` Spring profile turns it into something safe to leave open to the public:
 
-The `demo` profile:
-
-- **Skips setup.** It creates the account `demo` with the password `javadropbox` at startup and puts the password back if it was changed. The sign-in page shows both and has a button that fills them in, and a banner in the app gives the limits and the next reset.
-- **Resets daily**, at 10:00 UTC. All files, versions, share links and history are deleted, and a few sample files are stored again: a Markdown welcome page, a PDF, an image, a Java source file, and a text file uploaded three times, so it has versions to restore. Fly suspends the server while nobody is using it, and a timer cannot fire while it is suspended. So instead of running on a schedule, the reset runs at startup or on the first request after the reset time, before that request is handled.
-- **Keeps it small**, so the demo can't be used as free file hosting: 5 MB per file, 50 MB stored in total (previous versions included), three previous versions per file, and share links that last at most 15 minutes.
-
-Setting it up again from scratch (the deploy itself is [`fly.toml`](fly.toml)):
-
-```bash
-fly apps create javadropbox
-fly volumes create javadropbox_data --region sjc --size 1 -a javadropbox
-# The Neon connection details, without pooling (Flyway's lock needs a direct
-# connection): SPRING_DATASOURCE_URL=jdbc:postgresql://<host>/neondb?sslmode=require,
-# SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD, one per line, then Ctrl-D.
-fly secrets import -a javadropbox --stage
-fly tokens create deploy -a javadropbox | gh secret set FLY_API_TOKEN
-fly certs add javadropbox.mevcaus.dev -a javadropbox
-```
-
-Then point a DNS record at the app as `fly certs add` describes (a `CNAME` from `javadropbox` to `javadropbox.fly.dev`; on Cloudflare, DNS only, so Fly can issue the certificate). Run the *Deploy demo* workflow, or merge to `main`, to deploy.
+- **No setup.** The shared account (`demo` / `javadropbox`) is created at startup, and the sign-in page offers to fill it in.
+- **A daily reset.** Every file, version, share link and history entry is deleted, and a few sample files are stored again, including one with versions to restore. Fly suspends the server while nobody is using it, and a scheduled job can't run during a suspend, so the reset runs on the first request after it falls due, before that request is handled.
+- **Small limits**, so it can't be used as free file hosting: 5 MB per file, 50 MB in total (previous versions included), and share links that last at most 15 minutes. The total cap is a general `javadropbox.storage.max-total-size` setting, off by default.
 
 ---
 

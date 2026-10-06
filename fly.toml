@@ -1,6 +1,19 @@
 # The public demo at https://javadropbox.mevcaus.dev, on Fly.io. GitHub Actions
-# deploys it after CI passes on main (.github/workflows/deploy-demo.yml); the
-# README's "Live demo" section has the one-time setup.
+# deploys it after CI passes on main (.github/workflows/deploy-demo.yml).
+#
+# One-time setup, should it ever need doing again:
+#   fly apps create javadropbox
+#   fly volumes create javadropbox_data --region sjc --size 1 -a javadropbox
+#   fly secrets import -a javadropbox --stage
+#     SPRING_DATASOURCE_URL=jdbc:postgresql://<neon host>/neondb?sslmode=require
+#     SPRING_DATASOURCE_USERNAME=... and SPRING_DATASOURCE_PASSWORD=..., one per
+#     line, then Ctrl-D. Neon's direct host, not the pooled one: Flyway's lock
+#     needs a session of its own.
+#   fly tokens create deploy -a javadropbox | gh secret set FLY_API_TOKEN
+#   fly ips allocate-v4 --shared -a javadropbox && fly ips allocate-v6 -a javadropbox
+#   fly certs add javadropbox.mevcaus.dev -a javadropbox
+# then A and AAAA records for javadropbox.mevcaus.dev pointing at those IPs,
+# DNS only (not proxied by Cloudflare), so Fly can issue the certificate.
 
 app = "javadropbox"
 primary_region = "sjc"
@@ -39,8 +52,7 @@ primary_region = "sjc"
     # going idle (see application-demo.properties).
     path = "/actuator/health/liveness"
 
-# Stored files and their versions. Created once with:
-#   fly volumes create javadropbox_data --region sjc --size 1 -a javadropbox
+# Stored files and their versions (the volume is created in the setup above).
 [mounts]
   source = "javadropbox_data"
   destination = "/data"
