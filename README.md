@@ -16,6 +16,8 @@
 
 A **full-stack, self-hosted cloud storage platform** built from scratch — inspired by Dropbox, Google Drive, and OneDrive. Users can upload, download, version, and manage files through a modern React dashboard, backed by a secure Spring Boot REST API with PostgreSQL persistence.
 
+**[Try the live demo →](https://javadropbox.mevcaus.dev)** Sign in as `demo` with the password `javadropbox`. Everyone shares that account, and it is reset every day ([details](#live-demo)).
+
 > **Why I built this:** To deeply understand the systems that power cloud storage — from file I/O and streaming ZIP compression to session-based auth, file versioning, and recursive directory traversal — by implementing them myself rather than relying on abstractions.
 
 ---
@@ -28,6 +30,7 @@ A **full-stack, self-hosted cloud storage platform** built from scratch — insp
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
+- [Live Demo](#live-demo)
 - [Database Migrations](#database-migrations)
 - [API Reference](#api-reference)
 - [Testing](#testing)
@@ -375,12 +378,42 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
+| `javadropbox.storage.max-total-size` | none | Cap on everything stored, previous versions included (e.g. `50MB`); an upload or restore that would go over it is refused with `507` |
+| `javadropbox.share.max-expiration` | `7d` | Longest lifetime a share link can be given |
+| `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
 
 `app.share.jwt-secret` (`APP_SHARE_JWT_SECRET`) is gone: share links are stored on the server and no longer signed. The app refuses to start while it is set, so remove it when upgrading. A `.javadropbox/share-jwt.key` left by an earlier version is deleted on startup.
+
+---
+
+## Live Demo
+
+[javadropbox.mevcaus.dev](https://javadropbox.mevcaus.dev) runs the Docker image on [Fly.io](https://fly.io) with the `demo` profile ([`application-demo.properties`](src/main/resources/application-demo.properties)), against a [Neon](https://neon.tech) PostgreSQL database. Every merge to `main` that passes CI is deployed to it.
+
+The `demo` profile:
+
+- **Skips setup.** It creates the account `demo` with the password `javadropbox` at startup and puts the password back if it was changed. The sign-in page shows both and has a button that fills them in, and a banner in the app gives the limits and the next reset.
+- **Resets daily**, at 10:00 UTC. All files, versions, share links and history are deleted, and a few sample files are stored again: a Markdown welcome page, a PDF, an image, a Java source file, and a text file uploaded three times, so it has versions to restore. Fly suspends the server while nobody is using it, and a timer cannot fire while it is suspended. So instead of running on a schedule, the reset runs at startup or on the first request after the reset time, before that request is handled.
+- **Keeps it small**, so the demo can't be used as free file hosting: 5 MB per file, 50 MB stored in total (previous versions included), three previous versions per file, and share links that last at most 15 minutes.
+
+Setting it up again from scratch (the deploy itself is [`fly.toml`](fly.toml)):
+
+```bash
+fly apps create javadropbox
+fly volumes create javadropbox_data --region sea --size 1 -a javadropbox
+# The Neon connection details, without pooling (Flyway's lock needs a direct
+# connection): SPRING_DATASOURCE_URL=jdbc:postgresql://<host>/neondb?sslmode=require,
+# SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD, one per line, then Ctrl-D.
+fly secrets import -a javadropbox --stage
+fly tokens create deploy -a javadropbox | gh secret set FLY_API_TOKEN
+fly certs add javadropbox.mevcaus.dev -a javadropbox
+```
+
+Then point a DNS record at the app as `fly certs add` describes (a `CNAME` from `javadropbox` to `javadropbox.fly.dev`; on Cloudflare, DNS only, so Fly can issue the certificate). Run the *Deploy demo* workflow, or merge to `main`, to deploy.
 
 ---
 
@@ -418,6 +451,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded) |
 | `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user |
+| `GET` | `/api/demo` | ❌ | Only in the `demo` profile: the shared account and the limits, for the sign-in page (`404` elsewhere) |
 
 ### Files and Folders
 
@@ -442,7 +476,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Create a time-limited share link (max 7 days; not for the root): `{url, expiresAt}`. The URL is only returned here |
+| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
 | `GET` | `/api/share?path=<path>` | ✅ | The path's links that have not expired or been revoked, soonest to expire first: `[{id, createdAt, expiresAt, createdBy}]` |
 | `DELETE` | `/api/share/{id}` | ✅ | Revoke a link; it stops working at once |
 | `GET` | `/share/{token}` | ❌ | Download a shared file or folder via its token |
@@ -485,6 +519,8 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
 | `SetupIntegrationTests` | First-run redirects, the setup code and its throttling, validation, the app shell during setup, 409 after setup (on PostgreSQL) |
 | `PasswordRecoveryIntegrationTests` | The "Forgot your password?" procedure above, on PostgreSQL with uploaded files: an `htpasswd` hash set by `UPDATE` signs in |
+| `StorageQuotaIntegrationTests` | The storage cap: uploads and restored copies that would go over it are a `507` and leave nothing behind, and previous versions count toward it |
+| `DemoIntegrationTests`, `DemoServiceTests` | The `demo` profile: the account signs in with no setup, `/api/demo` is public, the sample files (one with two versions) are stored, a due reset deletes everything and stores them again while one that is not due changes nothing, share links of at most 15 minutes; when the daily reset falls due |
 | `ShareLinkIntegrationTests` | Link creation, expiry, listing and revoking, public download; tokens that reveal no path and are stored only hashed; links dying with their item even when the path is reused or the item changes type |
 | `RetiredShareKeyTests` / `FlywayShareLinksMigrationTests` | No signing key is created, a leftover (even empty) key file is deleted, a configured secret stops startup; on PostgreSQL, links are deleted with their file and token hashes are unique |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
@@ -559,6 +595,8 @@ Push/PR to main
 
 Dependency Submission Job (pushes to main only): generates the dependency graph for Dependabot alerts.
 ```
+
+Once the Gradle workflow (build and Docker jobs) has passed on a push to `main`, `deploy-demo.yml` deploys that commit to the [live demo](#live-demo) on Fly.io.
 
 ---
 

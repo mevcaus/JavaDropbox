@@ -1,0 +1,48 @@
+# The public demo at https://javadropbox.mevcaus.dev, on Fly.io. GitHub Actions
+# deploys it after CI passes on main (.github/workflows/deploy-demo.yml); the
+# README's "Live demo" section has the one-time setup.
+
+app = "javadropbox"
+primary_region = "sea"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Shared account, nightly reset and small limits: src/main/resources/application-demo.properties.
+  SPRING_PROFILES_ACTIVE = "demo"
+  # A folder on the volume rather than the volume itself, whose root holds the filesystem's own
+  # lost+found: the app would list it, and the daily reset could not delete it.
+  JAVADROPBOX_SERVING_DIRECTORY = "/data/files"
+  # Fits the JVM into the machine's 512 MB with room to spare for its own overhead.
+  JAVA_TOOL_OPTIONS = "-XX:+UseSerialGC -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:TieredStopAtLevel=1"
+  # Requests arrive through Fly's proxy, which connects from 172.16.0.0/12. Trusting it (and only
+  # it) for X-Forwarded-For/-Proto gives the sign-in throttle each visitor's own address and
+  # share links their https URL.
+  SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES = '172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Suspended while nobody is using it, which costs next to nothing, and resumed in about a second
+  # by the next request. DemoService resets the files on that request if the reset time has passed.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/actuator/health"
+
+# Stored files and their versions. Created once with:
+#   fly volumes create javadropbox_data --region sea --size 1 -a javadropbox
+[mounts]
+  source = "javadropbox_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,47 @@
+# Deploys the public demo (fly.toml) once CI has passed on main, so a commit that
+# breaks the build or the tests never reaches it.
+
+name: Deploy demo
+
+on:
+  workflow_run:
+    workflows: [ "Java CI with Gradle" ]
+    types: [ completed ]
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# One deploy at a time, the newest last; a deploy under way is never cut short.
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+
+    # Only pushes to main: pull requests run the same CI workflow, and their branches can be named
+    # main too when they come from forks.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # The commit CI tested, not whatever main has moved on to since.
+        ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+        # The image bundles the frontend, whose logos are LFS objects, and so are the demo's
+        # sample images.
+        lfs: true
+
+    - uses: superfly/flyctl-actions/setup-flyctl@fc53c09e1bc3be6f54706524e3b82c4f462f77be # v1.5
+
+    # Built on Fly's builders. --ha=false keeps it to one machine: the files live on one volume.
+    - name: Deploy to Fly.io
+      run: flyctl deploy --remote-only --ha=false
+      env:
+        FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
