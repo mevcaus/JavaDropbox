@@ -66,3 +66,42 @@ npm test
 | `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
 | `ToastContext.test.jsx` | Errors announced assertively, toasts held while hovered or focused |
 | `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | Default folders-before-files ordering, recursive filename search with path labels and its empty state, search scoping to the current subtree, sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, previews offered only for files the server marks previewable, visible keyboard focus, the breadcrumb landmark |
+
+### End-to-End Tests
+
+The backend and frontend suites each mock the other side, so a mismatch between them (an endpoint path, a CSRF header, a response shape) passes both. The **Playwright** tests in `e2e/` close that gap: they drive the real app in Chromium against the Docker Compose stack, the same image, PostgreSQL database and storage volume a user runs.
+
+```bash
+# Start a fresh stack: setup only happens once, on an empty database
+docker compose --profile app down --volumes
+docker compose --profile app up --build --wait
+
+# Once: the test dependencies and the browser
+npm install --prefix e2e
+npx --prefix e2e playwright install chromium
+
+# Run the suite, then open the report (with a trace of any failure)
+npm run e2e
+npm run report --prefix e2e
+```
+
+The `setup` project runs first. On a fresh stack it reads the setup code from `docker compose logs app`, as the README tells a user to, creates the account and signs in; on a stack already set up it only signs in. Every other test starts from that signed-in session, in a folder of its own created through the API, so the tests run in parallel and can run again on the same stack. Arguments after `--` go to Playwright, such as `npm run e2e -- --headed` or `npm run e2e -- tests/share.spec.js`.
+
+| Variable | Default | Use |
+|----------|---------|-----|
+| `E2E_BASE_URL` | `http://localhost:8080` | Where the app is running |
+| `E2E_USERNAME`, `E2E_PASSWORD` | A fixed test account | The account setup creates, or the one to sign in with on a stack set up by hand |
+| `E2E_SETUP_CODE` | Read from the container log | The setup code for a server Docker Compose did not start, such as `./gradlew bootRun` with `app.setup.code` set |
+
+Docker Compose's own `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` are honoured when reading the log, for a stack started under another name or with an override file.
+
+CI runs the suite in the `docker` job of `.github/workflows/gradle.yml` after the stack is up, and uploads the HTML report as the `playwright-report` artifact when a test fails.
+
+| Test Suite | What It Covers |
+|-----------|----------------|
+| `account.setup.js` | First-run setup with the code from the server log, signing in, the session the other tests share |
+| `auth.spec.js` | Signed-out visitors sent to sign-in with no setup link, a wrong password refused, signing in, a session that survives a reload, signing out ending the session on the server |
+| `files.spec.js` | Creating a folder and opening it (kept across a reload), uploading a file and downloading the same bytes, downloading a folder as a zip, deleting a file and a folder for good |
+| `preview.spec.js` | An image decoded in the preview, a PDF served inline and frameable, a text file shown as text with its markup unrendered, downloading from the preview |
+| `share.spec.js` | A link that downloads the file for a client with no session, revoking it (a 404 straight after), links listed again when the dialog is reopened |
+| `versions.spec.js` | Uploading over a file, restoring the earlier version in place (the replaced content kept as a version) and as a copy |

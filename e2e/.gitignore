@@ -1,0 +1,5 @@
+node_modules/
+playwright-report/
+test-results/
+# The signed-in session the setup project saves for the other tests.
+.auth/
