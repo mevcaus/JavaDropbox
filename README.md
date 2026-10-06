@@ -242,7 +242,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. [docs/testing.md](docs/testing.md) lists what every suite covers.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads, folders, previews, downloads, share links opened signed out and revoked, restoring versions, and deletes. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
@@ -250,7 +250,7 @@ flowchart LR
 
     subgraph Gradle["Java CI with Gradle"]
         Build["build<br/>tests on H2 and PostgreSQL<br/>Spotless format check"]
-        Docker["docker<br/>build the image, compose up,<br/>health checks, smoke test"]
+        Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests"]
     end
 
     Frontend["Frontend CI<br/>lint · test · production build"]
@@ -279,7 +279,7 @@ Then open `http://localhost:8080` and create the first account with the setup co
 
 - **[Self-hosting](docs/self-hosting.md):** first-run setup, configuration, reverse proxies, password recovery, health and metrics
 - **[Development](docs/development.md):** running from source with hot reload, project structure, database migrations, code style
-- **[Testing](docs/testing.md):** what each backend and frontend test suite covers
+- **[Testing](docs/testing.md):** what each backend, frontend and end-to-end test suite covers
 - **[API reference](docs/api.md):** every endpoint, with Swagger UI available in development
 
 ## Roadmap
