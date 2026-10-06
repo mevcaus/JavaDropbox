@@ -14,7 +14,12 @@ const EXPIRATION_OPTIONS = [
     { label: '7 days', minutes: 60 * 24 * 7 },
 ];
 
-const ShareModal = ({ isOpen, onClose, item }) => {
+// Keyed by path, so sharing another item starts from a fresh dialog: no link, error or spinner from
+// the previous one carries over, and its late answers land in a dialog that is gone.
+const ShareModal = ({ isOpen, onClose, item }) =>
+    item ? <ShareDialog key={item.path} isOpen={isOpen} onClose={onClose} item={item} /> : null;
+
+const ShareDialog = ({ isOpen, onClose, item }) => {
     const [expirationMinutes, setExpirationMinutes] = useState(EXPIRATION_OPTIONS[2].minutes);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -22,24 +27,11 @@ const ShareModal = ({ isOpen, onClose, item }) => {
     const [copied, setCopied] = useState(false);
     const linkInputRef = useRef(null);
     const copiedTimerRef = useRef(null);
-    // Counts requests and item changes. The dialog stays mounted from one share to the next, so a
-    // slow answer for the previous item must not land in the dialog for this one.
+    // Counts requests, so only the latest one's answer is shown.
     const requestRef = useRef(0);
     const { addToast } = useToast();
 
     useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
-
-    // Reset state whenever a new item is shared
-    useEffect(() => {
-        requestRef.current += 1;
-        setShareUrl(null);
-        setError(null);
-        setLoading(false);
-        setCopied(false);
-        setExpirationMinutes(EXPIRATION_OPTIONS[2].minutes);
-    }, [item]);
-
-    if (!item) return null;
 
     const handleGenerate = async () => {
         const request = ++requestRef.current;
@@ -142,7 +134,8 @@ const ShareModal = ({ isOpen, onClose, item }) => {
                     </p>
                 </div>
             )}
-            <ActiveLinks path={item.path} reloadKey={shareUrl} />
+            {/* Keyed by the new link, so generating one loads the list again. */}
+            <ActiveLinks key={shareUrl} path={item.path} />
             <ModalActions>
                 {!shareUrl && (
                     <button type="button" disabled={loading} className={primaryButton.blue} onClick={handleGenerate}>
@@ -158,8 +151,8 @@ const ShareModal = ({ isOpen, onClose, item }) => {
 };
 
 // The item's links that still work, each with a Revoke button. Only a hash of a link's token is
-// stored, so a link's URL cannot be shown again here. Reloaded when a new link is generated.
-const ActiveLinks = ({ path, reloadKey }) => {
+// stored, so a link's URL cannot be shown again here.
+const ActiveLinks = ({ path }) => {
     const [links, setLinks] = useState([]);
     const [error, setError] = useState(null);
     const [revoking, setRevoking] = useState(null);
@@ -168,15 +161,13 @@ const ActiveLinks = ({ path, reloadKey }) => {
 
     useEffect(() => {
         let cancelled = false;
-        setLinks([]);
-        setError(null);
         api.get('/api/share', { params: { path } })
             .then((response) => !cancelled && setLinks(response.data))
             .catch((err) => !cancelled && setError(readableError(err, 'Could not load the active links.')));
         return () => {
             cancelled = true;
         };
-    }, [path, reloadKey]);
+    }, [path]);
 
     const revoke = async (link) => {
         setRevoking(link.id);
