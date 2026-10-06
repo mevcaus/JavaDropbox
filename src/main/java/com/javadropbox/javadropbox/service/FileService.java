@@ -25,6 +25,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Optional;
+import org.springframework.core.io.InputStreamSource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -117,6 +118,17 @@ public class FileService {
     return stored;
   }
 
+  /**
+   * Stores a file the server supplies itself, such as one of the demo's sample files, as if {@code
+   * user} had uploaded it to {@code folderPath} (which is created if need be).
+   */
+  public void store(String folderPath, String name, InputStreamSource content, User user)
+      throws IOException {
+    StoragePath folder = storagePaths.resolve(folderPath);
+    createFolders(folder);
+    store(content, storagePaths.resolveChild(folder, name), user);
+  }
+
   // Where a segment of the path is a file, createDirectories fails with a disk error that says
   // nothing useful to the client; say what is wrong instead.
   private void createFolders(StoragePath folder) throws IOException {
@@ -135,7 +147,7 @@ public class FileService {
     Files.createDirectories(folder.path());
   }
 
-  private void store(MultipartFile upload, StoragePath target, User user) throws IOException {
+  private void store(InputStreamSource upload, StoragePath target, User user) throws IOException {
     if (Files.isDirectory(target.path())) {
       throw new ConflictException("A folder named \"" + target.name() + "\" already exists here");
     }

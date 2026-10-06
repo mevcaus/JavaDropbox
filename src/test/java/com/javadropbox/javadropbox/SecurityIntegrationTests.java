@@ -71,6 +71,12 @@ class SecurityIntegrationTests {
   }
 
   @Test
+  @DisplayName("The demo's public endpoint does not exist outside the demo profile")
+  void demoEndpointIsMissingOutsideTheDemo() throws Exception {
+    mockMvc.perform(get("/api/demo")).andExpect(status().isNotFound());
+  }
+
+  @Test
   @DisplayName("Authenticated user can access API")
   @WithMockUser(
       username = "testuser",

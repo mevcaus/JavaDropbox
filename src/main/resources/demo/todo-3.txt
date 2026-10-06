@@ -1,0 +1,4 @@
+- [x] Upload the slides
+- [x] Book a room for Friday
+- [ ] Send the agenda
+- [ ] Order coffee
