@@ -64,7 +64,9 @@ JavaDropbox/
 │   │   │   ├── DeleteConfirmationModal.jsx
 │   │   │   ├── ShareModal.jsx      #   Share-link creation, clipboard fallback for plain http
 │   │   │   ├── VersionHistoryModal.jsx  # List and restore previous versions
-│   │   │   ├── PreviewModal.jsx    #   Image, PDF and text previews
+│   │   │   ├── PreviewModal.jsx    #   The preview dialog on the dashboard
+│   │   │   ├── FilePreview.jsx     #   Image, PDF and text previews, for the dialog and share pages
+│   │   │   ├── FileIcon.jsx        #   Folder and file-type icons
 │   │   │   ├── FileTable.jsx       #   File listing with recursive search, sorting, row actions
 │   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
 │   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
@@ -75,7 +77,7 @@ JavaDropbox/
 │   │   │   ├── authSlice.js        #   Login/logout/session thunks + state
 │   │   │   └── filesSlice.js       #   File thunks, tree selectors, endpoint paths
 │   │   ├── layouts/MainLayout.jsx  # Auth-guarded layout wrapper
-│   │   ├── pages/                  # Dashboard, Login, Setup
+│   │   ├── pages/                  # Dashboard, Login, Setup, Shared (a share link's public page)
 │   │   ├── services/api.js         # Axios instance: CSRF priming, 401 handler hook
 │   │   ├── utils/                  # date, errors (readableError), format (formatSize)
 │   │   ├── App.jsx                 # Route definitions
@@ -99,14 +101,14 @@ JavaDropbox/
 │   │   │   ├── FileController.java      # Tree, upload, download, preview, delete, folders, storage info
 │   │   │   ├── FileVersionController.java  # Version listing + restore
 │   │   │   ├── HistoryController.java   # Paged audit log
-│   │   │   ├── ShareController.java     # Share-link creation, listing, revoking + public download
+│   │   │   ├── ShareController.java     # Share-link creation, listing, revoking + the public page's routes
 │   │   │   ├── SetupController.java     # First-run account creation
 │   │   │   ├── AuthController.java      # Current user
 │   │   │   ├── DemoController.java      # Live demo: the shared account and limits
 │   │   │   ├── SpaController.java       # Serves the built app for client-side routes
 │   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
-│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto
+│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto
 │   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
 │   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories

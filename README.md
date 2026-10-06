@@ -38,7 +38,7 @@ A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox
 - **Crash-safe uploads.** New content is streamed to a scratch file and renamed into place inside a database transaction. If anything fails, rollback hooks put the previous file back on disk, so a failed or dropped upload never leaves a half-written or lost file.
 - **File versioning.** Replacing a file keeps the old content as a version that can be restored in place or as a copy, with configurable retention and concurrent replaces serialized by a row lock.
 - **Defense against path attacks.** Every client-supplied path goes through one class that rejects `..` traversal, symlinks (rechecked right before each disk operation), reserved folders in any letter case, and hidden names.
-- **Revocable share links.** Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
+- **Revocable share links** that open as a page previewing the file, or listing the folder, before anything is downloaded. Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
 - **Streaming downloads.** Folders are zipped straight into the HTTP response, so memory use is flat however big the folder is. Files support range requests for resumable downloads.
 - **Tested against the real thing.** About 300 backend tests, including concurrency and migration tests on PostgreSQL via Testcontainers and symlink-swap tests, plus about 200 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
 
@@ -170,11 +170,17 @@ sequenceDiagram
     A->>A: generate 32 random bytes as the token
     A->>P: store SHA-256(token), the item's row, the expiry
     A-->>O: /share/{token}, shown once
-    V->>A: GET /share/{token}
+    V->>A: open /share/{token} in a browser
+    A-->>V: the link's page
+    V->>A: GET /share/{token}/info
     A->>P: look up SHA-256(token)
     A->>A: refuse if expired, revoked, moved or changed type (404)
-    A-->>V: stream the file, or the folder as a ZIP
+    A-->>V: name, size, expiry, a folder's contents (names only, no paths)
+    V->>A: GET /share/{token}/preview, then /download when asked
+    A-->>V: the file inline, then as a download (a folder as a ZIP)
 ```
+
+Nothing is downloaded until the visitor asks: a browser opening the link gets a page that previews the file, or lists the folder, next to a Download button. Clients that don't ask for a page, such as `curl` or a download manager, still get the file at the link itself.
 
 ## Design decisions
 
@@ -188,10 +194,10 @@ Folder downloads write a `ZipOutputStream` straight to the HTTP response (`Folde
 Rather than shipping hardcoded credentials, the app detects first-run state (no users in the database) and redirects every request to a setup page. This is a filter inside Spring Security's chain, ahead of form login, so setup is reachable without authentication. Reachable without authentication also means reachable by whoever finds the server first, so creating the account also needs a one-time code that the server prints to its log (the approach Jupyter takes): whoever installed the server can read it, someone who merely found the address cannot.
 
 ### Why do previews have their own route?
-Downloads are deliberately unable to render: every one is `Content-Disposition: attachment` with `Content-Security-Policy: sandbox`, and no response may be framed. They also serve the public share route. So rather than a flag that relaxes all of that, `GET /api/files/preview` serves only an allowlist of types, signed in only, each with the narrowest headers that still let the browser show it:
+Downloads are deliberately unable to render: every one is `Content-Disposition: attachment` with `Content-Security-Policy: sandbox`, and no response may be framed. They also serve the public share route. So rather than a flag that relaxes all of that, `GET /api/files/preview` (and `GET /share/{token}/preview`, for a share link's page) serves only an allowlist of types, each with the narrowest headers that still let the browser show it:
 - **Text and source files** are always `text/plain`, so an `.html` file shows its markup instead of running it, and `nosniff` stops a disguised file from being sniffed into a page.
 - **Images and text** keep the sandbox: an SVG opened on its own runs no script on the app's origin.
-- **PDFs** cannot keep it, because browsers' PDF viewers refuse to render a sandboxed document. Instead only the app's own pages may frame them (`frame-ancestors 'self'`), which is how the preview dialog shows them.
+- **PDFs** cannot keep it, because browsers' PDF viewers refuse to render a sandboxed document. Instead only the app's own pages may frame them (`frame-ancestors 'self'`), which is how the preview dialog and a share link's page show them.
 
 The list of previewable types lives on the server and reaches the UI through the file tree, so the two cannot disagree about which files open.
 
