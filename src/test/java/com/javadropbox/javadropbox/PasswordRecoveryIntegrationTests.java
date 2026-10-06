@@ -31,14 +31,14 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * The README's "Forgot your password?" procedure. On PostgreSQL because it has to work with the
- * real foreign keys: deleting the account instead, as the README once said, fails as soon as the
- * account has uploaded anything.
+ * The "Forgot your password?" procedure in docs/self-hosting.md. On PostgreSQL because it has to
+ * work with the real foreign keys: deleting the account instead, as the README once said, fails as
+ * soon as the account has uploaded anything.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
-@DisplayName("Password recovery (README procedure, on PostgreSQL)")
+@DisplayName("Password recovery (documented procedure, on PostgreSQL)")
 class PasswordRecoveryIntegrationTests {
 
   @Container
@@ -54,7 +54,7 @@ class PasswordRecoveryIntegrationTests {
   }
 
   // htpasswd -bnBC 10 "" new-password-123 | tr -d ':\n'. htpasswd writes the $2y$ variant,
-  // which Spring's BCryptPasswordEncoder must accept for the README procedure to work.
+  // which Spring's BCryptPasswordEncoder must accept for the documented procedure to work.
   private static final String NEW_PASSWORD_HASH =
       "$2y$10$wa9JRAmJeEMyspLfpc1fjevaIaEg3Rem/sv/rkjxhVsUEl1kz0mfS";
 
@@ -80,7 +80,7 @@ class PasswordRecoveryIntegrationTests {
   void updatingThePasswordHashRecoversTheAccount() throws Exception {
     Long ownerId = users.findByUsername("owner").orElseThrow().getId();
 
-    // The README's statement, with a hash from its htpasswd command.
+    // The documented statement, with a hash from its htpasswd command.
     jdbc.update("UPDATE users SET password = ? WHERE username = 'owner'", NEW_PASSWORD_HASH);
 
     login("owner", "new-password-123").andExpect(status().isOk());

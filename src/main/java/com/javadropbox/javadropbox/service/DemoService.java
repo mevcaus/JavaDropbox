@@ -171,7 +171,7 @@ public class DemoService implements ApplicationRunner {
   }
 
   // The account is created on the first start and its password put back if it was changed, e.g.
-  // through the README's recovery procedure.
+  // through the recovery procedure in docs/self-hosting.md.
   private void ensureAccount() {
     User user = users.findByUsername(username).orElse(null);
     if (user == null) {
