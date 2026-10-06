@@ -1,9 +1,13 @@
 package com.javadropbox.javadropbox.controller;
 
+import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
+import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileTreeService;
 import com.javadropbox.javadropbox.service.StoragePaths;
+import com.javadropbox.javadropbox.service.UsageMetrics;
+import com.javadropbox.javadropbox.service.UsageMetrics.Route;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
@@ -32,12 +36,17 @@ public class FileController {
   private final FileService fileService;
   private final FileTreeService fileTreeService;
   private final StoragePaths storagePaths;
+  private final UsageMetrics metrics;
 
   public FileController(
-      FileService fileService, FileTreeService fileTreeService, StoragePaths storagePaths) {
+      FileService fileService,
+      FileTreeService fileTreeService,
+      StoragePaths storagePaths,
+      UsageMetrics metrics) {
     this.fileService = fileService;
     this.fileTreeService = fileTreeService;
     this.storagePaths = storagePaths;
+    this.metrics = metrics;
   }
 
   @GetMapping("/api/storage")
@@ -67,7 +76,9 @@ public class FileController {
       description = "The file at the path, or a folder as a zip streamed as it is built.")
   public ResponseEntity<Resource> download(@RequestParam String path, HttpServletResponse response)
       throws IOException {
-    return DownloadResponses.send(fileService.download(path), response);
+    Download download = fileService.download(path);
+    metrics.fileServed(Route.DOWNLOAD);
+    return DownloadResponses.send(download, response);
   }
 
   @GetMapping("/api/files/preview")
@@ -78,7 +89,9 @@ public class FileController {
               + " themselves, text and source files as text/plain. Supports range requests."
               + " Folders, and kinds of file that cannot be previewed, are refused with 400.")
   public ResponseEntity<Resource> preview(@RequestParam String path) throws IOException {
-    return DownloadResponses.preview(fileService.preview(path));
+    Preview preview = fileService.preview(path);
+    metrics.fileServed(Route.PREVIEW);
+    return DownloadResponses.preview(preview);
   }
 
   @PostMapping("/api/files")

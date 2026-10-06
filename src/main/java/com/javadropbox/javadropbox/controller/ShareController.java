@@ -6,6 +6,8 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.service.ShareLinkService;
 import com.javadropbox.javadropbox.service.ShareLinkService.CreatedLink;
+import com.javadropbox.javadropbox.service.UsageMetrics;
+import com.javadropbox.javadropbox.service.UsageMetrics.Route;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,9 +40,11 @@ public class ShareController {
   private static final long MAX_EXPIRATION_MINUTES = 7 * 24 * 60;
 
   private final ShareLinkService shareLinkService;
+  private final UsageMetrics metrics;
 
-  public ShareController(ShareLinkService shareLinkService) {
+  public ShareController(ShareLinkService shareLinkService, UsageMetrics metrics) {
     this.shareLinkService = shareLinkService;
+    this.metrics = metrics;
   }
 
   @PostMapping("/api/share")
@@ -60,6 +64,7 @@ public class ShareController {
     }
 
     CreatedLink link = shareLinkService.create(path, Duration.ofMinutes(expirationMinutes));
+    metrics.shareLinkCreated();
     String shareUrl =
         ServletUriComponentsBuilder.fromRequestUri(request)
             .replacePath("/share/" + link.token())
@@ -103,6 +108,7 @@ public class ShareController {
     } catch (NotFoundException | BadRequestException e) {
       return ResponseEntity.notFound().build();
     }
+    metrics.fileServed(Route.SHARE_LINK);
     return DownloadResponses.send(download, response);
   }
 }
