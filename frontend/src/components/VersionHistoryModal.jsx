@@ -14,35 +14,38 @@ const versionsUrl = (fileId) => `/api/files/${fileId}/versions`;
  * Previous versions of a file, kept each time it is replaced. Restoring puts a version back in
  * place (the current content is kept as a new version first) or next to it as a copy.
  */
-const VersionHistoryModal = ({ isOpen, onClose, file, onRestored }) => {
+const VersionHistoryModal = ({ isOpen, onClose, file, onRestored }) =>
+    // Mounted while open and keyed by file, so each opening starts loading from scratch.
+    isOpen && file ? <VersionHistoryDialog key={file.id} onClose={onClose} file={file} onRestored={onRestored} /> : null;
+
+const VersionHistoryDialog = ({ onClose, file, onRestored }) => {
     const [versions, setVersions] = useState(null);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(null);
-    // Changes whenever the dialog is closed or shows another file. It stays mounted from one file
-    // to the next, so a restore that finishes later must not close or mark up another file's view.
-    const viewRef = useRef(0);
+    // Set once the dialog is closed or shows another file, so a restore that finishes later does not
+    // close the dialog that has taken its place.
+    const goneRef = useRef(false);
     const { addToast } = useToast();
 
     useEffect(() => {
-        viewRef.current += 1;
-        setBusy(null);
-        if (!isOpen || !file) return undefined;
+        const gone = goneRef;
+        return () => {
+            gone.current = true;
+        };
+    }, []);
+
+    useEffect(() => {
         let cancelled = false;
-        setVersions(null);
-        setError(null);
         api.get(versionsUrl(file.id))
             .then((response) => !cancelled && setVersions(response.data))
             .catch((err) => !cancelled && setError(readableError(err, 'Could not load the versions.')));
         return () => {
             cancelled = true;
         };
-    }, [isOpen, file]);
-
-    if (!file) return null;
+    }, [file.id]);
 
     const restore = async (version, mode) => {
-        const view = viewRef.current;
-        const isCurrent = () => view === viewRef.current;
+        const isCurrent = () => !goneRef.current;
         setBusy(`${version}:${mode}`);
         setError(null);
         try {
@@ -66,7 +69,7 @@ const VersionHistoryModal = ({ isOpen, onClose, file, onRestored }) => {
 
     return (
         <Modal
-            isOpen={isOpen}
+            isOpen
             onClose={onClose}
             title={
                 <>
