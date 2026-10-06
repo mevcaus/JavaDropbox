@@ -51,6 +51,7 @@ public class FileService {
   private final ShareLinkRepository shareLinks;
   private final AuthService authService;
   private final UsageMetrics metrics;
+  private final StorageQuota quota;
   private final TransactionTemplate transactions;
 
   public FileService(
@@ -61,6 +62,7 @@ public class FileService {
       ShareLinkRepository shareLinks,
       AuthService authService,
       UsageMetrics metrics,
+      StorageQuota quota,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.files = files;
@@ -69,6 +71,7 @@ public class FileService {
     this.shareLinks = shareLinks;
     this.authService = authService;
     this.metrics = metrics;
+    this.quota = quota;
     this.transactions = new TransactionTemplate(transactionManager);
   }
 
@@ -143,6 +146,7 @@ public class FileService {
         Files.copy(in, scratch, StandardCopyOption.REPLACE_EXISTING);
       }
       long size = Files.size(scratch);
+      quota.check();
 
       inTransaction(
           () -> {
@@ -266,6 +270,7 @@ public class FileService {
     Path scratch = StorageFiles.tempFileBeside(live.path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      quota.check();
       boolean replacing = Files.exists(live.path());
       if (replacing) {
         versions.archive(file, StoragePaths.recheck(live.path()), user);
@@ -289,6 +294,7 @@ public class FileService {
     Path scratch = StorageFiles.tempFileBeside(storagePaths.resolveItem(file.getPath()).path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      quota.check();
       StoragePath target = claimCopyName(parent, file.getFilename(), number);
       OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
       StorageFiles.moveIntoPlace(scratch, target.path());
