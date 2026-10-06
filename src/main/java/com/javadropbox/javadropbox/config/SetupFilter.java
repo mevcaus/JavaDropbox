@@ -54,10 +54,13 @@ public class SetupFilter extends OncePerRequestFilter {
     filterChain.doFilter(request, response);
   }
 
-  // The setup page itself, the app shell and assets it needs to render, and the API docs (which
-  // SecurityConfig also leaves public).
+  // The setup page itself, the app shell and assets it needs to render, and the API docs and health
+  // check (which SecurityConfig also leaves public). A fresh install is healthy before anyone has
+  // claimed it.
   private static boolean allowedDuringSetup(String uri) {
     return uri.equals("/setup")
+        || uri.equals("/actuator/health")
+        || uri.startsWith("/actuator/health/")
         || uri.equals("/index.html")
         || uri.equals("/favicon.png")
         || uri.startsWith("/assets/")

@@ -25,9 +25,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class SpaFallbackFilter extends OncePerRequestFilter {
 
   // Everything the server itself answers on a GET. A navigation under one of these keeps its real
-  // response: an API 401 or 404, a share link's download or 404, the docs.
+  // response: an API 401 or 404, a share link's download or 404, the docs, the health check.
   private static final List<String> SERVER_PATHS =
-      List.of("/api", "/share", "/swagger-ui", "/v3/api-docs", "/error");
+      List.of("/api", "/share", "/swagger-ui", "/v3/api-docs", "/actuator", "/error");
 
   /**
    * Whether a request is a browser opening a page: a GET that asks for HTML, outside the server's
