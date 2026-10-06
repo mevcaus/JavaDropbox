@@ -25,6 +25,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Optional;
+import org.springframework.core.io.InputStreamSource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -51,6 +52,7 @@ public class FileService {
   private final ShareLinkRepository shareLinks;
   private final AuthService authService;
   private final UsageMetrics metrics;
+  private final StorageQuota quota;
   private final TransactionTemplate transactions;
 
   public FileService(
@@ -61,6 +63,7 @@ public class FileService {
       ShareLinkRepository shareLinks,
       AuthService authService,
       UsageMetrics metrics,
+      StorageQuota quota,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.files = files;
@@ -69,6 +72,7 @@ public class FileService {
     this.shareLinks = shareLinks;
     this.authService = authService;
     this.metrics = metrics;
+    this.quota = quota;
     this.transactions = new TransactionTemplate(transactionManager);
   }
 
@@ -114,6 +118,17 @@ public class FileService {
     return stored;
   }
 
+  /**
+   * Stores a file the server supplies itself, such as one of the demo's sample files, as if {@code
+   * user} had uploaded it to {@code folderPath} (which is created if need be).
+   */
+  public void store(String folderPath, String name, InputStreamSource content, User user)
+      throws IOException {
+    StoragePath folder = storagePaths.resolve(folderPath);
+    createFolders(folder);
+    store(content, storagePaths.resolveChild(folder, name), user);
+  }
+
   // Where a segment of the path is a file, createDirectories fails with a disk error that says
   // nothing useful to the client; say what is wrong instead.
   private void createFolders(StoragePath folder) throws IOException {
@@ -132,7 +147,7 @@ public class FileService {
     Files.createDirectories(folder.path());
   }
 
-  private void store(MultipartFile upload, StoragePath target, User user) throws IOException {
+  private void store(InputStreamSource upload, StoragePath target, User user) throws IOException {
     if (Files.isDirectory(target.path())) {
       throw new ConflictException("A folder named \"" + target.name() + "\" already exists here");
     }
@@ -143,6 +158,7 @@ public class FileService {
         Files.copy(in, scratch, StandardCopyOption.REPLACE_EXISTING);
       }
       long size = Files.size(scratch);
+      quota.check();
 
       inTransaction(
           () -> {
@@ -266,6 +282,7 @@ public class FileService {
     Path scratch = StorageFiles.tempFileBeside(live.path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      quota.check();
       boolean replacing = Files.exists(live.path());
       if (replacing) {
         versions.archive(file, StoragePaths.recheck(live.path()), user);
@@ -289,6 +306,7 @@ public class FileService {
     Path scratch = StorageFiles.tempFileBeside(storagePaths.resolveItem(file.getPath()).path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      quota.check();
       StoragePath target = claimCopyName(parent, file.getFilename(), number);
       OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
       StorageFiles.moveIntoPlace(scratch, target.path());

@@ -106,6 +106,8 @@ public class SecurityConfig {
                         "/login",
                         "/error",
                         "/share/**",
+                        // Only exists in the demo profile, for the sign-in page.
+                        "/api/demo",
                         "/swagger-ui.html",
                         "/swagger-ui/**",
                         "/v3/api-docs",

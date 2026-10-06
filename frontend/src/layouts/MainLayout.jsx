@@ -3,6 +3,7 @@ import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
+import DemoBanner from '../components/DemoBanner';
 
 const MainLayout = () => {
     const { isAuthenticated } = useSelector((state) => state.auth);
@@ -41,6 +42,7 @@ const MainLayout = () => {
             {/* Main Content */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 <Navbar onMenuClick={() => setIsSidebarOpen(true)} />
+                <DemoBanner />
                 {/* Focusable so a dialog can hand focus back here when what opened it is gone. */}
                 <main tabIndex={-1} className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 focus:outline-none">
                     <Outlet />

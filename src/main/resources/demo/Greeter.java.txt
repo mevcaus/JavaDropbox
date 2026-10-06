@@ -1,0 +1,22 @@
+package demo;
+
+import java.time.LocalTime;
+
+/** A small source file, to show how JavaDropbox previews code. */
+public class Greeter {
+
+  public static void main(String[] args) {
+    String name = args.length > 0 ? args[0] : "world";
+    System.out.println(greeting(LocalTime.now()) + ", " + name + "!");
+  }
+
+  static String greeting(LocalTime time) {
+    if (time.isBefore(LocalTime.NOON)) {
+      return "Good morning";
+    }
+    if (time.isBefore(LocalTime.of(18, 0))) {
+      return "Good afternoon";
+    }
+    return "Good evening";
+  }
+}

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -37,14 +38,22 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class ShareController {
 
   private static final long DEFAULT_EXPIRATION_MINUTES = 24 * 60;
-  private static final long MAX_EXPIRATION_MINUTES = 7 * 24 * 60;
 
   private final ShareLinkService shareLinkService;
   private final UsageMetrics metrics;
+  private final long maxExpirationMinutes;
 
-  public ShareController(ShareLinkService shareLinkService, UsageMetrics metrics) {
+  public ShareController(
+      ShareLinkService shareLinkService,
+      UsageMetrics metrics,
+      @Value("${javadropbox.share.max-expiration:7d}") Duration maxExpiration) {
     this.shareLinkService = shareLinkService;
     this.metrics = metrics;
+    this.maxExpirationMinutes = maxExpiration.toMinutes();
+    if (maxExpirationMinutes < 1) {
+      throw new IllegalStateException(
+          "javadropbox.share.max-expiration must be at least a minute, not " + maxExpiration);
+    }
   }
 
   @PostMapping("/api/share")
@@ -54,16 +63,20 @@ public class ShareController {
           "Creates a time-limited share link for a specific path. Requires authentication.")
   public Map<String, String> createShareLink(
       @RequestParam String path,
-      @RequestParam(defaultValue = "" + DEFAULT_EXPIRATION_MINUTES) long expirationMinutes,
+      @RequestParam(required = false) Long expirationMinutes,
       HttpServletRequest request)
       throws IOException {
 
-    if (expirationMinutes <= 0 || expirationMinutes > MAX_EXPIRATION_MINUTES) {
+    long minutes =
+        expirationMinutes != null
+            ? expirationMinutes
+            : Math.min(DEFAULT_EXPIRATION_MINUTES, maxExpirationMinutes);
+    if (minutes <= 0 || minutes > maxExpirationMinutes) {
       throw new BadRequestException(
-          "expirationMinutes must be between 1 and " + MAX_EXPIRATION_MINUTES);
+          "expirationMinutes must be between 1 and " + maxExpirationMinutes);
     }
 
-    CreatedLink link = shareLinkService.create(path, Duration.ofMinutes(expirationMinutes));
+    CreatedLink link = shareLinkService.create(path, Duration.ofMinutes(minutes));
     metrics.shareLinkCreated();
     String shareUrl =
         ServletUriComponentsBuilder.fromRequestUri(request)

@@ -4,6 +4,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { loginUser } from '../features/authSlice';
 import { Loader2 } from 'lucide-react';
 import AnimatedLogo from '../components/AnimatedLogo';
+import { useDemoInfo } from '../hooks/useDemoInfo';
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -12,6 +13,7 @@ const Login = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { isAuthenticated, loading, error, setupRequired } = useSelector((state) => state.auth);
+    const demo = useDemoInfo();
 
     const from = location.state?.from?.pathname || '/dashboard';
 
@@ -33,6 +35,25 @@ const Login = () => {
                     <AnimatedLogo />
                     <h2 className="mt-8 text-3xl font-extrabold text-gray-900">Sign in to your account</h2>
                 </div>
+                {demo && (
+                    <div className="rounded-md bg-blue-50 border border-blue-200 p-4 text-sm text-blue-900">
+                        <p className="font-medium">This is a public demo, reset every day.</p>
+                        <p className="mt-1">
+                            Sign in as <code className="font-mono">{demo.username}</code> with the
+                            password <code className="font-mono">{demo.password}</code>.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setUsername(demo.username);
+                                setPassword(demo.password);
+                            }}
+                            className="mt-2 font-medium text-blue-700 hover:text-blue-600 underline"
+                        >
+                            Fill in the demo account
+                        </button>
+                    </div>
+                )}
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
                     <div className="rounded-md shadow-sm -space-y-px">
                         <div>
