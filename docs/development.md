@@ -67,7 +67,7 @@ JavaDropbox/
 │   │   │   ├── PreviewModal.jsx    #   The preview dialog on the dashboard
 │   │   │   ├── FilePreview.jsx     #   Image, PDF and text previews, for the dialog and share pages
 │   │   │   ├── FileIcon.jsx        #   Folder and file-type icons
-│   │   │   ├── FileTable.jsx       #   File listing with recursive search, sorting, row actions
+│   │   │   ├── FileTable.jsx       #   File listing with search results, sorting, row actions
 │   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
 │   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
 │   │   │   ├── Sidebar.jsx         #   Navigation and storage used
@@ -76,6 +76,7 @@ JavaDropbox/
 │   │   ├── features/               # Redux slices
 │   │   │   ├── authSlice.js        #   Login/logout/session thunks + state
 │   │   │   └── filesSlice.js       #   File thunks, tree selectors, endpoint paths
+│   │   ├── hooks/                  # useFileSearch (search as you type), useToast, useDemoInfo
 │   │   ├── layouts/MainLayout.jsx  # Auth-guarded layout wrapper
 │   │   ├── pages/                  # Dashboard, Login, Setup, Shared (a share link's public page)
 │   │   ├── services/api.js         # Axios instance: CSRF priming, 401 handler hook
@@ -102,13 +103,14 @@ JavaDropbox/
 │   │   │   ├── FileVersionController.java  # Version listing + restore
 │   │   │   ├── HistoryController.java   # Paged audit log
 │   │   │   ├── ShareController.java     # Share-link creation, listing, revoking + the public page's routes
+│   │   │   ├── SearchController.java    # Search by name and file contents
 │   │   │   ├── SetupController.java     # First-run account creation
 │   │   │   ├── AuthController.java      # Current user
 │   │   │   ├── DemoController.java      # Live demo: the shared account and limits
 │   │   │   ├── SpaController.java       # Serves the built app for client-side routes
 │   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
-│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto
+│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet
 │   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
 │   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
@@ -116,6 +118,9 @@ JavaDropbox/
 │   │       ├── StoragePaths.java        # The one place client paths become filesystem paths
 │   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree
+│   │       ├── SearchIndex.java         # Lucene index of names and text, kept in step with the disk
+│   │       ├── SearchService.java       # Checks searches and their hits against the disk
+│   │       ├── TextExtractor.java       # Text of text files, PDFs (PDFBox) and .docx
 │   │       ├── FileVersionService.java  # Archiving, pruning and looking up versions
 │   │       ├── FileHistoryService.java  # Audit log, including failures
 │   │       ├── FolderArchive.java       # Streams a folder as a zip

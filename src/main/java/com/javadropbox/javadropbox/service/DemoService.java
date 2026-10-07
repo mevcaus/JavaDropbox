@@ -69,6 +69,7 @@ public class DemoService implements ApplicationRunner {
   private final PasswordEncoder passwordEncoder;
   private final FileService fileService;
   private final StoragePaths storagePaths;
+  private final SearchIndex searchIndex;
   private final JdbcTemplate jdbc;
   private final TransactionTemplate transactions;
   private final Clock clock;
@@ -85,6 +86,7 @@ public class DemoService implements ApplicationRunner {
       PasswordEncoder passwordEncoder,
       FileService fileService,
       StoragePaths storagePaths,
+      SearchIndex searchIndex,
       JdbcTemplate jdbc,
       PlatformTransactionManager transactionManager,
       @Value("${javadropbox.demo.username}") String username,
@@ -95,6 +97,7 @@ public class DemoService implements ApplicationRunner {
         passwordEncoder,
         fileService,
         storagePaths,
+        searchIndex,
         jdbc,
         transactionManager,
         Clock.systemUTC(),
@@ -108,6 +111,7 @@ public class DemoService implements ApplicationRunner {
       PasswordEncoder passwordEncoder,
       FileService fileService,
       StoragePaths storagePaths,
+      SearchIndex searchIndex,
       JdbcTemplate jdbc,
       PlatformTransactionManager transactionManager,
       Clock clock,
@@ -118,6 +122,7 @@ public class DemoService implements ApplicationRunner {
     this.passwordEncoder = passwordEncoder;
     this.fileService = fileService;
     this.storagePaths = storagePaths;
+    this.searchIndex = searchIndex;
     this.jdbc = jdbc;
     this.transactions = new TransactionTemplate(transactionManager);
     this.clock = clock;
@@ -203,6 +208,8 @@ public class DemoService implements ApplicationRunner {
         }
       }
     }
+    // Deleted behind FileService's back, so the index has to be told.
+    searchIndex.changed("");
 
     User owner = users.findByUsername(username).orElseThrow();
     for (Sample sample : SAMPLE_FILES) {

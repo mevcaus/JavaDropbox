@@ -40,11 +40,12 @@ A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox
 - **Defense against path attacks.** Every client-supplied path goes through one class that rejects `..` traversal, symlinks (rechecked right before each disk operation), reserved folders in any letter case, and hidden names.
 - **Revocable share links** that open as a page previewing the file, or listing the folder, before anything is downloaded. Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
 - **Streaming downloads.** Folders are zipped straight into the HTTP response, so memory use is flat however big the folder is. Files support range requests for resumable downloads.
+- **Full-text search** inside text files, PDFs and Word documents, ranked by relevance with the matching passage highlighted. An embedded Lucene index follows every change on a background thread, and catches up with files changed outside the app.
 - **Tested against the real thing.** About 300 backend tests, including concurrency and migration tests on PostgreSQL via Testcontainers and symlink-swap tests, plus about 200 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
 
 ## Architecture
 
-The whole app ships as one container: Spring Boot serves the REST API and the built React app. File bytes live on the filesystem; everything about them (metadata, versions, history, share links) lives in PostgreSQL.
+The whole app ships as one container: Spring Boot serves the REST API and the built React app. File bytes live on the filesystem; everything about them (metadata, versions, history, share links) lives in PostgreSQL. The search index is a Lucene index on the filesystem too, built from the files and rebuilt from them whenever it has to be.
 
 ```mermaid
 flowchart TB
@@ -53,28 +54,31 @@ flowchart TB
     subgraph App["Spring Boot 3.5"]
         direction TB
         Security["Security filter chain<br/>setup gate · sign-in throttle · CSRF · sessions"]
-        Controllers["REST controllers<br/>files · versions · shares · history"]
-        Services["Services<br/>FileService · FileVersionService · ShareLinkService"]
+        Controllers["REST controllers<br/>files · versions · shares · history · search"]
+        Services["Services<br/>FileService · FileVersionService · ShareLinkService · SearchService"]
+        Index["SearchIndex<br/>Lucene, written on a background thread"]
         Paths["StoragePaths<br/>the only way a client path reaches the disk"]
         Repos["Spring Data JPA repositories"]
         Security --> Controllers --> Services
         Services --> Paths
         Services --> Repos
+        Services --> Index
     end
 
     DB[("PostgreSQL<br/>metadata · versions · history · share links")]
-    Disk[("Filesystem<br/>files · .versions/")]
+    Disk[("Filesystem<br/>files · .versions/ · .javadropbox/search-index")]
 
     Browser -- "JSON over HTTPS<br/>session cookie + CSRF token" --> Security
     Repos -- "JDBC · schema by Flyway" --> DB
     Paths --> Disk
+    Index -- "reads files, keeps its index" --> Disk
 ```
 
 | Layer | Responsibility | Key classes |
 |-------|----------------|-------------|
 | **Config** | Security chain, first-run setup gate, sign-in throttling, CORS | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `SpaFallbackFilter` |
-| **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `DownloadResponses`, `ApiExceptionHandler` |
-| **Service** | Path validation, file I/O, versioning, audit log, share links | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive` |
+| **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `SearchController`, `DownloadResponses`, `ApiExceptionHandler` |
+| **Service** | Path validation, file I/O, versioning, audit log, share links, search | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor` |
 | **Repository** | Data access, including pessimistic row locks | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `ShareLinkRepository` |
 
 ### Data model
@@ -182,10 +186,40 @@ sequenceDiagram
 
 Nothing is downloaded until the visitor asks: a browser opening the link gets a page that previews the file, or lists the folder, next to a Download button. Clients that don't ask for a page, such as `curl` or a download manager, still get the file at the link itself.
 
+### Searching
+
+The disk stays the source of truth: the index only mirrors it, so it can be deleted at any time and is rebuilt from what is stored. One background thread does all the writing, so an upload never waits for a PDF to be read.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant F as FileService
+    participant I as SearchIndex
+    participant D as Disk
+
+    B->>F: upload, delete, create a folder or restore
+    F->>F: commit the change
+    F-)I: changed(path), once the transaction has finished
+    I->>D: read the item and everything below it again
+    I->>I: index each name and the text of text files, PDFs and .docx
+    Note over I,D: at startup and every 10 minutes, compare each file's<br/>size and modification time with the index, for changes made outside the app
+    B->>I: GET /api/search?q=quarterly budget&path=Reports
+    I-->>B: matches below Reports, best first, each with the passage that matched
+```
+
+Every word has to appear in the item's name or in its text. Case and accents don't matter (`cafe` finds `Café`), and the last word also matches the start of a longer one, so results come up while it is still being typed. A match in the name ranks an item ahead of anything matched by its text alone, and the words appearing together rank a file ahead of the same words scattered through it. Each result is checked against the disk before it is returned, so a file deleted behind the app's back is never offered, and the index is told to drop it.
+
 ## Design decisions
 
 ### Why a dual storage strategy (filesystem + database)?
 Files are stored on the **filesystem** for performance and simplicity (no BLOB overhead), while **metadata, version history, and audit logs** live in PostgreSQL. The database is the source of truth for relationships and history, and the filesystem handles raw bytes. Keeping the two consistent is what the upload flow above is about.
+
+### Why an embedded Lucene index rather than Elasticsearch?
+Elasticsearch is Lucene with a cluster around it. Its indexing, BM25 relevance, analyzers and highlighter are Lucene's; what it adds is distribution, with shards and replicas behind a network API that many app servers can share. JavaDropbox runs as one server over one owner's files, which a single Lucene index handles with room to spare. So it uses the engine without the cluster: the same relevance, no network hop between a change and the index, and no second service to deploy, secure, upgrade and back up. That also keeps the app in one container, and the live demo within its 512 MB machine, where Elasticsearch alone would want a gigabyte or more.
+
+Elasticsearch (or OpenSearch) becomes the better choice once the app runs as several servers behind a load balancer: an embedded index belongs to one server, and Lucene over a network filesystem is unreliable. Lucene stays inside `SearchIndex`, whose callers see only paths and snippets, so that move would replace one class rather than the API or the UI ([#222](https://github.com/mevcaus/JavaDropbox/issues/222)).
+
+PostgreSQL's full-text search was the other candidate, but it would put the text of every file into the database, and the tests that run on H2 could not exercise it.
 
 ### Why stream ZIPs on the fly?
 Folder downloads write a `ZipOutputStream` straight to the HTTP response (`FolderArchive`) rather than building the archive in memory or in a temporary file. Memory use stays flat however large the folder is, and there is nothing to clean up afterwards. The cost is that the size is not known up front, so the response has no `Content-Length`.
@@ -213,7 +247,8 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 - Multi-file upload, folder creation, recursive delete (with the metadata and versions of everything inside)
 - Downloads with MIME detection and HTTP range support; folders download as streamed ZIPs
 - In-browser previews of images, PDFs and text or source files; text previews fetch only the first 256 KB by range request
-- Recursive filename search across the open folder and everything beneath it, sortable columns, and the open folder kept in the URL
+- Full-text search across the open folder and everything beneath it, of names and of the text in text and source files, PDFs and Word documents, ranked by relevance with the matching words highlighted in a passage of each file
+- Sortable columns, and the open folder kept in the URL
 
 **Versions and history**
 - Every replace keeps the previous content; restore any version in place or as a copy (`report_v2.txt`)
@@ -241,6 +276,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 |-------|-----------|
 | **Backend** | Java 21, Spring Boot 3.5, Spring Security 6, Spring Data JPA / Hibernate |
 | **Database** | PostgreSQL, Flyway migrations |
+| **Search** | Apache Lucene (embedded), Apache PDFBox for the text of PDFs |
 | **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
 | **Testing** | JUnit 5, MockMvc, Testcontainers, H2, Jimfs; Vitest, Testing Library |
 | **Build and style** | Gradle, Spotless with google-java-format, ESLint |
@@ -248,7 +284,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads, folders, previews, downloads, share links opened signed out and revoked, restoring versions, and deletes. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads, folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, and deletes. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
@@ -292,7 +328,7 @@ Then open `http://localhost:8080` and create the first account with the setup co
 
 - [x] **File previews** for images, PDFs and text files
 - [x] **Live demo** deployed on every merge
-- [ ] **Full-text search** across file contents and metadata on the server
+- [x] **Full-text search** across file contents and metadata on the server
 - [ ] **Folder upload** of whole directory structures
 - [ ] **Multi-user support** with role-based access and per-user quotas
 - [ ] **S3-compatible storage backend**

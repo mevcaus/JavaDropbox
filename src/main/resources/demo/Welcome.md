@@ -9,6 +9,7 @@ Things to try:
 - **Preview** a file by clicking its name: the PDF in `Documents`, the logo in `Pictures`, the
   source file in `Code`, or this page.
 - **Upload** files with the Upload button.
+- **Search** for words inside files, not just in their names: try *coffee*.
 - **Versions**: `Notes/todo.txt` has been uploaded three times. Open its version history and
   restore an older one, in place or as a copy.
 - **Share** a file or folder with a link that works without an account.

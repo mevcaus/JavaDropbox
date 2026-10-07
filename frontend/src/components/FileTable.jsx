@@ -1,24 +1,44 @@
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import { Download, Share2, Trash2, Search, ChevronUp, ChevronDown, History } from 'lucide-react';
 import FileIcon from './FileIcon';
+import { useFileSearch } from '../hooks/useFileSearch';
 import { formatDate, toTimestamp } from '../utils/date';
 import { formatSize } from '../utils/format';
 
-// Rendering every match of a loose query over a deep tree would lock the browser up, so cap it
-const SEARCH_RESULT_LIMIT = 200;
-
-// Searching reaches into every folder below the one being viewed. The API already hands the whole
-// nested tree to the store, so this walks what is in memory rather than asking the server again.
-const collectMatches = (nodes, lowerQuery, matches = []) => {
+// Every node below the open folder by its path. A search result is shown as the tree's own node
+// where there is one, which carries what the result does not: the id that versions need, and a
+// folder's size.
+const indexByPath = (nodes, byPath = new Map()) => {
     for (const node of nodes) {
-        if (node.name.toLowerCase().includes(lowerQuery)) {
-            matches.push(node);
-        }
+        byPath.set(node.relativePath, node);
         if (node.children && node.children.length > 0) {
-            collectMatches(node.children, lowerQuery, matches);
+            indexByPath(node.children, byPath);
         }
     }
-    return matches;
+    return byPath;
+};
+
+// The passage of a file's text that matched, with the matching words marked. The server gives
+// plain text and where the matches are, so nothing in a file is ever rendered as markup.
+const Snippet = ({ snippet }) => {
+    const parts = [];
+    let at = 0;
+    for (const { start, end } of snippet.highlights) {
+        if (start > at) parts.push({ text: snippet.text.slice(at, start) });
+        parts.push({ text: snippet.text.slice(start, end), match: true });
+        at = end;
+    }
+    if (at < snippet.text.length) parts.push({ text: snippet.text.slice(at) });
+
+    return (
+        <p className="mt-1 max-w-xl whitespace-normal break-words line-clamp-2 text-xs text-gray-600">
+            {parts.map((part, i) => (
+                <Fragment key={i}>
+                    {part.match ? <mark className="rounded-sm bg-yellow-100 text-gray-900">{part.text}</mark> : part.text}
+                </Fragment>
+            ))}
+        </p>
+    );
 };
 
 const compareNodes = (a, b, { key, direction }) => {
@@ -43,8 +63,9 @@ const compareNodes = (a, b, { key, direction }) => {
     return 0;
 };
 
+// sortConfig is null while search results are in the server's order, best match first.
 const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
-    const isActive = sortConfig.key === sortKey;
+    const isActive = sortConfig?.key === sortKey;
 
     return (
         <th
@@ -73,42 +94,99 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
     );
 };
 
+// What a search found, or that it is still looking. Announced politely, so a screen reader hears
+// the count once typing pauses rather than for every letter.
+const SearchStatus = ({ answer, pending, shown, sortedByRelevance, onSortByRelevance }) => {
+    let message;
+    if (!answer) {
+        message = 'Searching…';
+    } else if (answer.error) {
+        message = answer.error;
+    } else if (pending) {
+        message = 'Searching…';
+    } else if (answer.total === 0) {
+        message = 'No matches in this folder or the folders below it.';
+    } else {
+        const count = `${answer.total} ${answer.total === 1 ? 'match' : 'matches'} in this folder and below`;
+        const order = sortedByRelevance ? ', best first' : '';
+        const limited = shown < answer.total ? ` — showing the best ${shown}` : '';
+        message = `${count}${order}${limited}.`;
+    }
+
+    return (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <p aria-live="polite" className={answer?.error ? 'text-red-600' : 'text-gray-500'}>
+                {message}
+                {answer?.indexing && !answer.error && ' Still indexing files, so some may be missing.'}
+            </p>
+            {!sortedByRelevance && answer && !answer.error && answer.total > 0 && (
+                <button
+                    type="button"
+                    onClick={onSortByRelevance}
+                    className="rounded-sm text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                    Sort by relevance
+                </button>
+            )}
+        </div>
+    );
+};
+
+const toggled = (current, key) => ({
+    key,
+    direction: current?.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+});
+
 const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick, onVersions, onPreview }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+    // How search results are sorted when not by relevance, which is how they arrive.
+    const [resultSort, setResultSort] = useState(null);
 
-    // Clear the filter when the user navigates to a different folder: a query typed against one
+    // Clear the search when the user navigates to a different folder: a query typed against one
     // folder's contents would otherwise keep hiding the next folder's. Sort order is deliberately
     // kept across navigation, the way desktop file managers behave.
     const [pathAtLastRender, setPathAtLastRender] = useState(currentPath);
     if (currentPath !== pathAtLastRender) {
         setPathAtLastRender(currentPath);
         setSearchQuery('');
+        setResultSort(null);
     }
 
-    const handleSort = (key) => {
-        setSortConfig((current) => ({
-            key,
-            direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
-        }));
+    const query = searchQuery.trim();
+    const searching = query !== '';
+    // The server searches names and the text inside files, everywhere below this folder.
+    const { answer, pending } = useFileSearch(query, currentPath, files);
+
+    const handleSearchChange = (e) => {
+        setSearchQuery(e.target.value);
+        // A new search starts out best first again.
+        if (!e.target.value.trim()) setResultSort(null);
     };
 
-    const query = searchQuery.trim().toLowerCase();
+    const handleSort = (key) => {
+        if (searching) {
+            setResultSort((current) => toggled(current, key));
+        } else {
+            setSortConfig((current) => toggled(current, key));
+        }
+    };
 
-    // Browsing lists just this folder; searching flattens every match below it into one list,
+    const nodesByPath = useMemo(() => (searching && files ? indexByPath(files) : null), [files, searching]);
+
+    // Browsing lists just this folder; searching lists the matches from every folder below it,
     // each row labelled with its own path so you can tell which folder it came from.
-    const { visibleFiles, matchCount, truncated } = useMemo(() => {
-        if (!files) return { visibleFiles: [], matchCount: 0, truncated: false };
+    const visibleFiles = useMemo(() => {
+        if (!files) return [];
+        if (!searching) return [...files].sort((a, b) => compareNodes(a, b, sortConfig));
+        if (!answer) return [];
 
-        const matched = query ? collectMatches(files, query) : files;
-        const sorted = [...matched].sort((a, b) => compareNodes(a, b, sortConfig));
-
-        return {
-            visibleFiles: query ? sorted.slice(0, SEARCH_RESULT_LIMIT) : sorted,
-            matchCount: sorted.length,
-            truncated: Boolean(query) && sorted.length > SEARCH_RESULT_LIMIT,
-        };
-    }, [files, query, sortConfig]);
+        const results = answer.results.map((result) => ({
+            ...(nodesByPath.get(result.relativePath) ?? result),
+            snippet: result.snippet,
+        }));
+        return resultSort ? results.sort((a, b) => compareNodes(a, b, resultSort)) : results;
+    }, [files, searching, sortConfig, answer, nodesByPath, resultSort]);
 
     if (!files || files.length === 0) {
         return <div className="text-center py-10 text-gray-500">No files found.</div>;
@@ -126,17 +204,19 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                     aria-label="Search files"
                     placeholder="Search files..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={handleSearchChange}
                     className="block w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out"
                 />
             </div>
 
-            {query && (
-                <p className="text-xs text-gray-500">
-                    {matchCount === 0
-                        ? 'No matches in this folder or the folders below it'
-                        : `${matchCount} ${matchCount === 1 ? 'match' : 'matches'} in this folder and below${truncated ? ` — showing the first ${SEARCH_RESULT_LIMIT}` : ''}`}
-                </p>
+            {searching && (
+                <SearchStatus
+                    answer={answer}
+                    pending={pending}
+                    shown={visibleFiles.length}
+                    sortedByRelevance={resultSort === null}
+                    onSortByRelevance={() => setResultSort(null)}
+                />
             )}
 
             {/* Scrolls sideways on a narrow screen, where the unwrapped columns are wider than the
@@ -145,9 +225,15 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
-                            <SortableHeader label="Size" sortKey="size" sortConfig={sortConfig} onSort={handleSort} />
-                            <SortableHeader label="Last Modified" sortKey="lastModified" sortConfig={sortConfig} onSort={handleSort} />
+                            {[['Name', 'name'], ['Size', 'size'], ['Last Modified', 'lastModified']].map(([label, key]) => (
+                                <SortableHeader
+                                    key={key}
+                                    label={label}
+                                    sortKey={key}
+                                    sortConfig={searching ? resultSort : sortConfig}
+                                    onSort={handleSort}
+                                />
+                            ))}
                             <th scope="col" className="relative px-6 py-3">
                                 <span className="sr-only">Actions</span>
                             </th>
@@ -157,7 +243,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                         {visibleFiles.length === 0 ? (
                             <tr>
                                 <td colSpan="4" className="px-6 py-10 text-center text-gray-500">
-                                    No files match your search.
+                                    {searching && !answer ? 'Searching…' : 'No files match your search.'}
                                 </td>
                             </tr>
                         ) : (
@@ -201,6 +287,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                     <div className="text-sm font-medium text-gray-900">{file.name}</div>
                                                 )}
                                                 <div className="text-xs text-gray-500">{file.relativePath}</div>
+                                                {searching && file.snippet && <Snippet snippet={file.snippet} />}
                                             </div>
                                         </div>
                                     </td>

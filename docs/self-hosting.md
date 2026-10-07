@@ -49,6 +49,8 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
 | `javadropbox.storage.max-total-size` | none | Cap on everything stored, previous versions included (e.g. `50MB`); an upload or restore that would go over it is refused with `507` |
 | `javadropbox.share.max-expiration` | `7d` | Longest lifetime a share link can be given |
+| `javadropbox.search.max-file-size` | `50MB` | Files larger than this are found by name only, without their text being read; `0` searches names alone |
+| `javadropbox.search.index-directory` | `.javadropbox/search-index` in the serving directory | Where the search index is kept |
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
@@ -56,6 +58,19 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
 
 `app.share.jwt-secret` (`APP_SHARE_JWT_SECRET`) is gone: share links are stored on the server and no longer signed. The app refuses to start while it is set, so remove it when upgrading. A `.javadropbox/share-jwt.key` left by an earlier version is deleted on startup.
+
+## Search
+
+The search box looks through every file's and folder's name, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files. It does not count toward `javadropbox.storage.max-total-size`.
+
+The files on disk are the source of truth, and the index only mirrors them:
+
+- Changes made through the app are searchable a moment after they are saved: a background thread reads the new text, so uploads don't wait for it.
+- Files added, changed or removed outside the app, such as copied into the serving directory by hand, are picked up at startup and then every ten minutes, when each file's size and modification time are compared with the index.
+- The first start after upgrading reads every file once to build the index, logging `Building the search index` and then how many items it indexed. Until that finishes, search results say some files may be missing.
+- To rebuild the index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
+
+A PDF or Word document that cannot be read, such as a damaged or password-protected one, is logged at `WARN` and is still found by its name.
 
 ## Observability
 
