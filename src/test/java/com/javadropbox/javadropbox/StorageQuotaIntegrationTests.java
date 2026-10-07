@@ -113,6 +113,17 @@ class StorageQuotaIntegrationTests {
     assertThat(quota.usedBytes()).isEqualTo(700);
   }
 
+  @Test
+  @DisplayName("the app's own state, such as the search index, does not count toward the cap")
+  void internalStateDoesNotCount() throws Exception {
+    Path index = Files.createDirectories(servingDir.resolve(".javadropbox/search-index"));
+    Files.write(index.resolve("_0.cfs"), new byte[2000]);
+
+    upload("a.txt", 600).andExpect(status().isOk());
+
+    assertThat(quota.usedBytes()).isEqualTo(600);
+  }
+
   private ResultActions upload(String name, int size) throws Exception {
     MockMultipartFile file = new MockMultipartFile("files", name, "text/plain", new byte[size]);
     return mockMvc.perform(

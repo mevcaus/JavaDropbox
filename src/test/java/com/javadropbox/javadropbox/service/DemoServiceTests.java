@@ -13,7 +13,17 @@ class DemoServiceTests {
 
   private final DemoService demo =
       new DemoService(
-          null, null, null, null, null, null, Clock.systemUTC(), "demo", "pw", LocalTime.of(10, 0));
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          Clock.systemUTC(),
+          "demo",
+          "pw",
+          LocalTime.of(10, 0));
 
   @Test
   @DisplayName("before the reset time, the next reset is the same day")

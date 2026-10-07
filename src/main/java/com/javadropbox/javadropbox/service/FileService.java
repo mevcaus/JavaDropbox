@@ -38,7 +38,8 @@ import org.springframework.web.multipart.MultipartFile;
  * file onto the live path -- are undone if the transaction does not commit.
  *
  * <p>Failures are logged to the history in a transaction of their own after the change's
- * transaction has rolled back.
+ * transaction has rolled back. Each change also tells the {@link SearchIndex}, which reads the
+ * result from disk once the transaction has finished.
  */
 @Service
 public class FileService {
@@ -53,6 +54,7 @@ public class FileService {
   private final AuthService authService;
   private final UsageMetrics metrics;
   private final StorageQuota quota;
+  private final SearchIndex searchIndex;
   private final TransactionTemplate transactions;
 
   public FileService(
@@ -64,6 +66,7 @@ public class FileService {
       AuthService authService,
       UsageMetrics metrics,
       StorageQuota quota,
+      SearchIndex searchIndex,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.files = files;
@@ -73,6 +76,7 @@ public class FileService {
     this.authService = authService;
     this.metrics = metrics;
     this.quota = quota;
+    this.searchIndex = searchIndex;
     this.transactions = new TransactionTemplate(transactionManager);
   }
 
@@ -136,15 +140,24 @@ public class FileService {
     while (!Files.exists(existing)) {
       existing = existing.getParent();
     }
+    // existing is an ancestor of the folder, so its key is the folder's with segments dropped.
+    int missing = folder.path().getNameCount() - existing.getNameCount();
     if (!Files.isDirectory(existing)) {
-      // existing is an ancestor of the folder, so its key is the folder's with segments dropped.
-      String key = folder.key();
-      for (int up = folder.path().getNameCount() - existing.getNameCount(); up > 0; up--) {
-        key = parentKey(key);
-      }
-      throw new BadRequestException("\"" + key + "\" is a file, not a folder");
+      throw new BadRequestException(
+          "\"" + ancestorKey(folder.key(), missing) + "\" is a file, not a folder");
     }
-    Files.createDirectories(folder.path());
+    if (missing > 0) {
+      Files.createDirectories(folder.path());
+      // The file going into them is reported on its own, once it is stored.
+      searchIndex.changed(ancestorKey(folder.key(), missing - 1));
+    }
+  }
+
+  private static String ancestorKey(String key, int levelsUp) {
+    for (int up = levelsUp; up > 0; up--) {
+      key = parentKey(key);
+    }
+    return key;
   }
 
   private void store(InputStreamSource upload, StoragePath target, User user) throws IOException {
@@ -178,6 +191,7 @@ public class FileService {
             file.setSize(size);
             file.setUpdatedAt(Instant.now());
             history.recordSuccess(file, ChangeType.UPLOAD, user, null);
+            searchIndex.changed(target.key());
           });
       metrics.fileUploaded(size);
     } finally {
@@ -212,6 +226,7 @@ public class FileService {
               throw new NotFoundException("Not found: " + target.key());
             }
             history.recordDeletion(target.key(), target.name(), user);
+            searchIndex.changed(target.key());
           });
     } catch (IOException | RuntimeException e) {
       history.recordFailure(path, lastSegment(path), ChangeType.DELETE, user, e);
@@ -236,6 +251,7 @@ public class FileService {
             FileMetadata folder = claim(target, files.lockByPath(target.key()), true, 0, user);
             Files.createDirectory(StoragePaths.recheck(target.path()));
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
+            searchIndex.changed(target.key());
           });
     } catch (IOException | RuntimeException e) {
       history.recordFailure(join(parentPath, name), name, ChangeType.CREATE_FOLDER, user, e);
@@ -295,6 +311,7 @@ public class FileService {
     file.setSize(Files.size(live.path()));
     file.setUpdatedAt(Instant.now());
     history.recordSuccess(file, ChangeType.RESTORE, user, "Restored version " + number);
+    searchIndex.changed(live.key());
   }
 
   private void restoreAsCopy(FileMetadata file, Path source, int number, User user)
@@ -318,6 +335,7 @@ public class FileService {
           ChangeType.RESTORE,
           user,
           "Restored a copy of " + file.getPath() + " (version " + number + ")");
+      searchIndex.changed(target.key());
     } finally {
       Files.deleteIfExists(scratch);
     }

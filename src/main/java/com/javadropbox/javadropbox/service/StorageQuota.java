@@ -14,7 +14,8 @@ import org.springframework.util.unit.DataSize;
 
 /**
  * An optional cap on everything the serving directory holds, previous versions included, set with
- * {@code javadropbox.storage.max-total-size} (e.g. {@code 50MB}). Unset, there is no cap.
+ * {@code javadropbox.storage.max-total-size} (e.g. {@code 50MB}). Unset, there is no cap. The app's
+ * own state in {@code .javadropbox}, such as the search index, does not count: nobody stored it.
  *
  * <p>Usage is measured by walking the directory, which is what the disk actually holds whatever the
  * database thinks. That is cheap at the sizes a cap is meant for, such as the public demo's.
@@ -54,12 +55,21 @@ public class StorageQuota {
     }
   }
 
-  /** The bytes in every regular file under the serving directory. Symlinks are not followed. */
+  /**
+   * The bytes in every regular file under the serving directory, outside the app's own state.
+   * Symlinks are not followed.
+   */
   public long usedBytes() throws IOException {
     long[] total = {0};
+    Path internal = storagePaths.internalDir();
     Files.walkFileTree(
         storagePaths.versionsDir().getParent(),
         new SimpleFileVisitor<>() {
+          @Override
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+            return dir.equals(internal) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+          }
+
           @Override
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
             if (attrs.isRegularFile()) {
