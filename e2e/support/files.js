@@ -35,7 +35,20 @@ export const textFile = (name, content) => ({ name, mimeType: 'text/plain', buff
 export const row = (page, name) =>
     page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) });
 
-/** Uploads files through the Upload button into the open folder and waits for them to be listed. */
+/**
+ * Opens the folder called name from the file table and waits until the dashboard shows it. The
+ * router changes the URL at once but renders the new folder in a transition, so until the
+ * breadcrumb catches up, an upload or a new folder still goes into the folder being left.
+ */
+export const openFolder = async (page, name) => {
+    await row(page, name).getByRole('button', { name, exact: true }).click();
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).locator('[aria-current="page"]')).toHaveText(name);
+};
+
+/**
+ * Uploads files through the Upload button into the open folder and waits for them to be listed.
+ * After opening a folder, use openFolder so the upload does not go into the one before it.
+ */
 export const upload = async (page, ...files) => {
     const uploaded = page.waitForResponse(
         (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/files',

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { test, expect, action, textFile, upload } from '../support/files.js';
+import { test, expect, action, openFolder, textFile, upload } from '../support/files.js';
 
 // The empty storage state is needed: without it a new context starts from the project's, signed in.
 const SIGNED_OUT = { storageState: { cookies: [], origins: [] } };
@@ -49,7 +49,7 @@ test('opens a shared folder as a page that lists it, and downloads it as a zip',
     await page.getByLabel('Folder name').fill('Photos');
     await page.getByRole('button', { name: 'Create' }).click();
     await upload(page, textFile('readme.txt', 'see Photos'));
-    await page.getByRole('button', { name: 'Photos', exact: true }).click();
+    await openFolder(page, 'Photos');
     await upload(page, textFile('beach.txt', 'sand'));
     await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: 'Home' }).click();
     const url = await createLink(page, folder);
