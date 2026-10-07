@@ -15,13 +15,17 @@ import com.javadropbox.javadropbox.model.FileVersion;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.service.DemoService;
+import com.javadropbox.javadropbox.service.SearchIndex;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +62,7 @@ class DemoIntegrationTests {
   @Autowired private FileVersionRepository versions;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;
+  @Autowired private SearchIndex searchIndex;
 
   // Each test starts from a fresh demo, as on a first start: no account, no files, no reset yet.
   @BeforeEach
@@ -131,7 +136,9 @@ class DemoIntegrationTests {
     mockMvc
         .perform(
             multipart("/api/files")
-                .file(new MockMultipartFile("files", "mine.txt", "text/plain", "x".getBytes()))
+                .file(
+                    new MockMultipartFile(
+                        "files", "mine.txt", "text/plain", "pineapple".getBytes()))
                 .param("path", "")
                 .with(user("demo"))
                 .with(csrf().asHeader()))
@@ -148,6 +155,12 @@ class DemoIntegrationTests {
     assertThat(metadata.findByPath("mine.txt")).isEmpty();
     assertThat(servingDir.resolve("Welcome.md")).exists();
     assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_history", Long.class)).isEqualTo(7);
+
+    // Search forgets what was deleted and finds the samples, the PDF's text among them.
+    searchIndex.awaitIdle(Duration.ofSeconds(30));
+    assertThat(searchPaths("pineapple")).isEmpty();
+    assertThat(searchPaths("agenda")).containsExactly("Notes/todo.txt");
+    assertThat(searchPaths("interrupted")).containsExactly("Documents/JavaDropbox overview.pdf");
   }
 
   @Test
@@ -181,6 +194,19 @@ class DemoIntegrationTests {
             .getContentAsString();
     Instant expiresAt = Instant.parse(json.readTree(body).get("expiresAt").asText());
     assertThat(expiresAt).isBefore(Instant.now().plus(Duration.ofMinutes(15).plusSeconds(5)));
+  }
+
+  private List<String> searchPaths(String q) throws Exception {
+    String body =
+        mockMvc
+            .perform(get("/api/search").param("q", q).with(user("demo")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString(StandardCharsets.UTF_8);
+    List<String> paths = new ArrayList<>();
+    json.readTree(body).path("results").forEach(r -> paths.add(r.path("relativePath").asText()));
+    return paths;
   }
 
   private void clear() throws IOException {
