@@ -8,6 +8,8 @@ export const FILES_ENDPOINT = '/api/files';
 export const FOLDERS_ENDPOINT = '/api/folders';
 export const DOWNLOAD_ENDPOINT = '/api/files/download';
 export const PREVIEW_ENDPOINT = '/api/files/preview';
+// Names and file contents, searched on the server (see SearchController).
+export const SEARCH_ENDPOINT = '/api/search';
 
 export const fetchFiles = createAsyncThunk(
     'files/fetchFiles',

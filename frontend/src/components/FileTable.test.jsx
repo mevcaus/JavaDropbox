@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FileTable from './FileTable';
+import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
-afterEach(cleanup);
+// Searches go to the server; each test that searches says what it answers.
+vi.mock('../services/api');
+
+afterEach(() => {
+    cleanup();
+    // reset, not clear: a queued mockResolvedValueOnce must not leak into the next test.
+    vi.resetAllMocks();
+});
 
 // lastModified arrives from the backend as absolute ISO-8601 instants, so the fixtures use
 // that exact shape, including the trailing Z.
@@ -54,7 +62,41 @@ const visiblePaths = () =>
     screen
         .getAllByRole('row')
         .slice(1)
-        .map((row) => within(row).getAllByRole('cell')[0].querySelector('.ml-4').lastElementChild.textContent);
+        .map((row) => within(row).getAllByRole('cell')[0].querySelector('.ml-4 > div.text-xs').textContent);
+
+// The tree's node at a path in ROOT_FILES.
+const nodeAt = (path, nodes = ROOT_FILES) => {
+    for (const node of nodes) {
+        if (node.relativePath === path) return node;
+        const found = node.children && nodeAt(path, node.children);
+        if (found) return found;
+    }
+    return undefined;
+};
+
+// A search result for a node, as GET /api/search describes it.
+const hit = (node, snippet = null) => ({
+    name: node.name,
+    relativePath: node.relativePath,
+    isDirectory: node.isDirectory,
+    size: node.isDirectory ? null : node.size,
+    lastModified: node.lastModified,
+    previewType: node.previewType ?? null,
+    snippet,
+});
+
+// The server's answer to a search, best match first.
+const answer = (results, { total = results.length, indexing = false } = {}) => ({
+    data: { results, total, indexing },
+});
+
+const searchBox = () => screen.getByRole('textbox', { name: 'Search files' });
+
+// Types a search and waits for the server's answer to be shown.
+const searchFor = async (user, text) => {
+    await user.type(searchBox(), text);
+    await waitFor(() => expect(screen.queryByText(/Searching…/)).not.toBeInTheDocument());
+};
 
 const header = (name) => screen.getByRole('button', { name });
 const columnHeader = (name) => screen.getByRole('columnheader', { name });
@@ -73,32 +115,224 @@ describe('FileTable default ordering', () => {
 });
 
 describe('FileTable search', () => {
-    it('filters by filename with a case-insensitive substring match', async () => {
+    it('asks the server about the open folder and everything below it, and lists the answer best first', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt')), hit(nodeAt('Zebra Folder/nested/buried.log')), hit(nodeAt('apples'))]));
         const user = userEvent.setup();
         renderTable();
 
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'P');
+        await searchFor(user, 'report');
 
-        // Matches come from every level, folders first, then files by name
-        expect(visibleOrder()).toEqual(['apples', 'Big.zip', 'deep.txt', 'photo.png']);
+        expect(api.get).toHaveBeenCalledWith('/api/search', {
+            params: { q: 'report', path: '' },
+            signal: expect.any(AbortSignal),
+        });
+        // The server's order, not folders first.
+        expect(visibleOrder()).toEqual(['notes.txt', 'buried.log', 'apples']);
+        expect(visiblePaths()).toEqual(['notes.txt', 'Zebra Folder/nested/buried.log', 'apples']);
+        expect(screen.getByText('3 matches in this folder and below, best first.')).toBeInTheDocument();
+    });
+
+    it('waits for typing to pause rather than asking for every letter', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt'))]));
+        const user = userEvent.setup();
+        renderTable();
+
+        await searchFor(user, 'notes');
+
+        expect(api.get).toHaveBeenCalledTimes(1);
+        expect(api.get.mock.calls[0][1].params.q).toBe('notes');
+    });
+
+    it('searches the folder being viewed, not the whole tree', async () => {
+        api.get.mockResolvedValue(answer([hit(APPLES_FILES[0])]));
+        const user = userEvent.setup();
+        render(<FileTable files={APPLES_FILES} currentPath="apples" {...noopHandlers} />);
+
+        await searchFor(user, 'budget');
+
+        expect(api.get.mock.calls[0][1].params).toEqual({ q: 'budget', path: 'apples' });
+    });
+
+    it('shows the passage of text that matched, with the matching words marked', async () => {
+        const snippet = { text: '…the quarterly budget is due on Friday…', highlights: [{ start: 15, end: 21 }] };
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt'), snippet)]));
+        const user = userEvent.setup();
+        renderTable();
+
+        await searchFor(user, 'budget');
+
+        const mark = screen.getByText('budget', { selector: 'mark' });
+        expect(mark.parentElement).toHaveTextContent('…the quarterly budget is due on Friday…');
+    });
+
+    it("shows markup in a file's text as text", async () => {
+        const snippet = { text: '<img src=x onerror=alert(1)> budget', highlights: [{ start: 29, end: 35 }] };
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt'), snippet)]));
+        const user = userEvent.setup();
+        const { container } = renderTable();
+
+        await searchFor(user, 'budget');
+
+        expect(container.querySelector('img')).toBeNull();
+        expect(screen.getByText('budget', { selector: 'mark' }).parentElement).toHaveTextContent(snippet.text);
+    });
+
+    it('shows a result as the tree has it, so a file the app tracks offers its versions', async () => {
+        const tracked = { name: 'plan.txt', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'docs/plan.txt', id: 7 };
+        const tree = [{ name: 'docs', isDirectory: true, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'docs', children: [tracked] }];
+        api.get.mockResolvedValue(answer([hit(tracked)]));
+        const onVersions = vi.fn();
+        const user = userEvent.setup();
+        render(<FileTable files={tree} currentPath="" {...noopHandlers} onVersions={onVersions} />);
+
+        await searchFor(user, 'plan');
+        await user.click(screen.getByRole('button', { name: 'Versions of plan.txt' }));
+
+        expect(onVersions).toHaveBeenCalledWith(expect.objectContaining({ id: 7, relativePath: 'docs/plan.txt' }));
+    });
+
+    it('still lists a result the tree does not have yet, such as a file uploaded elsewhere', async () => {
+        const fresh = { name: 'fresh.txt', isDirectory: false, size: 3, lastModified: '2026-05-01T00:00:00Z', relativePath: 'new/fresh.txt' };
+        api.get.mockResolvedValue(answer([hit(fresh)]));
+        const onDownload = vi.fn();
+        const user = userEvent.setup();
+        renderTable({ onDownload });
+
+        await searchFor(user, 'fresh');
+        await user.click(screen.getByRole('button', { name: 'Download fresh.txt' }));
+
+        expect(onDownload).toHaveBeenCalledWith(expect.objectContaining({ relativePath: 'new/fresh.txt' }));
     });
 
     it('reports when nothing matches instead of rendering an empty table', async () => {
+        api.get.mockResolvedValue(answer([]));
         const user = userEvent.setup();
         renderTable();
 
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'zzz');
+        await searchFor(user, 'zzz');
 
         expect(screen.getByText('No files match your search.')).toBeInTheDocument();
+        expect(screen.getByText('No matches in this folder or the folders below it.')).toBeInTheDocument();
     });
 
-    it('keeps folders grouped ahead of files within the filtered results', async () => {
+    it('says when only the best of the matches are shown', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt')), hit(nodeAt('tiny.md'))], { total: 120 }));
         const user = userEvent.setup();
         renderTable();
 
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'nested');
+        await searchFor(user, 'note');
 
-        expect(visibleOrder()).toEqual(['nested']);
+        expect(screen.getByText('120 matches in this folder and below, best first — showing the best 2.')).toBeInTheDocument();
+    });
+
+    it('says when the index is still catching up and some files may be missing', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt'))], { indexing: true }));
+        const user = userEvent.setup();
+        renderTable();
+
+        await searchFor(user, 'note');
+
+        expect(screen.getByText(/Still indexing files, so some may be missing\./)).toBeInTheDocument();
+    });
+
+    it('reports a search that failed', async () => {
+        api.get.mockRejectedValue({ response: { status: 500 } });
+        const user = userEvent.setup();
+        renderTable();
+
+        await searchFor(user, 'note');
+
+        expect(screen.getByText('The server is unavailable right now. Please try again.')).toBeInTheDocument();
+    });
+
+    it('drops an answer that arrives after a newer search has started', async () => {
+        let answerFirst;
+        api.get
+            .mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve; }))
+            .mockResolvedValueOnce(answer([hit(nodeAt('notes.txt'))]));
+        const user = userEvent.setup();
+        renderTable();
+
+        await user.type(searchBox(), 'old');
+        await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+        await searchFor(user, 'er');
+        answerFirst(answer([hit(nodeAt('tiny.md')), hit(nodeAt('Big.zip'))]));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(api.get.mock.calls[1][1].params.q).toBe('older');
+        expect(visibleOrder()).toEqual(['notes.txt']);
+    });
+
+    it('sorts the answer by a column on request, folders first, and back to best first', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt')), hit(nodeAt('apples')), hit(nodeAt('tiny.md'))]));
+        const user = userEvent.setup();
+        renderTable();
+
+        await searchFor(user, 'e');
+        // Best first is no column's order.
+        expect(columnHeader('Name')).toHaveAttribute('aria-sort', 'none');
+
+        await user.click(header('Size'));
+        expect(visibleOrder()).toEqual(['apples', 'tiny.md', 'notes.txt']);
+        expect(columnHeader('Size')).toHaveAttribute('aria-sort', 'ascending');
+        expect(screen.getByText('3 matches in this folder and below.')).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: 'Sort by relevance' }));
+        expect(visibleOrder()).toEqual(['notes.txt', 'apples', 'tiny.md']);
+        expect(columnHeader('Size')).toHaveAttribute('aria-sort', 'none');
+    });
+
+    it('goes back to the folder as it was sorted once the search is cleared', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt')), hit(nodeAt('tiny.md'))]));
+        const user = userEvent.setup();
+        renderTable();
+
+        await searchFor(user, 'e');
+        await user.click(header('Size'));
+        await user.clear(searchBox());
+
+        expect(visibleOrder()).toEqual(['apples', 'Zebra Folder', 'Big.zip', 'notes.txt', 'tiny.md']);
+        expect(columnHeader('Name')).toHaveAttribute('aria-sort', 'ascending');
+    });
+
+    it('searches again when the files change, so a file deleted meanwhile drops out', async () => {
+        api.get
+            .mockResolvedValueOnce(answer([hit(nodeAt('notes.txt')), hit(nodeAt('tiny.md'))]))
+            .mockResolvedValueOnce(answer([hit(nodeAt('tiny.md'))]));
+        const user = userEvent.setup();
+        const { rerender } = renderTable();
+        await searchFor(user, 'e');
+        expect(visibleOrder()).toEqual(['notes.txt', 'tiny.md']);
+
+        // Dashboard hands over a new tree once a delete has gone through.
+        rerender(<FileTable files={ROOT_FILES.filter((f) => f.name !== 'notes.txt')} currentPath="" {...noopHandlers} />);
+
+        await waitFor(() => expect(visibleOrder()).toEqual(['tiny.md']));
+        expect(api.get).toHaveBeenCalledTimes(2);
+        expect(searchBox()).toHaveValue('e');
+    });
+
+    it('opens a folder the search found by its full path', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('Zebra Folder/nested'))]));
+        const user = userEvent.setup();
+        const onFolderClick = vi.fn();
+        renderTable({ onFolderClick });
+
+        await searchFor(user, 'nested');
+        await user.click(screen.getByRole('button', { name: 'nested' }));
+
+        expect(onFolderClick).toHaveBeenCalledWith('Zebra Folder/nested');
+    });
+
+    it('draws a focus indicator on every control while searching', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('notes.txt')), hit(nodeAt('apples'))]));
+        const user = userEvent.setup();
+        const { container } = renderTable();
+
+        await searchFor(user, 'e');
+        await user.click(header('Size'));
+
+        expect(controlsWithoutFocusIndicator(container)).toEqual([]);
     });
 });
 
@@ -167,10 +401,11 @@ describe('FileTable sorting', () => {
 
 describe('FileTable folder navigation', () => {
     it('clears the search when the user navigates to another folder', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('apples'))]));
         const user = userEvent.setup();
         const { rerender } = renderTable();
 
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'apple');
+        await searchFor(user, 'apple');
         expect(visibleOrder()).toEqual(['apples']);
 
         // Dashboard swaps the file list and path when a folder is opened
@@ -192,59 +427,6 @@ describe('FileTable folder navigation', () => {
 
         expect(columnHeader('Size')).toHaveAttribute('aria-sort', 'descending');
         expect(visibleOrder()).toEqual(['photo.png', 'budget.xlsx']);
-    });
-});
-
-describe('FileTable recursive search', () => {
-    it('finds files inside subfolders and labels each with its path', async () => {
-        const user = userEvent.setup();
-        renderTable();
-
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
-
-        expect(visibleOrder()).toEqual(['buried.log']);
-        expect(visiblePaths()).toEqual(['Zebra Folder/nested/buried.log']);
-    });
-
-    it('still returns folders whose own name matches, grouped ahead of files', async () => {
-        const user = userEvent.setup();
-        renderTable();
-
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'e');
-
-        const order = visibleOrder();
-        expect(order.slice(0, 3)).toEqual(['apples', 'nested', 'Zebra Folder']);
-        expect(order).toContain('buried.log');
-        expect(order).toContain('notes.txt');
-    });
-
-    it('reports how many matches were found below the current folder', async () => {
-        const user = userEvent.setup();
-        renderTable();
-
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
-
-        expect(screen.getByText('1 match in this folder and below')).toBeInTheDocument();
-    });
-
-    it('limits the search to the folder being viewed, not the whole tree', async () => {
-        const user = userEvent.setup();
-        render(<FileTable files={APPLES_FILES} currentPath="apples" {...noopHandlers} />);
-
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
-
-        expect(screen.getByText('No files match your search.')).toBeInTheDocument();
-    });
-
-    it('navigates by full path so a nested folder result opens the right folder', async () => {
-        const user = userEvent.setup();
-        const onFolderClick = vi.fn();
-        render(<FileTable files={ROOT_FILES} currentPath="" {...noopHandlers} onFolderClick={onFolderClick} />);
-
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'nested');
-        await user.click(screen.getByRole('button', { name: 'nested' }));
-
-        expect(onFolderClick).toHaveBeenCalledWith('Zebra Folder/nested');
     });
 });
 
@@ -300,11 +482,12 @@ describe('FileTable row actions', () => {
     });
 
     it('acts on the nested file a search surfaced, not a same-named row in this folder', async () => {
+        api.get.mockResolvedValue(answer([hit(nodeAt('Zebra Folder/nested/buried.log'))]));
         const user = userEvent.setup();
         const onDelete = vi.fn();
         renderTable({ onDelete });
 
-        await user.type(screen.getByRole('textbox', { name: 'Search files' }), 'buried');
+        await searchFor(user, 'buried');
         await user.click(actionButton('buried.log', 'Delete'));
 
         expect(onDelete).toHaveBeenCalledWith(
