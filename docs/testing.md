@@ -30,7 +30,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `PasswordRecoveryIntegrationTests` | The [password recovery procedure](self-hosting.md#forgot-your-password), on PostgreSQL with uploaded files: an `htpasswd` hash set by `UPDATE` signs in |
 | `StorageQuotaIntegrationTests` | The storage cap: uploads and restored copies that would go over it are a `507` and leave nothing behind, and previous versions count toward it |
 | `DemoIntegrationTests`, `DemoServiceTests` | The `demo` profile: the account signs in with no setup, `/api/demo` is public, the sample files (one with two versions) are stored, a due reset deletes everything and stores them again while one that is not due changes nothing, share links of at most 15 minutes; when the daily reset falls due |
-| `ShareLinkIntegrationTests` | Link creation, expiry, listing and revoking, public download; tokens that reveal no path and are stored only hashed; links dying with their item even when the path is reused or the item changes type |
+| `ShareLinkIntegrationTests` | Link creation, expiry, listing and revoking, public download; a browser opening a link getting its page while other clients get the file; the page's description of a file or folder by name with no paths, owners or ids; inline previews with the private preview's headers and none for folders or other files; a bare 404 on every route of a link that does not open; tokens that reveal no path and are stored only hashed; links dying with their item even when the path is reused or the item changes type |
 | `RetiredShareKeyTests` / `FlywayShareLinksMigrationTests` | No signing key is created, a leftover (even empty) key file is deleted, a configured secret stops startup; on PostgreSQL, links are deleted with their file and token hashes are unique |
 | `CorsIntegrationTests` | Configured origins allowed, others refused |
 | `SwaggerIntegrationTests` | Docs reachable with the setup filter active, spec lists every tag and endpoint |
@@ -56,11 +56,12 @@ npm test
 
 | Test Suite | What It Covers |
 |-----------|----------------|
-| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, previewing a file in the open folder by its full path, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting |
+| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, previewing a file in the open folder by its full path, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting, share pages shown without a session |
 | `Modal.test.jsx` | Escape, focus trap (including focus outside the panel or on a removed control) and focus restore with a fallback |
 | `CreateFolderModal.test.jsx` | Closing only once the folder exists, the pending state, inline server errors, the dot-name rule |
 | `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item, listing and revoking active links |
-| `PreviewModal.test.jsx` | Images and PDFs from the preview endpoint, text fetched by range and shown unrendered, the cut-short notice ending on a whole line, empty files, server errors, starting over for the next file |
+| `PreviewModal.test.jsx` | Images and PDFs from the preview endpoint (through `FilePreview`, which share pages use too), text fetched by range and shown unrendered, the cut-short notice ending on a whole line, empty files, server errors, starting over for the next file |
+| `Shared.test.jsx` | A share link's page: a file described and previewed (text, image, PDF) with nothing downloaded until the Download link, a note for files with no preview, a folder's contents browsed in place, dead links explained, other errors reported |
 | `VersionHistoryModal.test.jsx` | Listing versions, restoring in either mode, a restore for one file not affecting the next file's dialog |
 | `Login.test.jsx`, `Setup.test.jsx`, `Navbar.test.jsx` | Offering setup only while no account exists, errors announced as alerts, setup code and password checks, a failed logout keeping the user signed in |
 | `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
@@ -103,5 +104,5 @@ CI runs the suite in the `docker` job of `.github/workflows/gradle.yml` after th
 | `auth.spec.js` | Signed-out visitors sent to sign-in with no setup link, a wrong password refused, signing in, a session that survives a reload, signing out ending the session on the server |
 | `files.spec.js` | Creating a folder and opening it (kept across a reload), uploading a file and downloading the same bytes, downloading a folder as a zip, deleting a file and a folder for good |
 | `preview.spec.js` | An image decoded in the preview, a PDF served inline and frameable, a text file shown as text with its markup unrendered, downloading from the preview |
-| `share.spec.js` | A link that downloads the file for a client with no session, revoking it (a 404 straight after), links listed again when the dialog is reopened |
+| `share.spec.js` | A link opened in a signed-out browser showing a page that previews the file and downloads it from there, a folder's page listing its contents and downloading a zip, a script fetching the link getting the file until it is revoked (a 404 straight after, and a page saying so), links listed again when the dialog is reopened |
 | `versions.spec.js` | Uploading over a file, restoring the earlier version in place (the replaced content kept as a version) and as a copy |

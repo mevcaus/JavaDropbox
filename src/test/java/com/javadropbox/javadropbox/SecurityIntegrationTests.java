@@ -137,10 +137,16 @@ class SecurityIntegrationTests {
     mockMvc
         .perform(get("/api/no-such-endpoint").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
         .andExpect(status().isUnauthorized());
-    mockMvc
-        .perform(get("/share/not-a-token").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
-        .andExpect(status().isNotFound())
-        .andExpect(forwardedUrl(null));
+    // A share link's own page is the app (see ShareLinkIntegrationTests), but what it reads is not.
+    for (String path :
+        new String[] {
+          "/share/not-a-token/info", "/share/not-a-token/preview", "/share/not-a-token/download"
+        }) {
+      mockMvc
+          .perform(get(path).header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+          .andExpect(status().isNotFound())
+          .andExpect(forwardedUrl(null));
+    }
     // A missing file is a 404, not the app.
     mockMvc
         .perform(get("/assets/missing.js").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))

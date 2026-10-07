@@ -1,7 +1,9 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.dto.ShareLinkDto;
+import com.javadropbox.javadropbox.dto.SharedItemDto;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.service.ShareLinkService;
@@ -29,9 +31,11 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
  * Time-limited share links. Creating, listing and revoking them under {@code /api/share} requires
- * the normal session auth (covered by SecurityConfig's default rule). {@code GET /share/{token}} is
- * public &mdash; it is explicitly permitted in SecurityConfig because the whole point is that
- * someone without an account can use the link.
+ * the normal session auth (covered by SecurityConfig's default rule). Everything under {@code
+ * /share/{token}} is public &mdash; it is explicitly permitted in SecurityConfig because the whole
+ * point is that someone without an account can use the link. A browser opening the link itself gets
+ * the app's page for it (see SpaFallbackFilter), which reads {@code /info} and shows {@code
+ * /preview} before anything is downloaded.
  */
 @RestController
 @Tag(name = "Share", description = "Endpoints for creating and accessing time-limited share links")
@@ -107,10 +111,14 @@ public class ShareController {
     return Map.of("message", "Share link revoked");
   }
 
-  @GetMapping("/share/{token}")
+  @GetMapping({"/share/{token}", "/share/{token}/download"})
   @Operation(
       summary = "Download shared file",
-      description = "Downloads a file using a share token. Publicly accessible.")
+      description =
+          "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A"
+              + " browser opening /share/{token} as a page gets the app's page for the link"
+              + " instead, which describes the item and previews it; every other client gets the"
+              + " download, as /share/{token}/download always does.")
   public ResponseEntity<Resource> downloadSharedFile(
       @PathVariable String token, HttpServletResponse response) throws IOException {
     // Whatever the reason a link does not open, the public gets a bare 404: the messages name
@@ -123,5 +131,38 @@ public class ShareController {
     }
     metrics.fileServed(Route.SHARE_LINK);
     return DownloadResponses.send(download, response);
+  }
+
+  @GetMapping("/share/{token}/info")
+  @Operation(
+      summary = "Describe shared item",
+      description =
+          "The name, size and expiry of what a share token opens, how it can be previewed, and"
+              + " what a folder holds. Names only, never paths. Publicly accessible.")
+  public ResponseEntity<SharedItemDto> describeSharedItem(@PathVariable String token)
+      throws IOException {
+    try {
+      return ResponseEntity.ok(shareLinkService.describe(token));
+    } catch (NotFoundException | BadRequestException e) {
+      return ResponseEntity.notFound().build();
+    }
+  }
+
+  @GetMapping("/share/{token}/preview")
+  @Operation(
+      summary = "Preview shared file",
+      description =
+          "The file a share token opens, served for display in the browser as"
+              + " /api/files/preview serves it. Supports range requests. Publicly accessible;"
+              + " a folder, or a kind of file that cannot be previewed, is a 404.")
+  public ResponseEntity<Resource> previewSharedFile(@PathVariable String token) throws IOException {
+    Preview preview;
+    try {
+      preview = shareLinkService.preview(token);
+    } catch (NotFoundException | BadRequestException e) {
+      return ResponseEntity.notFound().build();
+    }
+    metrics.fileServed(Route.SHARE_LINK_PREVIEW);
+    return DownloadResponses.preview(preview);
   }
 }

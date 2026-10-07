@@ -98,6 +98,9 @@ class SwaggerIntegrationTests {
         .andExpect(content().string(containsString("\"/api/history\"")))
         .andExpect(content().string(containsString("\"/api/share\"")))
         .andExpect(content().string(containsString("\"/share/{token}\"")))
+        .andExpect(content().string(containsString("\"/share/{token}/info\"")))
+        .andExpect(content().string(containsString("\"/share/{token}/preview\"")))
+        .andExpect(content().string(containsString("\"/share/{token}/download\"")))
         .andExpect(content().string(containsString("\"/api/files/{fileId}/versions\"")))
         .andExpect(content().string(containsString("\"/setup\"")));
   }

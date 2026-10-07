@@ -40,7 +40,12 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
 | `GET` | `/api/share?path=<path>` | ✅ | The path's links that have not expired or been revoked, soonest to expire first: `[{id, createdAt, expiresAt, createdBy}]` |
 | `DELETE` | `/api/share/{id}` | ✅ | Revoke a link; it stops working at once |
-| `GET` | `/share/{token}` | ❌ | Download a shared file or folder via its token |
+| `GET` | `/share/{token}` | ❌ | Opened in a browser (`Accept: text/html`), the link's page, which shows what the link opens before anything is downloaded. Any other client gets the file, or the folder as a ZIP, as from `/download` |
+| `GET` | `/share/{token}/info` | ❌ | What the link opens, by name only: `{name, isDirectory, size, lastModified, previewType, expiresAt, contents}`, where a folder's `contents` is `[{name, isDirectory, size, lastModified, children}]` |
+| `GET` | `/share/{token}/preview` | ❌ | The file inline, with the same types and headers as `/api/files/preview`; range requests work. A folder, or a file that cannot be previewed, is a `404` |
+| `GET` | `/share/{token}/download` | ❌ | Download the shared file, or the folder as a ZIP |
+
+A link that does not open (unknown, expired or revoked, or its item deleted, moved or changed between file and folder) is a bare `404` with no body on every `/share` route, so the public learns nothing about paths. Its page says the link doesn't work.
 
 ### History
 

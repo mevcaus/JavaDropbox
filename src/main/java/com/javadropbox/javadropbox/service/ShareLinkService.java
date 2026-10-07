@@ -1,9 +1,13 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.dto.ShareLinkDto;
+import com.javadropbox.javadropbox.dto.SharedItemDto;
+import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileMetadata;
+import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.ShareLink;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.ShareLinkRepository;
@@ -36,6 +40,7 @@ public class ShareLinkService {
   private final FileMetadataRepository files;
   private final StoragePaths storagePaths;
   private final FileService fileService;
+  private final FileTreeService fileTree;
   private final AuthService authService;
   private final SecureRandom random = new SecureRandom();
 
@@ -44,11 +49,13 @@ public class ShareLinkService {
       FileMetadataRepository files,
       StoragePaths storagePaths,
       FileService fileService,
+      FileTreeService fileTree,
       AuthService authService) {
     this.links = links;
     this.files = files;
     this.storagePaths = storagePaths;
     this.fileService = fileService;
+    this.fileTree = fileTree;
     this.authService = authService;
   }
 
@@ -87,12 +94,58 @@ public class ShareLinkService {
   }
 
   /**
-   * What a link's token opens.
+   * What a link's token opens, to download.
    *
    * @throws NotFoundException if the token is unknown, expired or revoked, or the item the link was
    *     made for is gone, has moved, or has changed between file and folder
    */
   public Download open(String token) throws IOException {
+    return fileService.download(resolve(token).link().getPath());
+  }
+
+  /**
+   * What a link opens, described for the page shown before downloading it: a folder with what it
+   * holds.
+   *
+   * @throws NotFoundException as for {@link #open}
+   */
+  @Transactional(readOnly = true)
+  public SharedItemDto describe(String token) throws IOException {
+    Shared shared = resolve(token);
+    FileMetadata file = shared.link().getFile();
+    StoragePath target = shared.target();
+    Instant expiresAt = shared.link().getExpiresAt();
+
+    if (shared.isDirectory()) {
+      List<SharedItemDto.Entry> contents = SharedItemDto.Entry.fromTree(fileTree.tree(target));
+      long size = contents.stream().mapToLong(SharedItemDto.Entry::size).sum();
+      return new SharedItemDto(
+          target.name(), true, size, file.getUpdatedAt(), null, expiresAt, contents);
+    }
+    return new SharedItemDto(
+        target.name(),
+        false,
+        Files.size(target.path()),
+        file.getUpdatedAt(),
+        PreviewType.of(target.name()).orElse(null),
+        expiresAt,
+        null);
+  }
+
+  /**
+   * What a link opens, to show in the browser.
+   *
+   * @throws NotFoundException as for {@link #open}
+   * @throws BadRequestException for a folder, or a file of a kind that cannot be previewed
+   */
+  public Preview preview(String token) throws IOException {
+    return fileService.preview(resolve(token).link().getPath());
+  }
+
+  /** A link that still opens, and the item it opens. */
+  private record Shared(ShareLink link, StoragePath target, boolean isDirectory) {}
+
+  private Shared resolve(String token) {
     ShareLink link =
         links
             .findByTokenHash(hash(token))
@@ -104,10 +157,11 @@ public class ShareLinkService {
       throw linkNotFound();
     }
     StoragePath target = storagePaths.resolveItem(link.getPath());
-    if (Files.isDirectory(target.path()) != Boolean.TRUE.equals(file.getIsDirectory())) {
+    boolean isDirectory = Boolean.TRUE.equals(file.getIsDirectory());
+    if (!Files.exists(target.path()) || Files.isDirectory(target.path()) != isDirectory) {
       throw linkNotFound();
     }
-    return fileService.download(link.getPath());
+    return new Shared(link, target, isDirectory);
   }
 
   /** The links to the item at {@code path} that still open, the soonest to expire first. */

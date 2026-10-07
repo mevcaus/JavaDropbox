@@ -202,6 +202,7 @@ class ObservabilityIntegrationTests {
     double downloads = filesServed("download");
     double previews = filesServed("preview");
     double shared = filesServed("share-link");
+    double sharedPreviews = filesServed("share-link-preview");
 
     mockMvc
         .perform(get("/api/files/download").param("path", "notes.txt"))
@@ -220,11 +221,17 @@ class ObservabilityIntegrationTests {
                     .getContentAsString())
             .get("url")
             .asText();
-    mockMvc.perform(get(url.substring(url.indexOf("/share/")))).andExpect(status().isOk());
+    String link = url.substring(url.indexOf("/share/"));
+    mockMvc.perform(get(link)).andExpect(status().isOk());
+    mockMvc.perform(get(link + "/download")).andExpect(status().isOk());
+    mockMvc.perform(get(link + "/preview")).andExpect(status().isOk());
+    // Describing the link for its page serves nothing.
+    mockMvc.perform(get(link + "/info")).andExpect(status().isOk());
 
     assertThat(filesServed("download")).isEqualTo(downloads + 2);
     assertThat(filesServed("preview")).isEqualTo(previews + 1);
-    assertThat(filesServed("share-link")).isEqualTo(shared + 1);
+    assertThat(filesServed("share-link")).isEqualTo(shared + 2);
+    assertThat(filesServed("share-link-preview")).isEqualTo(sharedPreviews + 1);
   }
 
   @Test
@@ -235,6 +242,7 @@ class ObservabilityIntegrationTests {
     double downloads = filesServed("download");
     double previews = filesServed("preview");
     double shared = filesServed("share-link");
+    double sharedPreviews = filesServed("share-link-preview");
 
     mockMvc
         .perform(get("/api/files/download").param("path", "nope.txt"))
@@ -243,10 +251,12 @@ class ObservabilityIntegrationTests {
         .perform(get("/api/files/preview").param("path", "nope.txt"))
         .andExpect(status().isNotFound());
     mockMvc.perform(get("/share/not-a-real-token")).andExpect(status().isNotFound());
+    mockMvc.perform(get("/share/not-a-real-token/preview")).andExpect(status().isNotFound());
 
     assertThat(filesServed("download")).isEqualTo(downloads);
     assertThat(filesServed("preview")).isEqualTo(previews);
     assertThat(filesServed("share-link")).isEqualTo(shared);
+    assertThat(filesServed("share-link-preview")).isEqualTo(sharedPreviews);
   }
 
   @Test

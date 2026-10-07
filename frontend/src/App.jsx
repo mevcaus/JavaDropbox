@@ -5,6 +5,7 @@ import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 import Setup from './pages/Setup';
 import Dashboard from './pages/Dashboard';
+import Shared from './pages/Shared';
 import { ToastProvider } from './contexts/ToastContext';
 import { fetchCurrentUser } from './features/authSlice';
 import { Loader2 } from 'lucide-react';
@@ -31,6 +32,8 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<Setup />} />
+          {/* Public: what a share link opens, before anything is downloaded. */}
+          <Route path="/share/:token" element={<Shared />} />
 
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />

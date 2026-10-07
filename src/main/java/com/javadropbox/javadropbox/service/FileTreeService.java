@@ -4,6 +4,7 @@ import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -47,11 +48,19 @@ public class FileTreeService {
 
   @Transactional(readOnly = true)
   public List<FileTreeNode> tree() {
-    // One query for every row, rather than one per file on disk.
-    Map<String, FileMetadata> metadata =
-        files.findAllWithOwner().stream()
-            .collect(Collectors.toMap(FileMetadata::getPath, Function.identity()));
-    return children(storagePaths.root(), "", metadata);
+    return children(storagePaths.root(), "", metadata());
+  }
+
+  /** The tree below one folder, built the same way: what a shared folder's page lists. */
+  @Transactional(readOnly = true)
+  public List<FileTreeNode> tree(StoragePath folder) {
+    return children(folder.path(), folder.key(), metadata());
+  }
+
+  // One query for every row, rather than one per file on disk.
+  private Map<String, FileMetadata> metadata() {
+    return files.findAllWithOwner().stream()
+        .collect(Collectors.toMap(FileMetadata::getPath, Function.identity()));
   }
 
   private List<FileTreeNode> children(Path folder, String key, Map<String, FileMetadata> metadata) {

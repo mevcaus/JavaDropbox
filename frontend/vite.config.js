@@ -18,14 +18,22 @@ export default defineConfig({
         // dev server: a cross-origin redirect would fail CORS, and the app would never learn that
         // setup is pending (see fetchCurrentUser).
         autoRewrite: true,
+        // Sends X-Forwarded-Host/-Port/-Proto with the dev server's address, which the backend
+        // trusts from loopback, so the share links it builds point here rather than at :8080
+        // (where there is no built app to show a link's page).
+        xfwd: true,
       },
-      // Public share links. The backend builds them from the request's host, which changeOrigin
-      // rewrites to the backend's, so they point at :8080 directly; this entry makes a link that
-      // was opened through the dev server work too.
+      // Public share links. A browser opening the link itself gets the app's page for it, served
+      // by Vite with hot reload; everything else (the page's /info, /preview and /download, or curl
+      // fetching the link) goes to the backend.
       '/share': {
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
+        bypass: (req) => {
+          const isLinkPage = /^\/share\/[^/?]+(\?|$)/.test(req.url);
+          return isLinkPage && req.headers.accept?.includes('text/html') ? '/index.html' : undefined;
+        },
       },
       '/setup': {
         target: 'http://localhost:8080',
