@@ -1,7 +1,10 @@
 import { QUOTA_UNITS } from '../utils/quota';
 
-/** An amount and a unit for a storage quota; an empty amount means no limit. */
-const QuotaFields = ({ id, amount, unit, onAmountChange, onUnitChange, disabled }) => (
+/**
+ * An amount and a unit for a storage quota; an empty amount means no limit. inputRef reaches the
+ * amount field, e.g. for a dialog to focus it.
+ */
+const QuotaFields = ({ id, amount, unit, onAmountChange, onUnitChange, disabled, inputRef }) => (
     <div>
         <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
             Storage quota
@@ -9,6 +12,7 @@ const QuotaFields = ({ id, amount, unit, onAmountChange, onUnitChange, disabled 
         <div className="flex gap-2">
             <input
                 id={id}
+                ref={inputRef}
                 type="number"
                 min="0"
                 step="any"

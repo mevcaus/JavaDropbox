@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { configureStore } from '@reduxjs/toolkit';
+import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import AccountLink from './AccountLink';
+import authReducer, { fetchCurrentUser } from '../features/authSlice';
 import api from '../services/api';
 
 vi.mock('../services/api');
@@ -12,16 +15,27 @@ const INFO = { username: 'carol', expiresAt: '2026-10-15T09:00:00Z' };
 // Where the page sends someone once the link is used, with what it tells them.
 const SignIn = () => <p>Sign-in page: {useLocation().state?.notice}</p>;
 
-const renderAt = (path) =>
-    render(
-        <MemoryRouter initialEntries={[path]}>
-            <Routes>
-                <Route path="/invite/:token" element={<AccountLink purpose="invite" />} />
-                <Route path="/reset-password/:token" element={<AccountLink purpose="reset" />} />
-                <Route path="/login" element={<SignIn />} />
-            </Routes>
-        </MemoryRouter>,
+// Opens the page as App would, after its session check: signed out, or signed in as signedInAs.
+const renderAt = (path, { signedInAs } = {}) => {
+    const store = configureStore({ reducer: { auth: authReducer } });
+    store.dispatch(
+        signedInAs
+            ? fetchCurrentUser.fulfilled({ username: signedInAs, role: 'ADMIN' }, 'startup')
+            : fetchCurrentUser.rejected(null, 'startup', undefined, 'Not authenticated'),
     );
+    render(
+        <Provider store={store}>
+            <MemoryRouter initialEntries={[path]}>
+                <Routes>
+                    <Route path="/invite/:token" element={<AccountLink purpose="invite" />} />
+                    <Route path="/reset-password/:token" element={<AccountLink purpose="reset" />} />
+                    <Route path="/login" element={<SignIn />} />
+                </Routes>
+            </MemoryRouter>
+        </Provider>,
+    );
+    return store;
+};
 
 const choose = async (user, password, confirmation = password) => {
     await user.type(await screen.findByPlaceholderText('Password'), password);
@@ -90,6 +104,62 @@ describe('AccountLink', () => {
         expect(await screen.findByRole('alert')).toHaveTextContent('expired or has already been used');
         expect(screen.queryByPlaceholderText('Password')).toBeNull();
         expect(screen.getByRole('link', { name: 'Go to sign-in' })).toBeInTheDocument();
+    });
+
+    it('refuses a description that is not one, such as the app\'s HTML from a misrouted request', async () => {
+        api.get.mockResolvedValue({ data: '<!doctype html><html></html>' });
+        renderAt('/invite/tok-1');
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Could not open this link.');
+        expect(screen.queryByPlaceholderText('Password')).toBeNull();
+    });
+
+    it('says it signs out whoever is signed in, and does once the account exists', async () => {
+        const user = userEvent.setup();
+        api.get.mockResolvedValue({ data: INFO });
+        api.post.mockResolvedValue({ data: {} });
+        const store = renderAt('/invite/tok-1', { signedInAs: 'ada' });
+
+        expect(await screen.findByText(/You are signed in as/)).toHaveTextContent(
+            'You are signed in as ada. Creating the account signs you out here',
+        );
+        await choose(user, 'long enough');
+        await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+        // Without signing out, the sign-in page would send ada straight back to her own files.
+        expect(await screen.findByText(/Sign-in page: Your account is ready/)).toBeInTheDocument();
+        expect(api.post.mock.calls.map(([url]) => url)).toEqual(['/invite/tok-1', '/logout']);
+        expect(store.getState().auth.isAuthenticated).toBe(false);
+    });
+
+    it('still signs out here when the server has already ended the session', async () => {
+        const user = userEvent.setup();
+        api.get.mockResolvedValue({ data: { ...INFO, username: 'ada' } });
+        api.post
+            .mockResolvedValueOnce({ data: {} })
+            // The reset of her own password ended the session, so logout finds none.
+            .mockRejectedValueOnce({ response: { status: 401 } });
+        const store = renderAt('/reset-password/tok-2', { signedInAs: 'ada' });
+
+        await choose(user, 'a new password');
+        await user.click(await screen.findByRole('button', { name: 'Set password' }));
+
+        expect(await screen.findByText(/Sign-in page: Your password has been changed/)).toBeInTheDocument();
+        expect(store.getState().auth.isAuthenticated).toBe(false);
+    });
+
+    it('says when the link stopped working after the page opened', async () => {
+        const user = userEvent.setup();
+        api.get.mockResolvedValue({ data: INFO });
+        api.post.mockRejectedValue({
+            response: { status: 404, data: { message: 'This link has expired or has already been used' } },
+        });
+        renderAt('/invite/tok-1');
+
+        await choose(user, 'long enough');
+        await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('expired or has already been used');
     });
 
     it('shows the server\'s reason when it refuses the password', async () => {

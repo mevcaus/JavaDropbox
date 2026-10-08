@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { clearUser, logoutUser } from '../features/authSlice';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
@@ -19,6 +21,7 @@ const PURPOSES = {
             </>
         ),
         submit: 'Create account',
+        signsOut: 'Creating the account signs you out here, so that you can sign in to it.',
         done: 'Your account is ready. Sign in with your new password.',
         failed: 'Could not create the account.',
     },
@@ -32,6 +35,7 @@ const PURPOSES = {
             </>
         ),
         submit: 'Set password',
+        signsOut: 'Setting the password signs you out here.',
         done: 'Your password has been changed. Sign in with it.',
         failed: 'Could not change the password.',
     },
@@ -41,13 +45,16 @@ const inputClass =
     'appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm';
 
 /**
- * The page an invitation or a password reset link opens, for someone who is not signed in: it says
- * which account the link is for and takes the password. A link works once; afterwards, or once it
- * has expired, the page says so.
+ * The page an invitation or a password reset link opens: it says which account the link is for and
+ * takes the password. A link works once; afterwards, or once it has expired, the page says so.
+ * Someone signed in on this browser is signed out once the link is used, so that they can sign in
+ * as the new account or with the new password.
  */
 const AccountLink = ({ purpose }) => {
     const { token } = useParams();
     const navigate = useNavigate();
+    const dispatch = useDispatch();
+    const { isAuthenticated, user } = useSelector((state) => state.auth);
     const text = PURPOSES[purpose];
     const endpoint = `${text.route}/${encodeURIComponent(token)}`;
 
@@ -61,7 +68,16 @@ const AccountLink = ({ purpose }) => {
     useEffect(() => {
         let cancelled = false;
         api.get(`${endpoint}/info`)
-            .then((response) => !cancelled && setLink(response.data))
+            .then((response) => {
+                if (cancelled) return;
+                // Anything but the link's description, such as the app's HTML from a request that
+                // never reached the server, is no link to show a form for.
+                if (typeof response.data?.username !== 'string') {
+                    setLoadError('Could not open this link.');
+                    return;
+                }
+                setLink(response.data);
+            })
             .catch((err) => {
                 if (cancelled) return;
                 setLoadError(
@@ -91,6 +107,12 @@ const AccountLink = ({ purpose }) => {
             await api.post(endpoint, new URLSearchParams({ password }), {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             });
+            if (isAuthenticated) {
+                // A reset of this account's own password has already ended its session on the
+                // server; anyone else is still signed in there, and stays signed out here regardless.
+                const result = await dispatch(logoutUser());
+                if (logoutUser.rejected.match(result)) dispatch(clearUser());
+            }
             navigate('/login', { replace: true, state: { notice: text.done } });
         } catch (err) {
             setError(readableError(err, text.failed));
@@ -126,6 +148,11 @@ const AccountLink = ({ purpose }) => {
                 {link && (
                     <form className="space-y-6" onSubmit={handleSubmit}>
                         <p className="text-sm text-gray-600 text-center">{text.intro(link.username)}</p>
+                        {isAuthenticated && (
+                            <p className="rounded-md bg-blue-50 border border-blue-200 p-4 text-sm text-blue-900">
+                                You are signed in as <span className="font-semibold">{user}</span>. {text.signsOut}
+                            </p>
+                        )}
                         {/* For password managers, which save the new password under this name. */}
                         <input type="text" name="username" autoComplete="username" value={link.username} readOnly hidden />
                         <div className="rounded-md shadow-sm -space-y-px">

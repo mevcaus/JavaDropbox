@@ -93,8 +93,8 @@ describe('Admin', () => {
         const me = await rowOf('ada');
         expect(within(me).getByText('(you)')).toBeInTheDocument();
         expect(within(me).queryByRole('button', { name: /disable/i })).toBeNull();
-        expect(within(me).queryByRole('button', { name: /make ada/i })).toBeNull();
-        expect(within(me).getByRole('button', { name: 'Change the quota of ada' })).toBeInTheDocument();
+        expect(within(me).queryByRole('button', { name: /make (admin|user)/i })).toBeNull();
+        expect(within(me).getByRole('button', { name: 'Quota for ada' })).toBeInTheDocument();
     });
 
     it('disables and enables accounts, then shows them as they are now', async () => {
@@ -118,6 +118,48 @@ describe('Admin', () => {
         );
     });
 
+    it('keeps the buttons waiting until the list shows the change', async () => {
+        const user = userEvent.setup();
+        serve();
+        api.put.mockResolvedValue({ data: {} });
+        renderAs('ADMIN');
+        const disableBob = await screen.findByRole('button', { name: 'Disable bob' });
+
+        let finishLoading;
+        const loaded = new Promise((resolve) => {
+            finishLoading = resolve;
+        });
+        api.get.mockImplementation(async (url) => {
+            await loaded;
+            if (url === '/api/admin/invites') return { data: [] };
+            return { data: ACCOUNTS.map((account) => (account.id === 2 ? { ...account, enabled: false } : account)) };
+        });
+        await user.click(disableBob);
+        await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('bob is disabled', 'success'));
+
+        // The list still shows bob as active: a click now would act on what it used to say.
+        expect(screen.getByRole('button', { name: 'Disable bob' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Enable eve' })).toBeDisabled();
+
+        finishLoading();
+        expect(await screen.findByRole('button', { name: 'Enable bob' })).toBeEnabled();
+        expect(within(await rowOf('bob')).getByText('Disabled')).toBeInTheDocument();
+    });
+
+    it('takes admin rights away', async () => {
+        const user = userEvent.setup();
+        serve({ accounts: [...ACCOUNTS, { id: 4, username: 'max', role: 'ADMIN', enabled: true, quotaBytes: null, usedBytes: 0 }] });
+        api.put.mockResolvedValue({ data: {} });
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Make user, max' }));
+
+        expect(api.put.mock.calls.map((call) => [call[0], params(call)])).toEqual([
+            ['/api/admin/users/4/role', { role: 'USER' }],
+        ]);
+        expect(addToast).toHaveBeenCalledWith('max is now a user', 'success');
+    });
+
     it('makes a user an admin, and says why when the server refuses', async () => {
         const user = userEvent.setup();
         serve();
@@ -126,7 +168,7 @@ describe('Admin', () => {
         });
         renderAs('ADMIN');
 
-        await user.click(await screen.findByRole('button', { name: 'Make bob an admin' }));
+        await user.click(await screen.findByRole('button', { name: 'Make admin, bob' }));
 
         expect(params(api.put.mock.calls[0])).toEqual({ role: 'ADMIN' });
         expect(addToast).toHaveBeenCalledWith('There has to be at least one admin who can sign in', 'error');
@@ -163,7 +205,7 @@ describe('Admin', () => {
         await user.type(screen.getByLabelText('Storage quota'), '0');
         await user.click(screen.getByRole('button', { name: 'Create invitation' }));
 
-        expect(screen.getByRole('alert')).toHaveTextContent('more than 0');
+        expect(screen.getByRole('alert')).toHaveTextContent('at least 1 MB');
         expect(api.post).not.toHaveBeenCalled();
     });
 
@@ -173,7 +215,7 @@ describe('Admin', () => {
         api.put.mockResolvedValue({ data: {} });
         renderAs('ADMIN');
 
-        await user.click(await screen.findByRole('button', { name: 'Change the quota of bob' }));
+        await user.click(await screen.findByRole('button', { name: 'Quota for bob' }));
         const amount = screen.getByLabelText('Storage quota');
         expect(amount).toHaveValue(5);
         expect(screen.getByLabelText('Quota unit')).toHaveValue('GB');
@@ -186,6 +228,30 @@ describe('Admin', () => {
         expect(addToast).toHaveBeenCalledWith('Changed the quota of bob', 'success');
     });
 
+    it('starts the quota dialog on the amount', async () => {
+        const user = userEvent.setup();
+        serve();
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Quota for bob' }));
+
+        await vi.waitFor(() => expect(screen.getByLabelText('Storage quota')).toHaveFocus());
+    });
+
+    it('keeps the quota dialog open with the server\'s reason when it refuses', async () => {
+        const user = userEvent.setup();
+        serve();
+        api.put.mockRejectedValue({ response: { status: 400, data: { message: 'quota must be more than 0' } } });
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Quota for bob' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('quota must be more than 0');
+        expect(screen.getByRole('dialog', { name: /Quota for bob/ })).toBeInTheDocument();
+        expect(addToast).not.toHaveBeenCalled();
+    });
+
     it('makes a password reset link and shows it', async () => {
         const user = userEvent.setup();
         serve();
@@ -194,7 +260,7 @@ describe('Admin', () => {
         });
         renderAs('ADMIN');
 
-        await user.click(await screen.findByRole('button', { name: 'Make a password reset link for bob' }));
+        await user.click(await screen.findByRole('button', { name: 'Reset password for bob' }));
 
         expect(api.post).toHaveBeenCalledWith('/api/admin/users/2/password-reset');
         expect(await screen.findByLabelText('Password reset link')).toHaveValue('http://localhost/reset-password/xyz');
@@ -211,6 +277,39 @@ describe('Admin', () => {
         await user.click(within(invitations).getByRole('button', { name: 'Withdraw the invitation for carol' }));
 
         expect(api.delete).toHaveBeenCalledWith('/api/admin/invites/9');
+        expect(addToast).toHaveBeenCalledWith('The invitation for carol no longer works', 'success');
+    });
+
+    it('withdraws an invitation once however often it is clicked, and drops it when it was used', async () => {
+        const user = userEvent.setup();
+        serve();
+        let refuse;
+        api.delete.mockReturnValue(
+            new Promise((resolve, reject) => {
+                refuse = reject;
+            }),
+        );
+        renderAs('ADMIN');
+
+        const invitations = await screen.findByRole('region', { name: 'Invitations' });
+        const withdraw = within(invitations).getByRole('button', { name: 'Withdraw the invitation for carol' });
+        await user.click(withdraw);
+        await user.click(withdraw);
+        expect(api.delete).toHaveBeenCalledTimes(1);
+
+        // carol accepted it in the meantime.
+        serve({ invites: [] });
+        refuse({ response: { status: 404, data: { message: 'Invitation not found' } } });
+
+        expect(await screen.findByText('No invitation is waiting to be used.')).toBeInTheDocument();
+        expect(addToast).toHaveBeenCalledWith('Invitation not found', 'error');
+    });
+
+    it('says when the accounts cannot be loaded', async () => {
+        api.get.mockRejectedValue({ response: { status: 500, data: { message: 'The database is down' } } });
+        renderAs('ADMIN');
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('The database is down');
     });
 
     it('says so when there are no invitations', async () => {

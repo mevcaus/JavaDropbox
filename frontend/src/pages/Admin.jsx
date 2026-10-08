@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Navigate } from 'react-router-dom';
 import { KeyRound, Loader2, UserPlus } from 'lucide-react';
@@ -48,30 +48,43 @@ const AccountsPage = () => {
     const [accounts, setAccounts] = useState(null);
     const [invites, setInvites] = useState([]);
     const [error, setError] = useState(null);
-    // The account an action is running for, so its row's buttons wait.
+    // The account an action is running for. Every row's buttons wait until it is done and the list
+    // shows its outcome, so a second click never acts on what the list showed before.
     const [busy, setBusy] = useState(null);
+    // Likewise for the invitation being withdrawn.
+    const [withdrawing, setWithdrawing] = useState(null);
     const [inviting, setInviting] = useState(false);
     const [quotaFor, setQuotaFor] = useState(null);
     const [resetLink, setResetLink] = useState(null);
-    // Bumped to load the accounts and invitations again after a change.
-    const [loads, setLoads] = useState(0);
-    const reload = () => setLoads((count) => count + 1);
     const { addToast } = useToast();
 
-    useEffect(() => {
-        let cancelled = false;
-        Promise.all([api.get(USERS_ENDPOINT), api.get(INVITES_ENDPOINT)])
-            .then(([users, open]) => {
-                if (cancelled) return;
+    // Counts loads, so that only the latest one's answer is shown: an earlier, slower one would show
+    // the accounts as they were before a change.
+    const loads = useRef(0);
+
+    // Loads the accounts and invitations, again after a change; settles once they are shown.
+    const reload = useCallback(() => {
+        const load = ++loads.current;
+        return Promise.all([api.get(USERS_ENDPOINT), api.get(INVITES_ENDPOINT)]).then(
+            ([users, open]) => {
+                if (load !== loads.current) return;
                 setAccounts(users.data);
                 setInvites(open.data);
                 setError(null);
-            })
-            .catch((err) => !cancelled && setError(readableError(err, 'Could not load the accounts.')));
+            },
+            (err) => {
+                if (load === loads.current) setError(readableError(err, 'Could not load the accounts.'));
+            },
+        );
+    }, []);
+
+    useEffect(() => {
+        reload();
+        // An answer arriving once the page has gone is dropped like an outdated one.
         return () => {
-            cancelled = true;
+            loads.current += 1;
         };
-    }, [loads]);
+    }, [reload]);
 
     // Runs a change to one account, then shows the accounts as they are now.
     const change = async (account, request, success, failure) => {
@@ -79,7 +92,7 @@ const AccountsPage = () => {
         try {
             await request();
             addToast(success, 'success');
-            reload();
+            await reload();
         } catch (err) {
             addToast(readableError(err, failure), 'error');
         } finally {
@@ -121,12 +134,17 @@ const AccountsPage = () => {
     };
 
     const withdraw = async (invite) => {
+        setWithdrawing(invite.id);
         try {
             await api.delete(`${INVITES_ENDPOINT}/${invite.id}`);
             addToast(`The invitation for ${invite.username} no longer works`, 'success');
-            reload();
         } catch (err) {
             addToast(readableError(err, 'Could not withdraw the invitation.'), 'error');
+        } finally {
+            // Either way: a failure is most often an invitation used or expired in the meantime,
+            // which should not stay listed.
+            await reload();
+            setWithdrawing(null);
         }
     };
 
@@ -204,7 +222,7 @@ const AccountsPage = () => {
                                                     type="button"
                                                     disabled={waiting}
                                                     onClick={() => setQuotaFor(account)}
-                                                    aria-label={`Change the quota of ${account.username}`}
+                                                    aria-label={`Quota for ${account.username}`}
                                                     className={actionButton}
                                                 >
                                                     Quota
@@ -213,7 +231,7 @@ const AccountsPage = () => {
                                                     type="button"
                                                     disabled={waiting}
                                                     onClick={() => resetPassword(account)}
-                                                    aria-label={`Make a password reset link for ${account.username}`}
+                                                    aria-label={`Reset password for ${account.username}`}
                                                     className={actionButton}
                                                 >
                                                     Reset password
@@ -226,11 +244,7 @@ const AccountsPage = () => {
                                                             type="button"
                                                             disabled={waiting}
                                                             onClick={() => setRole(account, account.role === 'ADMIN' ? 'USER' : 'ADMIN')}
-                                                            aria-label={
-                                                                account.role === 'ADMIN'
-                                                                    ? `Make ${account.username} a user`
-                                                                    : `Make ${account.username} an admin`
-                                                            }
+                                                            aria-label={`${account.role === 'ADMIN' ? 'Make user' : 'Make admin'}, ${account.username}`}
                                                             className={actionButton}
                                                         >
                                                             {account.role === 'ADMIN' ? 'Make user' : 'Make admin'}
@@ -281,6 +295,7 @@ const AccountsPage = () => {
                                 </div>
                                 <button
                                     type="button"
+                                    disabled={withdrawing !== null}
                                     onClick={() => withdraw(invite)}
                                     aria-label={`Withdraw the invitation for ${invite.username}`}
                                     className={dangerButton}
@@ -322,7 +337,7 @@ const AccountsPage = () => {
                         <p className="text-sm text-gray-500">
                             Send this link to {resetLink.username}: it sets a new password once, until{' '}
                             {formatDate(resetLink.expiresAt)}, and signs them out everywhere. Their current password
-                            keeps working until then. The link can't be shown again.
+                            keeps working until they use it. The link can't be shown again.
                         </p>
                     </div>
                 )}

@@ -37,7 +37,7 @@ const Login = () => {
                     <AnimatedLogo />
                     <h2 className="mt-8 text-3xl font-extrabold text-gray-900">Sign in to your account</h2>
                 </div>
-                {notice && (
+                {notice && !error && (
                     <div role="status" className="rounded-md bg-green-50 border border-green-200 p-4 text-sm text-green-900">
                         {notice}
                     </div>

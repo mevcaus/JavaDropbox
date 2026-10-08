@@ -2,7 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { HardDrive, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { readableError } from '../utils/errors';
-import { formToQuota, quotaToForm } from '../utils/quota';
+import { QUOTA_ERROR, formToQuota, quotaToForm } from '../utils/quota';
 import Modal, { ModalActions } from './Modal';
 import QuotaFields from './QuotaFields';
 import { primaryButton, secondaryButton } from './modalStyles';
@@ -24,7 +24,7 @@ const QuotaDialog = ({ account, onClose, onSaved }) => {
         e.preventDefault();
         const quota = formToQuota(amount, unit);
         if (quota === null) {
-            setError('The quota has to be a number more than 0, or empty for no limit.');
+            setError(QUOTA_ERROR);
             return;
         }
         setSaving(true);
@@ -57,6 +57,7 @@ const QuotaDialog = ({ account, onClose, onSaved }) => {
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
                 <QuotaFields
                     id={quotaId}
+                    inputRef={amountRef}
                     amount={amount}
                     unit={unit}
                     onAmountChange={setAmount}

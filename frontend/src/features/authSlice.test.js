@@ -360,6 +360,26 @@ describe('the signed-in role', () => {
         expect(selectIsAdmin(store.getState())).toBe(true);
     });
 
+    it('comes with the account\'s own username, which may differ from the one typed', async () => {
+        const store = makeStore();
+        // Sign-in trims the username, so "ada " signs in as ada.
+        api.post.mockResolvedValueOnce({ data: { username: 'ada', role: 'ADMIN' } });
+
+        await store.dispatch(loginUser({ username: 'ada ', password: 'hunter2' }));
+
+        expect(authState(store).user).toBe('ada');
+        expect(localStorage.getItem('user')).toBe('ada');
+    });
+
+    it('is unknown when a sign-in answer does not say, keeping the username typed', async () => {
+        const store = makeStore();
+        api.post.mockResolvedValueOnce({ data: '' });
+
+        await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
+
+        expect(authState(store)).toMatchObject({ user: 'ada', role: null, isAuthenticated: true });
+    });
+
     it('is learnt again from the session check, and never kept in localStorage', async () => {
         const store = makeStore();
         api.get.mockResolvedValueOnce({ data: { username: 'bob', role: 'USER' } });

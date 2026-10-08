@@ -17,8 +17,14 @@ export const loginUser = createAsyncThunk(
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
             });
-            // The backend answers a successful login as it answers /api/me: {username, role}.
-            return { username, role: response?.data?.role ?? null };
+            // The backend answers a successful login as it answers /api/me: {username, role}. Its
+            // username is the account's: the one typed may differ, e.g. by a trailing space that
+            // sign-in trims, and pages such as the accounts list compare against it.
+            const data = response?.data;
+            return {
+                username: typeof data?.username === 'string' ? data.username : username,
+                role: data?.role ?? null,
+            };
         } catch (error) {
             // Nothing is logged here: the error carries the request config, and with it the
             // form body holding the password. The form shows the readable message instead.

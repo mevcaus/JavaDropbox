@@ -19,5 +19,23 @@ describe('quota', () => {
         expect(formToQuota('0', 'GB')).toBeNull();
         expect(formToQuota('-1', 'GB')).toBeNull();
         expect(formToQuota('lots', 'GB')).toBeNull();
+        expect(formToQuota('5', 'PB')).toBeNull();
+    });
+
+    it('rounds to a whole number of MB, so a quota reads back as typed', () => {
+        const bytes = formToQuota('0.1', 'GB');
+        expect(bytes).toBe(String(102 * 1024 ** 2));
+        expect(quotaToForm(Number(bytes))).toEqual({ amount: '102', unit: 'MB' });
+    });
+
+    it('refuses amounts that round to nothing or are too large to send exactly', () => {
+        expect(formToQuota('0.0000001', 'MB')).toBeNull();
+        expect(formToQuota('10000000', 'TB')).toBeNull();
+        expect(formToQuota('1e9', 'TB')).toBeNull();
+    });
+
+    it('shows a quota that is not a whole number of MB rounded, not as a long decimal', () => {
+        expect(quotaToForm(107374182)).toEqual({ amount: '102.4', unit: 'MB' });
+        expect(quotaToForm(1500)).toEqual({ amount: '0.00143', unit: 'MB' });
     });
 });

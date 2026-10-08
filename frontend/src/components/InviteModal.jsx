@@ -3,7 +3,7 @@ import { Loader2, UserPlus } from 'lucide-react';
 import api from '../services/api';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
-import { formToQuota } from '../utils/quota';
+import { QUOTA_ERROR, formToQuota } from '../utils/quota';
 import Modal, { ModalActions } from './Modal';
 import CopyLinkField from './CopyLinkField';
 import QuotaFields from './QuotaFields';
@@ -35,7 +35,7 @@ const InviteDialog = ({ onClose, onInvited }) => {
         e.preventDefault();
         const quota = formToQuota(amount, unit);
         if (quota === null) {
-            setError('The quota has to be a number more than 0, or empty for no limit.');
+            setError(QUOTA_ERROR);
             return;
         }
         setSending(true);
