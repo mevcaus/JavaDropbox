@@ -159,10 +159,11 @@ public class AccountLinkService {
 
     if (purpose == Purpose.INVITE) {
       if (users.existsByUsername(link.getUsername())) {
+        // A new invitation for the same username would be refused too.
         throw new ConflictException(
             "There is already an account called \""
                 + link.getUsername()
-                + "\". Ask for a new invitation.");
+                + "\". Ask for an invitation with another username.");
       }
       User account = new User(link.getUsername(), passwordEncoder.encode(password), link.getRole());
       account.setQuotaBytes(link.getQuotaBytes());
