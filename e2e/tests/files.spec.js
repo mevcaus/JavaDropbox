@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import { test, expect, action, row, textFile, upload } from '../support/files.js';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { test, expect, action, openFolder, row, textFile, upload } from '../support/files.js';
 
 test('creates a folder and opens it', async ({ page, folder }) => {
     await page.getByRole('button', { name: 'New Folder' }).click();
@@ -33,6 +34,23 @@ test('uploads and downloads a file', async ({ page }) => {
     const download = await downloading;
     expect(download.suggestedFilename()).toBe('numbers.csv');
     expect(await readFile(await download.path(), 'utf8')).toBe(content);
+});
+
+test('uploads a folder with its subfolders', async ({ page }, testInfo) => {
+    const trip = testInfo.outputPath('Trip');
+    await mkdir(join(trip, 'Day 1'), { recursive: true });
+    await writeFile(join(trip, 'plan.txt'), 'Pack');
+    await writeFile(join(trip, 'Day 1', 'notes.txt'), 'Arrived');
+    await writeFile(join(trip, '.DS_Store'), 'junk');
+
+    await page.getByLabel('Upload folder').setInputFiles(trip);
+    await expect(page.getByText('.DS_Store was not uploaded.')).toBeVisible();
+    await expect(page.getByText('Uploaded folder "Trip" (2 files) successfully.')).toBeVisible();
+
+    await openFolder(page, 'Trip');
+    await expect(row(page, 'plan.txt')).toContainText('4 B');
+    await openFolder(page, 'Day 1');
+    await expect(row(page, 'notes.txt')).toContainText('7 B');
 });
 
 test('downloads a folder as a zip', async ({ page, folder }) => {

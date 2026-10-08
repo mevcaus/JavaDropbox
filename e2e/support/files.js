@@ -53,7 +53,8 @@ export const upload = async (page, ...files) => {
     const uploaded = page.waitForResponse(
         (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/files',
     );
-    const input = page.locator('input[type="file"]');
+    // Exact, or "Upload folder" matches too. The label reads "Uploading…" until the upload is done.
+    const input = page.getByLabel('Upload', { exact: true });
     await input.setInputFiles(files);
     expect((await uploaded).status()).toBe(200);
     // Enabled again once the upload has finished and the list is being refreshed.
