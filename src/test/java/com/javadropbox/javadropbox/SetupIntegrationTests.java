@@ -21,36 +21,16 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {"app.setup.code=ABCDE-FGHJK"})
-@Testcontainers
 @DisplayName("Setup Integration Tests - Pre-Setup State")
 class SetupIntegrationTests {
-
-  // Runs against a real PostgreSQL container with the schema built by the
-  // Flyway migrations, rather than the H2 default in
-  // src/test/resources/application.properties, so this class exercises the
-  // database the app actually ships against. The other integration tests stay
-  // on H2 for speed.
-  @Container
-  static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
-
-  @DynamicPropertySource
-  static void overrideDatasource(DynamicPropertyRegistry registry) {
-    PostgresTestSupport.register(registry, POSTGRES);
-  }
 
   @Autowired private MockMvc mockMvc;
 

@@ -60,34 +60,26 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.web.multipart.MultipartFile;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Concurrent and failing file operations, on the migrated PostgreSQL schema: row locks, deferred
- * constraints and triggers behave there as they do in production. The spies only pause or break the
- * real services at chosen points, to make an interleaving or a failure happen on purpose.
+ * Concurrent and failing file operations, on the migrated PostgreSQL schema every test runs on: row
+ * locks, deferred constraints and triggers behave there as they do in production. The spies only
+ * pause or break the real services at chosen points, to make an interleaving or a failure happen on
+ * purpose.
  */
 @SpringBootTest(
     properties = {
       "spring.jpa.properties.hibernate.generate_statistics=true",
       "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=WARN"
     })
-@Testcontainers
 @WithMockUser(username = "owner")
 @DisplayName("File operations on PostgreSQL - concurrency and failures")
 class FileIntegrityIntegrationTests {
 
-  @Container
-  static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
-
   @TempDir static Path servingDir;
 
   @DynamicPropertySource
-  static void overrideDatasource(DynamicPropertyRegistry registry) {
-    PostgresTestSupport.register(registry, POSTGRES);
+  static void properties(DynamicPropertyRegistry registry) {
     registry.add("javadropbox.serving.directory", () -> servingDir.toString());
   }
 

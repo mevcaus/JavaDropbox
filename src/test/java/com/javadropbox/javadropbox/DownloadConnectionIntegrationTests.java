@@ -38,9 +38,13 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-      "spring.datasource.url=jdbc:h2:mem:one-connection;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
       "spring.datasource.hikari.maximum-pool-size=1",
-      "spring.datasource.hikari.connection-timeout=1500"
+      "spring.datasource.hikari.connection-timeout=1500",
+      // On PostgreSQL, Flyway migrates on two connections at once: one holds the lock that keeps
+      // two instances from migrating together, the other runs the migrations. A pool of one cannot
+      // give it both, so it connects by itself, to the same database, rather than through the pool.
+      "spring.flyway.user=${spring.datasource.username}",
+      "spring.flyway.password=${spring.datasource.password}"
     })
 // Signed in as the owner, who makes the share links the downloads go through.
 @WithMockUser(username = "owner")
