@@ -31,6 +31,11 @@ public interface AccountLinkRepository extends JpaRepository<AccountLink, Long> 
   @Query("delete from AccountLink l where l.purpose = 'PASSWORD_RESET' and l.user = :user")
   void deletePasswordReset(User user);
 
+  /** Removes every link {@code admin} made, invitations and password resets alike. */
+  @Modifying
+  @Query("delete from AccountLink l where l.createdBy = :admin")
+  int deleteCreatedBy(User admin);
+
   /** Removes links that expired before {@code time}; they can never be used again. */
   @Modifying
   @Query("delete from AccountLink l where l.expiresAt < :time")

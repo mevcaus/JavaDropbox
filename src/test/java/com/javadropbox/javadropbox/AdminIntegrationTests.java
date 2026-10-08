@@ -381,6 +381,47 @@ class AdminIntegrationTests {
   }
 
   @Test
+  @DisplayName("disabling an admin withdraws the invitations and reset links they made, for good")
+  void disablingAnAdminWithdrawsTheirLinks() throws Exception {
+    User dana = users.save(new User("dana", passwordEncoder.encode(PASSWORD), User.ROLE_ADMIN));
+    RequestPostProcessor asDana = user("dana").roles("ADMIN");
+    String danasInvite =
+        tokenOf(
+            link(
+                mockMvc.perform(
+                    post("/api/admin/invites")
+                        .param("username", "hank")
+                        .with(asDana)
+                        .with(csrf()))));
+    String danasReset =
+        tokenOf(
+            link(
+                mockMvc.perform(
+                    post("/api/admin/users/" + bob.getId() + "/password-reset")
+                        .with(asDana)
+                        .with(csrf()))));
+    String rootsInvite = invite("ivan", "USER", "");
+
+    setEnabled(dana, false).andExpect(status().isOk());
+
+    mockMvc
+        .perform(get("/invite/" + danasInvite + "/info").with(anonymous()))
+        .andExpect(status().isNotFound());
+    resetPassword(danasReset, "a brand new password").andExpect(status().isNotFound());
+    signIn("bob", PASSWORD).andExpect(status().isOk());
+    // Links other admins made are not Dana's to take with her.
+    mockMvc
+        .perform(get("/invite/" + rootsInvite + "/info").with(anonymous()))
+        .andExpect(status().isOk());
+
+    // Enabling the account again does not bring them back.
+    setEnabled(dana, true).andExpect(status().isOk());
+    mockMvc
+        .perform(get("/invite/" + danasInvite + "/info").with(anonymous()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   @DisplayName("a session left idle while its account is disabled and enabled again has ended")
   void reenablingDoesNotBringSessionsBack() throws Exception {
     MockHttpSession session = session("bob");

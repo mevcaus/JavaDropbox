@@ -45,7 +45,7 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/users` | Every account by username: `[{id, username, role, enabled, quotaBytes, usedBytes}]` |
-| `PUT` | `/api/admin/users/{id}/enabled?enabled=<true\|false>` | Disable an account (it can't sign in, its sessions end, its share links stop opening) or enable it again. `409` for your own account or the last admin who can sign in |
+| `PUT` | `/api/admin/users/{id}/enabled?enabled=<true\|false>` | Disable an account (it can't sign in, its sessions end, its share links stop opening, and the invitations and password reset links it made are withdrawn) or enable it again. `409` for your own account or the last admin who can sign in |
 | `PUT` | `/api/admin/users/{id}/role?role=<ADMIN\|USER>` | Change an account's role; its sessions end. `409` for your own account or the last admin who can sign in |
 | `PUT` | `/api/admin/users/{id}/quota?quota=<size>` | Set an account's quota, previous versions included, as `500MB`, `5GB` or a number of bytes; empty for no limit |
 | `POST` | `/api/admin/users/{id}/password-reset` | A one-time link, valid for a day, to set a new password: `{url, expiresAt}`. Only returned here; a new one replaces the previous one |

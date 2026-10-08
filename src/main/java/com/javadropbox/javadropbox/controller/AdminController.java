@@ -53,7 +53,9 @@ public class AdminController {
       summary = "Disable or enable an account",
       description =
           "A disabled account cannot sign in, its sessions end at once, and its share links stop"
-              + " opening. Not for your own account, or the last admin who can sign in (409).")
+              + " opening until it is enabled again. The invitations and password reset links it"
+              + " made are withdrawn for good. Not for your own account, or the last admin who can"
+              + " sign in (409).")
   public Map<String, String> setEnabled(@PathVariable Long id, @RequestParam boolean enabled) {
     accounts.setEnabled(id, enabled);
     return Map.of("message", enabled ? "Account enabled" : "Account disabled");

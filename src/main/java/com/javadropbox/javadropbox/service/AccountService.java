@@ -5,6 +5,7 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.repository.AccountLinkRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -29,11 +30,17 @@ public class AccountService {
   private static final Logger log = LoggerFactory.getLogger(AccountService.class);
 
   private final UserRepository users;
+  private final AccountLinkRepository links;
   private final AuthService authService;
   private final StorageQuota quota;
 
-  public AccountService(UserRepository users, AuthService authService, StorageQuota quota) {
+  public AccountService(
+      UserRepository users,
+      AccountLinkRepository links,
+      AuthService authService,
+      StorageQuota quota) {
     this.users = users;
+    this.links = links;
     this.authService = authService;
     this.quota = quota;
   }
@@ -56,7 +63,9 @@ public class AccountService {
 
   /**
    * Lets an account sign in again, or stops it: a disabled account's sessions end at once, and its
-   * share links stop opening until it is enabled again.
+   * share links stop opening until it is enabled again. The invitations and password reset links it
+   * made as an admin are withdrawn for good: an account is disabled when whoever has it should no
+   * longer get in, and those links would let them make accounts or take others over.
    *
    * @throws ConflictException for the admin's own account, or the last admin who can sign in
    */
@@ -71,11 +80,13 @@ public class AccountService {
     }
     account.setEnabled(enabled);
     account.endSessions();
+    int withdrawn = enabled ? 0 : links.deleteCreatedBy(account);
     log.info(
-        "{} {} the account \"{}\"",
+        "{} {} the account \"{}\"{}",
         authService.requireCurrentUser().getUsername(),
         enabled ? "enabled" : "disabled",
-        account.getUsername());
+        account.getUsername(),
+        withdrawn > 0 ? ", withdrawing the " + withdrawn + " links it made" : "");
   }
 
   /**
