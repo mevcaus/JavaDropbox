@@ -7,6 +7,8 @@ import {
     selectCurrentFiles,
     createDirectory,
     uploadFiles,
+    uploadFolder,
+    relativePathOf,
     DOWNLOAD_ENDPOINT,
 } from '../features/filesSlice';
 import FileTable from '../components/FileTable';
@@ -18,11 +20,32 @@ import VersionHistoryModal from '../components/VersionHistoryModal';
 import PreviewModal from '../components/PreviewModal';
 import { useToast } from '../hooks/useToast';
 import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
-import { Loader2, FolderPlus, Upload as UploadIcon } from 'lucide-react';
+import { Loader2, FolderPlus, FolderUp, Upload as UploadIcon } from 'lucide-react';
 
 // Search results carry their own relativePath; a plain row in this folder may not.
 const pathOf = (file, currentPath) =>
     file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
+
+const notUploaded = (names) =>
+    `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`;
+
+// A label styled as a button around a hidden file input, so clicking it opens the browser's own
+// picker. inputProps go to the input, e.g. webkitdirectory to pick a folder.
+const UploadButton = ({ icon: Icon, label, busy, disabled, ...inputProps }) => (
+    <label
+        className={`flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 shadow-sm transition-colors ${
+            disabled ? 'opacity-50 cursor-wait' : 'cursor-pointer'
+        }`}
+    >
+        {busy ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
+        ) : (
+            <Icon className="h-4 w-4 mr-2" aria-hidden="true" />
+        )}
+        {busy ? 'Uploading…' : label}
+        <input type="file" className="sr-only" multiple disabled={disabled} {...inputProps} />
+    </label>
+);
 
 const Dashboard = () => {
     const dispatch = useDispatch();
@@ -40,7 +63,8 @@ const Dashboard = () => {
     const [itemToShare, setItemToShare] = useState(null);
     const [versionsFile, setVersionsFile] = useState(null);
     const [previewItem, setPreviewItem] = useState(null);
-    const [isUploading, setIsUploading] = useState(false);
+    // 'files' or 'folder' while an upload is running: one upload at a time.
+    const [uploading, setUploading] = useState(null);
 
     useEffect(() => {
         dispatch(fetchFiles());
@@ -66,20 +90,52 @@ const Dashboard = () => {
 
         const skipped = chosen.filter((file) => startsWithDot(file.name));
         if (skipped.length > 0) {
-            const names = skipped.map((file) => file.name).join(', ');
-            addToast(`${names} ${skipped.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`, 'error');
+            addToast(notUploaded(skipped.map((file) => file.name)), 'error');
         }
         const selected = chosen.filter((file) => !startsWithDot(file.name));
         if (selected.length === 0) return;
 
-        setIsUploading(true);
+        setUploading('files');
         try {
             await dispatch(uploadFiles({ files: selected, path: currentPath })).unwrap();
             addToast(`Uploaded ${selected.length} ${selected.length === 1 ? 'file' : 'files'} successfully.`, 'success');
         } catch (err) {
             addToast(err, 'error');
         } finally {
-            setIsUploading(false);
+            setUploading(null);
+        }
+    };
+
+    const handleFolderUpload = async (e) => {
+        const input = e.target;
+        const chosen = Array.from(input.files ?? []);
+        input.value = '';
+
+        // A file is left out if it, or a folder it is in, has a dot name. Inside a folder those are
+        // mostly put there by the system (.DS_Store, .git), so this is news, not an error, and each
+        // name is listed once however many folders it turned up in.
+        const dotNameOf = (file) => relativePathOf(file).split('/').find(startsWithDot);
+        const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
+        if (skipped.length > 0) {
+            addToast(notUploaded(skipped), 'info');
+        }
+        const selected = chosen.filter((file) => !dotNameOf(file));
+        if (selected.length === 0) return;
+
+        // Empty where the browser cannot pick folders and handed over plain files instead.
+        const folderName = selected[0].webkitRelativePath?.split('/')[0];
+        const count = `${selected.length} ${selected.length === 1 ? 'file' : 'files'}`;
+        setUploading('folder');
+        try {
+            await dispatch(uploadFolder({ files: selected, path: currentPath })).unwrap();
+            addToast(
+                folderName ? `Uploaded folder "${folderName}" (${count}) successfully.` : `Uploaded ${count} successfully.`,
+                'success',
+            );
+        } catch (err) {
+            addToast(err, 'error');
+        } finally {
+            setUploading(null);
         }
     };
 
@@ -132,26 +188,23 @@ const Dashboard = () => {
         <div>
             <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
                 <h1 className="text-2xl font-semibold text-gray-900">My Files</h1>
-                <div className="flex space-x-3">
-                    <label
-                        className={`flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 shadow-sm transition-colors ${
-                            isUploading ? 'opacity-50 cursor-wait' : 'cursor-pointer'
-                        }`}
-                    >
-                        {isUploading ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
-                        ) : (
-                            <UploadIcon className="h-4 w-4 mr-2" aria-hidden="true" />
-                        )}
-                        {isUploading ? 'Uploading…' : 'Upload'}
-                        <input
-                            type="file"
-                            className="sr-only"
-                            multiple
-                            disabled={isUploading}
-                            onChange={handleFileUpload}
-                        />
-                    </label>
+                <div className="flex flex-wrap gap-3">
+                    <UploadButton
+                        icon={UploadIcon}
+                        label="Upload"
+                        busy={uploading === 'files'}
+                        disabled={uploading !== null}
+                        onChange={handleFileUpload}
+                    />
+
+                    <UploadButton
+                        icon={FolderUp}
+                        label="Upload folder"
+                        busy={uploading === 'folder'}
+                        disabled={uploading !== null}
+                        onChange={handleFolderUpload}
+                        webkitdirectory=""
+                    />
 
                     <button
                         onClick={() => setIsCreateFolderModalOpen(true)}

@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, selectCurrentFiles, uploadFiles } from './filesSlice';
+import filesReducer, { deleteItem, fetchFiles, FILES_ENDPOINT, selectCurrentFiles, uploadFiles, uploadFolder } from './filesSlice';
 import authReducer, { clearUser, loginUser, logoutUser } from './authSlice';
 import api from '../services/api';
 
@@ -155,6 +155,78 @@ describe('filesSlice refresh after a mutation', () => {
 
         await store.dispatch(deleteItem('folder'));
 
+        expect(api.get).toHaveBeenCalledWith(FILES_ENDPOINT);
+    });
+});
+
+// A file as the folder picker hands it over: jsdom has no webkitRelativePath of its own.
+const pickedFile = (relativePath) => {
+    const file = new File(['x'], relativePath.split('/').at(-1));
+    Object.defineProperty(file, 'webkitRelativePath', { value: relativePath });
+    return file;
+};
+
+const postedFolders = () =>
+    api.post.mock.calls.map(([, form]) => [form.get('path'), form.getAll('files').map((file) => file.name)]);
+
+describe('uploadFolder', () => {
+    let store;
+
+    beforeEach(() => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        store = makeStore();
+    });
+
+    it('uploads each folder into its place below the open folder, parents first', async () => {
+        api.post.mockResolvedValue({ data: {} });
+
+        const result = await store.dispatch(uploadFolder({
+            files: [pickedFile('Trip/Day 1/a.jpg'), pickedFile('Trip/plan.txt'), pickedFile('Trip/Day 1/b.jpg')],
+            path: 'Holidays',
+        }));
+
+        expect(result.meta.requestStatus).toBe('fulfilled');
+        expect(postedFolders()).toEqual([
+            ['Holidays/Trip', ['plan.txt']],
+            ['Holidays/Trip/Day 1', ['a.jpg', 'b.jpg']],
+        ]);
+    });
+
+    it('starts from the root when no folder is open', async () => {
+        api.post.mockResolvedValue({ data: {} });
+
+        await store.dispatch(uploadFolder({ files: [pickedFile('Trip/plan.txt')], path: '' }));
+
+        expect(postedFolders()).toEqual([['Trip', ['plan.txt']]]);
+    });
+
+    // Chrome sends a picked file's webkitRelativePath as its name unless told otherwise, and the
+    // server refuses a name with a slash in it.
+    it('names each file part by the bare file name', async () => {
+        api.post.mockResolvedValue({ data: {} });
+        const append = vi.spyOn(FormData.prototype, 'append');
+        const file = pickedFile('Trip/Day 1/a.jpg');
+
+        await store.dispatch(uploadFolder({ files: [file], path: '' }));
+
+        expect(append).toHaveBeenCalledWith('files', file, 'a.jpg');
+        append.mockRestore();
+    });
+
+    it('stops at the first folder that fails and refreshes the list once', async () => {
+        api.post
+            .mockResolvedValueOnce({ data: {} })
+            .mockRejectedValueOnce({ response: { status: 400, data: { message: '"B" is a file, not a folder' } } });
+
+        const result = await store.dispatch(uploadFolder({
+            files: [pickedFile('Top/a.txt'), pickedFile('Top/B/b.txt'), pickedFile('Top/C/c.txt')],
+            path: '',
+        }));
+
+        expect(result.payload).toBe('"B" is a file, not a folder');
+        expect(postedFolders().map(([path]) => path)).toEqual(['Top', 'Top/B']);
+        expect(api.get).toHaveBeenCalledTimes(1);
         expect(api.get).toHaveBeenCalledWith(FILES_ENDPOINT);
     });
 });

@@ -3,7 +3,8 @@ import api from '../services/api';
 import { clearUser, logoutUser } from './authSlice';
 import { readableError } from '../utils/errors';
 
-// GET lists the tree, POST uploads into a folder, DELETE removes an item (see FileController).
+// GET lists the tree, POST uploads into a folder (creating it if need be), DELETE removes an item
+// (see FileController).
 export const FILES_ENDPOINT = '/api/files';
 export const FOLDERS_ENDPOINT = '/api/folders';
 export const DOWNLOAD_ENDPOINT = '/api/files/download';
@@ -41,24 +42,64 @@ export const createDirectory = createAsyncThunk(
 );
 
 
+// Stores files in the folder at path, which the server creates if it does not exist yet.
+const postFiles = async (files, path) => {
+    const formData = new FormData();
+    formData.append('path', path || '');
+    // Named explicitly: for a file from the folder picker, Chrome would otherwise send its
+    // webkitRelativePath ("Photos/2024/beach.jpg"), and the server takes only a bare name.
+    Array.from(files).forEach((file) => formData.append('files', file, file.name));
+    const response = await api.post(FILES_ENDPOINT, formData);
+    return response.data;
+};
+
+/** Where a file from the folder picker sits inside the chosen folder, e.g. "Photos/2024/beach.jpg". */
+export const relativePathOf = (file) => file.webkitRelativePath || file.name;
+
+// The files of a chosen folder grouped by the folder each one goes into below path, parents first.
+const filesByFolder = (files, path) => {
+    const groups = new Map();
+    for (const file of files) {
+        const folder = relativePathOf(file).split('/').slice(0, -1).join('/');
+        const target = [path, folder].filter(Boolean).join('/');
+        if (!groups.has(target)) groups.set(target, []);
+        groups.get(target).push(file);
+    }
+    return [...groups].sort(([a], [b]) => a.localeCompare(b));
+};
+
 export const uploadFiles = createAsyncThunk(
     'files/uploadFiles',
     async ({ files, path }, { rejectWithValue, dispatch }) => {
         try {
-            const formData = new FormData();
-            formData.append('path', path || '');
-
-            // Ensure files is iterable (convert FileList to array if needed)
-            const fileArray = Array.from(files);
-            fileArray.forEach((file) => formData.append('files', file));
-
-            const response = await api.post(FILES_ENDPOINT, formData);
-            return response.data;
+            return await postFiles(files, path);
         } catch (error) {
             return rejectWithValue(readableError(error, 'Failed to upload files.'));
         } finally {
             // Refresh even after a failure: the files are stored one at a time, so the ones before
             // the failing file are already there.
+            dispatch(fetchFiles());
+        }
+    }
+);
+
+/**
+ * Uploads a folder chosen with the folder picker into the folder at path, subfolders included.
+ * The endpoint stores files in one folder per request, so this sends a request per folder, one
+ * after another, and stops at the first that fails. Empty folders are not uploaded: the picker
+ * does not report them.
+ */
+export const uploadFolder = createAsyncThunk(
+    'files/uploadFolder',
+    async ({ files, path }, { rejectWithValue, dispatch }) => {
+        try {
+            for (const [folder, batch] of filesByFolder(files, path)) {
+                await postFiles(batch, folder);
+            }
+        } catch (error) {
+            return rejectWithValue(readableError(error, 'Failed to upload the folder.'));
+        } finally {
+            // Once at the end, failure or not: the folders before the failing one are stored.
             dispatch(fetchFiles());
         }
     }
