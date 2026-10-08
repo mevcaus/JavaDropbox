@@ -1,14 +1,85 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Folder, HardDrive, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Folder, HardDrive, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import Logo from './Logo';
 import { useSelector } from 'react-redux';
 import { selectTotalSize } from '../features/filesSlice';
+import { selectIsAdmin } from '../features/authSlice';
+import api from '../services/api';
 import { formatSize } from '../utils/format';
 
-const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
-    const totalSizeBytes = useSelector(selectTotalSize);
+export const STORAGE_ENDPOINT = '/api/storage';
 
-    const navigation = [{ name: 'My Files', href: '/dashboard', icon: Folder }];
+// What the signed-in user stores, previous versions included, and their quota: asked again
+// whenever the file list changes, which every upload, delete and restore makes it do. Null until
+// the server has answered.
+const useStorageUsage = () => {
+    const files = useSelector((state) => state.files.files);
+    const [usage, setUsage] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        api.get(STORAGE_ENDPOINT)
+            .then((response) => !cancelled && setUsage(response.data))
+            .catch(() => {
+                // The meter falls back to the size of the file list.
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [files]);
+
+    return usage;
+};
+
+// Written out in full: Tailwind only generates classes it finds as complete strings in the source.
+const barColour = (fraction) => {
+    if (fraction >= 0.9) return 'bg-red-500';
+    if (fraction >= 0.75) return 'bg-amber-400';
+    return 'bg-blue-500';
+};
+
+const StorageMeter = ({ isCollapsed }) => {
+    const usage = useStorageUsage();
+    const treeSize = useSelector(selectTotalSize);
+    const used = usage?.usedBytes ?? treeSize;
+    const quota = usage?.quotaBytes ?? null;
+
+    // Without a quota there is nothing to measure against, so this reports what is stored.
+    const summary = quota ? `${formatSize(used)} of ${formatSize(quota)} used` : `${formatSize(used)} stored`;
+    const fraction = quota ? Math.min(used / quota, 1) : 0;
+
+    return (
+        <div className="p-4 bg-slate-950" title={summary}>
+            <div className={`flex items-center text-xs text-slate-400 ${isCollapsed ? 'justify-center' : ''}`}>
+                <HardDrive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                {!isCollapsed && <span className="ml-2">{summary}</span>}
+            </div>
+            {quota && !isCollapsed && (
+                <div
+                    role="meter"
+                    aria-label="Storage used"
+                    aria-valuemin={0}
+                    aria-valuemax={quota}
+                    aria-valuenow={Math.min(used, quota)}
+                    aria-valuetext={summary}
+                    className="mt-2 h-1.5 w-full rounded-full bg-slate-800 overflow-hidden"
+                >
+                    <div className={`h-full rounded-full ${barColour(fraction)}`} style={{ width: `${fraction * 100}%` }} />
+                </div>
+            )}
+        </div>
+    );
+};
+
+const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
+    const isAdmin = useSelector(selectIsAdmin);
+
+    const navigation = [
+        { name: 'My Files', href: '/dashboard', icon: Folder },
+        // Only admins manage the accounts; the server refuses everyone else anyway.
+        ...(isAdmin ? [{ name: 'Users', href: '/admin', icon: Users }] : []),
+    ];
 
     return (
         <div className="h-full flex flex-col bg-slate-900 text-white w-full">
@@ -51,13 +122,7 @@ const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
                 </nav>
             </div>
 
-            {/* There is no quota to measure against, so this reports what is stored and nothing more. */}
-            <div className="p-4 bg-slate-950" title={`${formatSize(totalSizeBytes)} stored`}>
-                <div className={`flex items-center text-xs text-slate-400 ${isCollapsed ? 'justify-center' : ''}`}>
-                    <HardDrive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                    {!isCollapsed && <span className="ml-2">{formatSize(totalSizeBytes)} stored</span>}
-                </div>
-            </div>
+            <StorageMeter isCollapsed={isCollapsed} />
         </div>
     );
 };

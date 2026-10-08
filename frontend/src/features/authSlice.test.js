@@ -6,6 +6,7 @@ import authReducer, {
     fetchCurrentUser,
     loginUser,
     logoutUser,
+    selectIsAdmin,
     setupCompleted,
 } from './authSlice';
 import api from '../services/api';
@@ -340,5 +341,45 @@ describe('authSlice', () => {
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
         });
+    });
+});
+
+describe('the signed-in role', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.clear();
+    });
+
+    it('is the one a successful sign-in reports', async () => {
+        const store = makeStore();
+        api.post.mockResolvedValueOnce({ data: { username: 'ada', role: 'ADMIN' } });
+
+        await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
+
+        expect(authState(store).role).toBe('ADMIN');
+        expect(selectIsAdmin(store.getState())).toBe(true);
+    });
+
+    it('is learnt again from the session check, and never kept in localStorage', async () => {
+        const store = makeStore();
+        api.get.mockResolvedValueOnce({ data: { username: 'bob', role: 'USER' } });
+
+        await store.dispatch(fetchCurrentUser());
+
+        expect(authState(store).role).toBe('USER');
+        expect(selectIsAdmin(store.getState())).toBe(false);
+        expect(JSON.stringify({ ...localStorage })).not.toContain('USER');
+    });
+
+    it('is forgotten when the session ends', async () => {
+        const store = makeStore();
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed'));
+        store.dispatch(clearUser());
+        expect(authState(store).role).toBeNull();
+
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed'));
+        api.post.mockResolvedValueOnce({});
+        await store.dispatch(logoutUser());
+        expect(selectIsAdmin(store.getState())).toBe(false);
     });
 });
