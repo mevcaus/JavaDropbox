@@ -40,6 +40,7 @@ import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -234,6 +235,58 @@ class DemoIntegrationTests {
     assertThat(after.isAdmin()).isFalse();
     assertThat(after.isEnabled()).isTrue();
     assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
+  }
+
+  @Test
+  @DisplayName("a disabled demo account is enabled again, without bringing its old sessions back")
+  void disabledDemoAccountIsEnabled() throws Exception {
+    MockHttpSession session = signIn();
+    User account = users.findByUsername("demo").orElseThrow();
+    account.setEnabled(false);
+    users.save(account);
+
+    demo.run(new DefaultApplicationArguments());
+
+    User after = users.findByUsername("demo").orElseThrow();
+    assertThat(after.isEnabled()).isTrue();
+    assertThat(after.isAdmin()).isFalse();
+    assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
+    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/files").session(signIn())).andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("a demo account that is an admin is made a user, and its admin sessions end")
+  void adminDemoAccountIsMadeAUser() throws Exception {
+    User account = users.findByUsername("demo").orElseThrow();
+    account.setRole(User.ROLE_ADMIN);
+    users.save(account);
+    MockHttpSession session = signIn();
+    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isOk());
+
+    demo.run(new DefaultApplicationArguments());
+
+    User after = users.findByUsername("demo").orElseThrow();
+    assertThat(after.isAdmin()).isFalse();
+    assertThat(after.isEnabled()).isTrue();
+    assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
+    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/admin/users").session(signIn())).andExpect(status().isForbidden());
+  }
+
+  // A session of the demo account, signed in through the login form like a browser's.
+  private MockHttpSession signIn() throws Exception {
+    return (MockHttpSession)
+        mockMvc
+            .perform(
+                post("/login")
+                    .param("username", "demo")
+                    .param("password", "javadropbox")
+                    .with(csrf()))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getRequest()
+            .getSession(false);
   }
 
   // The demo account's folder.

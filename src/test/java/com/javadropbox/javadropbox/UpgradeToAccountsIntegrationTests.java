@@ -9,6 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.SearchIndex;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -19,7 +23,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -31,6 +38,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -60,6 +68,9 @@ class UpgradeToAccountsIntegrationTests {
   }
 
   @Autowired private MockMvc mockMvc;
+  @Autowired private UserRepository users;
+  @Autowired private SearchIndex searchIndex;
+  @Autowired private ObjectMapper json;
 
   // Before the app starts: the database as V6 left it, and the files where that version kept them.
   @BeforeAll
@@ -128,12 +139,31 @@ class UpgradeToAccountsIntegrationTests {
   }
 
   @Test
-  @DisplayName("the first account is an admin")
+  @DisplayName("the first account is an admin, and the other a user")
   void firstAccountIsAnAdmin() throws Exception {
+    assertThat(users.findByUsername("owner").orElseThrow().getRole()).isEqualTo(User.ROLE_ADMIN);
+    assertThat(users.findByUsername("helper").orElseThrow().getRole()).isEqualTo(User.ROLE_USER);
+
     mockMvc
         .perform(get("/api/admin/users").with(user("owner").roles("ADMIN")))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(2));
+        .andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[0].username").value("helper"))
+        .andExpect(jsonPath("$[0].role").value("USER"))
+        .andExpect(jsonPath("$[1].username").value("owner"))
+        .andExpect(jsonPath("$[1].role").value("ADMIN"));
+  }
+
+  @Test
+  @DisplayName("search finds the files in the first account's folder, and only for that account")
+  void searchFindsTheMovedFiles() throws Exception {
+    searchIndex.awaitIdle(Duration.ofSeconds(30));
+
+    // A file the app stored, and one copied in by hand that it never tracked.
+    assertThat(searchPaths(user("owner"), "new")).containsExactly("docs/report.txt");
+    assertThat(searchPaths(user("owner"), "hand")).containsExactly("copied in.txt");
+    assertThat(searchPaths(user("helper"), "new")).isEmpty();
+    assertThat(searchPaths(user("helper"), "hand")).isEmpty();
   }
 
   @Test
@@ -156,6 +186,20 @@ class UpgradeToAccountsIntegrationTests {
     mockMvc
         .perform(get("/api/files/download").param("path", "docs/report_v1.txt").with(user("owner")))
         .andExpect(content().string("old"));
+  }
+
+  private List<String> searchPaths(RequestPostProcessor as, String q) throws Exception {
+    String body =
+        mockMvc
+            .perform(get("/api/search").param("q", q).with(as))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.indexing").value(false))
+            .andReturn()
+            .getResponse()
+            .getContentAsString(StandardCharsets.UTF_8);
+    List<String> paths = new ArrayList<>();
+    json.readTree(body).path("results").forEach(r -> paths.add(r.path("relativePath").asText()));
+    return paths;
   }
 
   // What the share_links table keeps of a link's token.

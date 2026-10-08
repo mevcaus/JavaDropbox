@@ -62,6 +62,25 @@ class FlywayAccountsMigrationTests {
   }
 
   @Test
+  @DisplayName("any other role an account was given by hand becomes USER, whatever it says")
+  void unknownRolesBecomeUser() throws SQLException {
+    String schema = "unknown_roles";
+    flyway("6", schema).migrate();
+    execute(
+        "INSERT INTO "
+            + schema
+            + ".users (id, username, password, role) VALUES (1, 'owner', 'h', 'ROLE_ADMIN'),"
+            + " (2, 'shouty', 'h', 'ADMIN'), (3, 'grand', 'h', 'ROLE_OWNER'),"
+            + " (4, 'quiet', 'h', 'role_admin'), (5, 'blank', 'h', '')");
+
+    flyway(null, schema).migrate();
+
+    assertThat(column("SELECT id || ':' || role FROM " + schema + ".users ORDER BY id"))
+        .containsExactly(
+            "1:ROLE_ADMIN", "2:ROLE_USER", "3:ROLE_USER", "4:ROLE_USER", "5:ROLE_USER");
+  }
+
+  @Test
   @DisplayName("every file and history entry belongs to the first account, whoever made it")
   void everythingBelongsToTheFirstAccount() throws SQLException {
     assertThat(column("SELECT id || ':' || user_id FROM file_metadata WHERE id < 30 ORDER BY id"))

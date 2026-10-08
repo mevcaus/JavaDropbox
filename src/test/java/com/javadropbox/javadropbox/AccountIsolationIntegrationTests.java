@@ -111,8 +111,11 @@ class AccountIsolationIntegrationTests {
   }
 
   @Test
-  @DisplayName("two accounts can each have a file at the same path")
+  @DisplayName("two accounts can each have a file at a path, with its own id, versions and links")
   void samePathInTwoAccounts() throws Exception {
+    long alicesId = idOf(ALICE, "secret.txt");
+    String alicesLink = share(ALICE, "secret.txt");
+
     upload(BOB, "secret.txt", "bob's own");
 
     mockMvc
@@ -121,6 +124,68 @@ class AccountIsolationIntegrationTests {
     mockMvc
         .perform(get("/api/files/download").param("path", "secret.txt").with(ALICE))
         .andExpect(content().string("alice's newer secret plans"));
+
+    // Bob's file is a row of his own, not Alice's taken over.
+    JsonNode bobsFile = node(BOB, "secret.txt");
+    assertThat(bobsFile.get("id").asLong()).isNotEqualTo(alicesId);
+    assertThat(bobsFile.get("ownerName").asText()).isEqualTo("bob");
+    assertThat(node(ALICE, "secret.txt").get("id").asLong()).isEqualTo(alicesId);
+    assertThat(node(ALICE, "secret.txt").get("ownerName").asText()).isEqualTo("alice");
+
+    // Alice keeps her previous version and her link, which still opens her file.
+    mockMvc
+        .perform(get("/api/files/" + alicesId + "/versions").with(ALICE))
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].version").value(1));
+    mockMvc
+        .perform(get("/share/" + alicesLink).with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(content().string("alice's newer secret plans"));
+
+    // A link Bob makes to his file at the same path opens his.
+    mockMvc
+        .perform(get("/share/" + share(BOB, "secret.txt")).with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(content().string("bob's own"));
+    mockMvc
+        .perform(get("/share/" + alicesLink).with(anonymous()))
+        .andExpect(content().string("alice's newer secret plans"));
+  }
+
+  @Test
+  @DisplayName("deleting a folder leaves the one another account has at the same path untouched")
+  void deleteLeavesTheSamePathInAnotherAccount() throws Exception {
+    upload(ALICE, "docs", "a.txt", "alice's draft");
+    upload(ALICE, "docs", "a.txt", "alice's final");
+    upload(BOB, "docs", "a.txt", "bob's draft");
+    upload(BOB, "docs", "a.txt", "bob's final");
+    long alicesId = idOf(ALICE, "docs/a.txt");
+    long bobsId = idOf(BOB, "docs/a.txt");
+    String alicesLink = share(ALICE, "docs/a.txt");
+    Path versions = storagePaths.versionsDir();
+    assertThat(versions.resolve(bobsId + "/v1")).hasContent("bob's draft");
+
+    mockMvc
+        .perform(delete("/api/files").param("path", "docs").with(BOB).with(csrf()))
+        .andExpect(status().isOk());
+
+    // Bob's folder and its versions are gone ...
+    assertThat(storagePaths.home(bob).root().resolve("docs")).doesNotExist();
+    assertThat(versions.resolve(String.valueOf(bobsId))).doesNotExist();
+    // ... and Alice's file, version and link are all still there.
+    mockMvc
+        .perform(get("/api/files/download").param("path", "docs/a.txt").with(ALICE))
+        .andExpect(status().isOk())
+        .andExpect(content().string("alice's final"));
+    mockMvc
+        .perform(get("/api/files/" + alicesId + "/versions").with(ALICE))
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].version").value(1));
+    assertThat(versions.resolve(alicesId + "/v1")).hasContent("alice's draft");
+    mockMvc
+        .perform(get("/share/" + alicesLink).with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(content().string("alice's final"));
   }
 
   @Test
@@ -275,13 +340,18 @@ class AccountIsolationIntegrationTests {
   }
 
   private void upload(RequestPostProcessor as, String name, String content) throws Exception {
+    upload(as, "", name, content);
+  }
+
+  private void upload(RequestPostProcessor as, String folder, String name, String content)
+      throws Exception {
     mockMvc
         .perform(
             multipart("/api/files")
                 .file(
                     new MockMultipartFile(
                         "files", name, "text/plain", content.getBytes(StandardCharsets.UTF_8)))
-                .param("path", "")
+                .param("path", folder)
                 .with(as)
                 .with(csrf().asHeader()))
         .andExpect(status().isOk());
@@ -301,20 +371,29 @@ class AccountIsolationIntegrationTests {
     return url.substring(url.lastIndexOf('/') + 1);
   }
 
-  private long idOf(RequestPostProcessor as, String name) throws Exception {
+  private long idOf(RequestPostProcessor as, String path) throws Exception {
+    return node(as, path).get("id").asLong();
+  }
+
+  // The item at path in the account's file tree, however deep.
+  private JsonNode node(RequestPostProcessor as, String path) throws Exception {
     JsonNode tree =
         json.readTree(
             mockMvc
                 .perform(get("/api/files").with(as))
                 .andReturn()
                 .getResponse()
-                .getContentAsString());
-    for (JsonNode node : tree) {
-      if (node.get("name").asText().equals(name)) {
-        return node.get("id").asLong();
+                .getContentAsString(StandardCharsets.UTF_8));
+    List<JsonNode> pending = new ArrayList<>();
+    tree.forEach(pending::add);
+    while (!pending.isEmpty()) {
+      JsonNode node = pending.remove(0);
+      if (node.get("relativePath").asText().equals(path)) {
+        return node;
       }
+      node.path("children").forEach(pending::add);
     }
-    throw new AssertionError(name + " is not in the tree");
+    throw new AssertionError(path + " is not in the tree");
   }
 
   private List<String> searchPaths(RequestPostProcessor as, String q) throws Exception {

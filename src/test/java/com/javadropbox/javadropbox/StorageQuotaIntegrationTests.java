@@ -17,6 +17,7 @@ import com.javadropbox.javadropbox.service.StorageQuota;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.stream.Stream;
 import org.hamcrest.Matchers;
@@ -177,6 +178,33 @@ class StorageQuotaIntegrationTests {
   }
 
   @Test
+  @DisplayName("restoring a version over the file is refused when that would go over the quota")
+  void restoreInPlaceOverTheQuotaIsRefused() throws Exception {
+    upload("a.txt", 300, (byte) 1).andExpect(status().isOk());
+    upload("a.txt", 200, (byte) 2).andExpect(status().isOk());
+    // 500 stored now. Restored, version 1 would be the file and the current one a version: 800.
+    setQuota(owner, 600);
+    long id = metadata.findByPath(owner.getId(), "a.txt").orElseThrow().getId();
+
+    mockMvc
+        .perform(post("/api/files/" + id + "/versions/1/restore").with(csrf()))
+        .andExpect(status().isInsufficientStorage())
+        .andExpect(
+            jsonPath("$.message")
+                .value(Matchers.containsString("your account can hold at most 600 bytes")));
+
+    assertThat(Files.readAllBytes(home.resolve("a.txt"))).hasSize(200).containsOnly(2);
+    mockMvc
+        .perform(get("/api/files/" + id + "/versions"))
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].version").value(1));
+    try (Stream<Path> left = Files.list(home)) {
+      assertThat(left.map(p -> p.getFileName().toString())).containsExactly("a.txt");
+    }
+    mockMvc.perform(get("/api/storage")).andExpect(jsonPath("$.usedBytes").value(500));
+  }
+
+  @Test
   @DisplayName("another account's files do not count toward a quota, but do toward the server's")
   void otherAccountsCountOnlyTowardTheServersCap() throws Exception {
     users.save(new User("other", "unused", User.ROLE_USER));
@@ -220,7 +248,14 @@ class StorageQuotaIntegrationTests {
   }
 
   private ResultActions upload(String name, int size) throws Exception {
-    MockMultipartFile file = new MockMultipartFile("files", name, "text/plain", new byte[size]);
+    return upload(name, size, (byte) 0);
+  }
+
+  // A file of size bytes, every one of them fill, so that one content can be told from another.
+  private ResultActions upload(String name, int size, byte fill) throws Exception {
+    byte[] content = new byte[size];
+    Arrays.fill(content, fill);
+    MockMultipartFile file = new MockMultipartFile("files", name, "text/plain", content);
     return mockMvc.perform(
         multipart("/api/files").file(file).param("path", "").with(csrf().asHeader()));
   }

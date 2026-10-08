@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
@@ -47,6 +50,33 @@ class SetupServiceTests {
     setup.createFirstUser(OWNER, code(), "ada", "long enough");
 
     verify(users).save(any(User.class));
+  }
+
+  @Test
+  @DisplayName("the account it creates is given whatever is already in the serving directory")
+  void createdAccountAdoptsLooseFiles() throws Exception {
+    User saved = new User("ada", "long enough", User.ROLE_ADMIN);
+    saved.setId(1L);
+    when(users.save(any(User.class))).thenReturn(saved);
+
+    setup.createFirstUser(OWNER, code(), "ada", "long enough");
+
+    // The account as it was saved, with its id, which names its folder; and only once it is.
+    InOrder order = inOrder(users, adoption);
+    order.verify(users).save(argThat(user -> user.getUsername().equals("ada") && user.isAdmin()));
+    order.verify(adoption).adopt(saved);
+  }
+
+  @Test
+  @DisplayName("a refused setup gives nobody the files in the serving directory")
+  void refusedSetupAdoptsNothing() {
+    assertThatThrownBy(() -> setup.createFirstUser(STRANGER, "NOPE", "ada", "long enough"))
+        .isInstanceOf(ForbiddenException.class);
+    when(authService.isSetupRequired()).thenReturn(false);
+    assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), "ada", "long enough"))
+        .isInstanceOf(ConflictException.class);
+
+    verify(adoption, never()).adopt(any());
   }
 
   @Test
