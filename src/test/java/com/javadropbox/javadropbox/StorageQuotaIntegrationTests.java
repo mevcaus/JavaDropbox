@@ -37,10 +37,10 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-@SpringBootTest(properties = "javadropbox.storage.max-total-size=1KB")
+@SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser(username = "owner")
-@DisplayName("Storage caps: an account's quota and the server's")
+@DisplayName("An account's storage quota")
 class StorageQuotaIntegrationTests {
 
   @TempDir static Path servingDir;
@@ -81,50 +81,6 @@ class StorageQuotaIntegrationTests {
       }
     }
   }
-
-  @Test
-  @DisplayName("an upload that would go over the cap is a 507 and leaves nothing behind")
-  void uploadOverTheCapIsRefused() throws Exception {
-    upload("a.txt", 600).andExpect(status().isOk());
-
-    upload("b.txt", 600)
-        .andExpect(status().isInsufficientStorage())
-        .andExpect(jsonPath("$.message").value(Matchers.containsString("at most 1 KB")));
-
-    assertThat(home.resolve("b.txt")).doesNotExist();
-    assertThat(metadata.findByPath(owner.getId(), "b.txt")).isEmpty();
-    assertThat(quota.usedBytes()).isEqualTo(600);
-  }
-
-  @Test
-  @DisplayName("previous versions count toward the cap")
-  void versionsCount() throws Exception {
-    upload("a.txt", 400).andExpect(status().isOk());
-    upload("a.txt", 400).andExpect(status().isOk());
-
-    upload("a.txt", 400).andExpect(status().isInsufficientStorage());
-
-    assertThat(quota.usedBytes()).isEqualTo(800);
-    assertThat(home.resolve("a.txt")).hasSize(400);
-  }
-
-  @Test
-  @DisplayName("restoring a version as a copy is refused when the copy would not fit")
-  void restoreOverTheCapIsRefused() throws Exception {
-    upload("a.txt", 400).andExpect(status().isOk());
-    upload("a.txt", 300).andExpect(status().isOk());
-    long id = metadata.findByPath(owner.getId(), "a.txt").orElseThrow().getId();
-
-    mockMvc
-        .perform(
-            post("/api/files/" + id + "/versions/1/restore").param("mode", "COPY").with(csrf()))
-        .andExpect(status().isInsufficientStorage());
-
-    assertThat(home.resolve("a_v1.txt")).doesNotExist();
-    assertThat(quota.usedBytes()).isEqualTo(700);
-  }
-
-  // --- an account's quota ---------------------------------------------------------------
 
   @Test
   @DisplayName("an upload over the account's quota is a 507 naming it, and leaves nothing behind")
@@ -205,13 +161,13 @@ class StorageQuotaIntegrationTests {
   }
 
   @Test
-  @DisplayName("another account's files do not count toward a quota, but do toward the server's")
-  void otherAccountsCountOnlyTowardTheServersCap() throws Exception {
+  @DisplayName("another account's files do not count toward a quota")
+  void otherAccountsDoNotCount() throws Exception {
     users.save(new User("other", "unused", User.ROLE_USER));
     setQuota(owner, 500);
     upload("mine.txt", 400).andExpect(status().isOk());
 
-    // 400 of the other account's own: within the server's 1 KB, whatever the owner's quota.
+    // 400 of the other account's own, whatever the owner's quota.
     mockMvc
         .perform(
             multipart("/api/files")
@@ -221,25 +177,22 @@ class StorageQuotaIntegrationTests {
                 .with(csrf().asHeader()))
         .andExpect(status().isOk());
 
-    // 450 of the owner's own fit in 500, though the server holds 850.
+    // 450 of the owner's own fit in 500, though the serving directory holds 850.
     upload("more.txt", 50).andExpect(status().isOk());
-
-    // Within a larger quota, but the server's 1 KB is full.
-    setQuota(owner, 1000);
-    upload("too-much.txt", 300)
-        .andExpect(status().isInsufficientStorage())
-        .andExpect(jsonPath("$.message").value(Matchers.containsString("this server holds")));
+    upload("too-much.txt", 100).andExpect(status().isInsufficientStorage());
+    assertThat(quota.usedBytes(owner)).isEqualTo(450);
   }
 
   @Test
-  @DisplayName("the app's own state, such as the search index, does not count toward the cap")
+  @DisplayName("the app's own state, such as the search index, does not count toward a quota")
   void internalStateDoesNotCount() throws Exception {
+    setQuota(owner, 1000);
     Path index = Files.createDirectories(servingDir.resolve(".javadropbox/search-index"));
     Files.write(index.resolve("_0.cfs"), new byte[2000]);
 
     upload("a.txt", 600).andExpect(status().isOk());
 
-    assertThat(quota.usedBytes()).isEqualTo(600);
+    assertThat(quota.usedBytes(owner)).isEqualTo(600);
   }
 
   private void setQuota(User account, long bytes) {

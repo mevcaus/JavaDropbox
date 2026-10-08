@@ -23,7 +23,8 @@ class DemoServiceTests {
           Clock.systemUTC(),
           "demo",
           "pw",
-          LocalTime.of(10, 0));
+          LocalTime.of(10, 0),
+          null);
 
   @Test
   @DisplayName("before the reset time, the next reset is the same day")

@@ -9,52 +9,47 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Caps on what is stored, previous versions included. Two can apply, each only if it is set:
+ * Each account's quota: the most it may store, previous versions included, which an admin gives it
+ * ({@link User#getQuotaBytes}); an account without one may store anything the disk holds.
  *
- * <ul>
- *   <li>an account's quota, which an admin gives it ({@link User#getQuotaBytes});
- *   <li>a cap on everything the serving directory holds, whoever stored it, set with {@code
- *       javadropbox.storage.max-total-size} (e.g. {@code 50MB}).
- * </ul>
+ * <p>Usage is measured by walking the account's folder, which is what the disk actually holds
+ * whatever the database thinks, plus the sizes of its files' previous versions from their rows,
+ * since the version store is shared. That is cheap at the sizes quotas are meant for, such as the
+ * public demo's.
  *
- * <p>The app's own state in {@code .javadropbox}, such as the search index, never counts: nobody
- * stored it. Usage is measured by walking the directory, which is what the disk actually holds
- * whatever the database thinks; an account's previous versions are counted from their rows, since
- * the version store is shared. That is cheap at the sizes a cap is meant for, such as the public
- * demo's.
+ * <p>There used to be a second cap, on everything the serving directory held, which only the demo
+ * set; the demo account's quota does that job now (see DemoService). A server still configured with
+ * it refuses to start, rather than quietly running without the cap its owner expects.
  */
 @Component
 public class StorageQuota {
+
+  /** The setting the server-wide cap was read from. */
+  static final String REMOVED_CAP = "javadropbox.storage.max-total-size";
 
   /** What an account stores, previous versions included, and its quota (null for none). */
   public record Usage(long usedBytes, Long quotaBytes) {}
 
   private final StoragePaths storagePaths;
   private final FileVersionRepository versions;
-  private final DataSize limit;
 
   public StorageQuota(
       StoragePaths storagePaths,
       FileVersionRepository versions,
-      @Value("${javadropbox.storage.max-total-size:}") String limit) {
+      @Value("${" + REMOVED_CAP + ":}") String removedCap) {
+    if (!removedCap.isBlank()) {
+      throw new IllegalStateException(
+          REMOVED_CAP
+              + " is no longer supported: give each account a quota in the app instead (Users,"
+              + " see docs/self-hosting.md), then remove the setting.");
+    }
     this.storagePaths = storagePaths;
     this.versions = versions;
-    this.limit = limit.isBlank() ? null : DataSize.parse(limit.trim());
-    if (this.limit != null && this.limit.toBytes() <= 0) {
-      throw new IllegalStateException(
-          "javadropbox.storage.max-total-size must be more than 0, not " + limit);
-    }
-  }
-
-  /** The cap on the whole serving directory, if there is one. */
-  public Optional<DataSize> limit() {
-    return Optional.ofNullable(limit);
   }
 
   public Usage usage(User user) throws IOException {
@@ -62,11 +57,11 @@ public class StorageQuota {
   }
 
   /**
-   * Refuses to go on if {@code user} now stores more than their quota, or the serving directory
-   * holds more than its cap. Called with the new content already written to its scratch file in the
-   * account's folder, which the walks count, so the check covers it.
+   * Refuses to go on if {@code user} now stores more than their quota. Called with the new content
+   * already written to its scratch file in the account's folder, which the walk counts, so the
+   * check covers it.
    *
-   * @throws InsufficientStorageException if over either
+   * @throws InsufficientStorageException if over it
    */
   void check(User user) throws IOException {
     Long quota = user.getQuotaBytes();
@@ -76,37 +71,17 @@ public class StorageQuota {
               + describe(DataSize.ofBytes(quota))
               + " of files, previous versions included. Delete something to make room.");
     }
-    if (limit != null && usedBytes() > limit.toBytes()) {
-      throw new InsufficientStorageException(
-          "Not enough storage space: this server holds at most "
-              + describe(limit)
-              + " of files, previous versions included. Delete something to make room.");
-    }
   }
 
   /**
-   * The bytes in every regular file under the serving directory, outside the app's own state.
-   * Symlinks are not followed.
+   * The bytes in an account's folder, plus those of its files' previous versions. Symlinks are not
+   * followed.
    */
-  public long usedBytes() throws IOException {
-    return walk(storagePaths.versionsDir().getParent(), storagePaths.internalDir());
-  }
-
-  /** The bytes in an account's folder, plus those of its files' previous versions. */
   public long usedBytes(User user) throws IOException {
-    return walk(storagePaths.home(user).root(), null) + versions.totalSizeOf(user.getId());
-  }
-
-  private static long walk(Path start, Path skip) throws IOException {
     long[] total = {0};
     Files.walkFileTree(
-        start,
+        storagePaths.home(user).root(),
         new SimpleFileVisitor<>() {
-          @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-            return dir.equals(skip) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
-          }
-
           @Override
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
             if (attrs.isRegularFile()) {
@@ -121,7 +96,7 @@ public class StorageQuota {
             return FileVisitResult.CONTINUE;
           }
         });
-    return total[0];
+    return total[0] + versions.totalSizeOf(user.getId());
   }
 
   static String describe(DataSize size) {

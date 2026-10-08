@@ -136,7 +136,7 @@ JavaDropbox/
 │   │       ├── AccountService.java      # Admins: list, disable, roles, quotas
 │   │       ├── AccountLinkService.java  # Invitations and password resets: one-time links
 │   │       ├── ShareLinkService.java    # Share links: random tokens, stored hashed, bound to their item
-│   │       ├── StorageQuota.java        # Account quotas, and an optional cap on everything stored
+│   │       ├── StorageQuota.java        # Account quotas, previous versions included
 │   │       ├── DemoService.java         # Live demo: shared account, daily reset, sample files
 │   │       ├── Credentials.java, Roles.java, Tokens.java  # Username and password rules, role names, link tokens
 │   │       └── AuthService.java         # Current user, setup state

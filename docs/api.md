@@ -2,7 +2,7 @@
 
 All endpoints require authentication unless noted otherwise, and act on the signed-in account's own files: paths are relative to its folder, and another account's files are out of reach, by path or by id (a `404`, or a `400` for a path that leads out of the folder). For a live, interactive reference of all REST API endpoints, visit the Swagger UI at `http://localhost:8080/swagger-ui.html` while the backend runs with the `dev` profile (`./gradlew bootRun`; see [development.md](development.md)).
 
-Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code or a user calling an admin endpoint, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in or setup is throttled, `507` when an upload or restore would go over the account's quota or the server's cap.
+Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code or a user calling an admin endpoint, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in or setup is throttled, `507` when an upload or restore would go over the account's quota.
 
 ### Authentication
 
