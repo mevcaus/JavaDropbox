@@ -37,13 +37,15 @@ public class AccountSessionFilter extends OncePerRequestFilter {
     this.users = users;
   }
 
-  /** Records which version of the account a session that has just signed in belongs to. */
+  /**
+   * Records which version of the account a session that has just signed in belongs to: the one read
+   * along with the password and role it signed in with (see {@link AccountDetails}), not the one
+   * the account has now, which a change made while the password was being checked may have bumped.
+   */
   public void signedIn(HttpServletRequest request, Authentication authentication) {
-    users
-        .findByUsername(authentication.getName())
-        .ifPresent(
-            account ->
-                request.getSession().setAttribute(SESSION_VERSION, account.getSessionVersion()));
+    if (authentication.getPrincipal() instanceof AccountDetails account) {
+      request.getSession().setAttribute(SESSION_VERSION, account.sessionVersion());
+    }
   }
 
   @Override
