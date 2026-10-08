@@ -52,11 +52,17 @@ public class FileVersionService {
     this.maxRetained = maxRetained;
   }
 
-  /** The stored versions of a file, newest first. */
+  /**
+   * The stored versions of one of {@code owner}'s files, newest first.
+   *
+   * @throws NotFoundException if there is no such file, or someone else owns it
+   */
   @Transactional(readOnly = true)
-  public List<FileVersionDto> list(Long fileId) {
+  public List<FileVersionDto> list(Long fileId, User owner) {
     FileMetadata file =
-        files.findById(fileId).orElseThrow(() -> new NotFoundException("File not found"));
+        files
+            .findOwned(fileId, owner.getId())
+            .orElseThrow(() -> new NotFoundException("File not found"));
     return versions.findByFileMetadataOrderByVersionDesc(file).stream()
         .map(FileVersionDto::fromEntity)
         .toList();
@@ -138,20 +144,22 @@ public class FileVersionService {
   }
 
   /**
-   * Deletes the versions of the item at {@code path} and of everything below it, e.g. because a
-   * folder is being deleted with all it holds. Takes the same few statements however many items
-   * there are. The rows go now; the stored files once that commits.
+   * Deletes the versions of the item at {@code path} in an account's folder and of everything below
+   * it, e.g. because a folder is being deleted with all it holds. Takes the same few statements
+   * however many items there are. The rows go now; the stored files once that commits.
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public void discardAllAtOrBelow(String path) {
+  public void discardAllAtOrBelow(Long ownerId, String path) {
     String below = FileMetadataRepository.below(path);
     List<Path> stored =
-        versions.findStoredFilenamesAtOrBelow(path, below).stream().map(this::resolve).toList();
+        versions.findStoredFilenamesAtOrBelow(ownerId, path, below).stream()
+            .map(this::resolve)
+            .toList();
     List<Path> folders =
-        files.findIdsAtOrBelow(path, below).stream()
+        files.findIdsAtOrBelow(ownerId, path, below).stream()
             .map(id -> storagePaths.versionsDir().resolve(String.valueOf(id)))
             .toList();
-    versions.deleteAtOrBelow(path, below);
+    versions.deleteAtOrBelow(ownerId, path, below);
 
     AfterCommit.run(
         "remove the versions of " + path,

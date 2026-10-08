@@ -12,10 +12,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.FileVersion;
+import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
+import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.DemoService;
 import com.javadropbox.javadropbox.service.SearchIndex;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -63,6 +66,8 @@ class DemoIntegrationTests {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;
   @Autowired private SearchIndex searchIndex;
+  @Autowired private UserRepository users;
+  @Autowired private StoragePaths storagePaths;
 
   // Each test starts from a fresh demo, as on a first start: no account, no files, no reset yet.
   @BeforeEach
@@ -122,7 +127,7 @@ class DemoIntegrationTests {
             "Pictures/javadropbox-logo.png",
             "Code/Greeter.java",
             "Notes/todo.txt");
-    assertThat(servingDir.resolve("Notes/todo.txt")).content().contains("Order coffee");
+    assertThat(home().resolve("Notes/todo.txt")).content().contains("Order coffee");
 
     // Only the notes were stored more than once.
     assertThat(versions.findAll())
@@ -143,7 +148,7 @@ class DemoIntegrationTests {
                 .with(user("demo"))
                 .with(csrf().asHeader()))
         .andExpect(status().isOk());
-    Files.delete(servingDir.resolve("Welcome.md"));
+    Files.delete(home().resolve("Welcome.md"));
 
     // As if the last reset were two days ago.
     Files.setLastModifiedTime(
@@ -151,9 +156,9 @@ class DemoIntegrationTests {
         FileTime.from(Instant.now().minus(Duration.ofDays(2))));
     demo.run(new DefaultApplicationArguments());
 
-    assertThat(servingDir.resolve("mine.txt")).doesNotExist();
-    assertThat(metadata.findByPath("mine.txt")).isEmpty();
-    assertThat(servingDir.resolve("Welcome.md")).exists();
+    assertThat(home().resolve("mine.txt")).doesNotExist();
+    assertThat(metadata.findAll()).extracting(FileMetadata::getPath).doesNotContain("mine.txt");
+    assertThat(home().resolve("Welcome.md")).exists();
     assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_history", Long.class)).isEqualTo(7);
 
     // Search forgets what was deleted and finds the samples, the PDF's text among them.
@@ -166,11 +171,11 @@ class DemoIntegrationTests {
   @Test
   @DisplayName("a reset that is not due yet changes nothing")
   void resetWaitsUntilDue() throws Exception {
-    Files.delete(servingDir.resolve("Welcome.md"));
+    Files.delete(home().resolve("Welcome.md"));
 
     demo.run(new DefaultApplicationArguments());
 
-    assertThat(servingDir.resolve("Welcome.md")).doesNotExist();
+    assertThat(home().resolve("Welcome.md")).doesNotExist();
   }
 
   @Test
@@ -194,6 +199,46 @@ class DemoIntegrationTests {
             .getContentAsString();
     Instant expiresAt = Instant.parse(json.readTree(body).get("expiresAt").asText());
     assertThat(expiresAt).isBefore(Instant.now().plus(Duration.ofMinutes(15).plusSeconds(5)));
+  }
+
+  @Test
+  @DisplayName("the demo account is no admin, so visitors cannot invite anyone or see metrics")
+  void demoAccountIsNoAdmin() throws Exception {
+    mockMvc
+        .perform(
+            post("/login").param("username", "demo").param("password", "javadropbox").with(csrf()))
+        .andExpect(status().isOk());
+    assertThat(users.findByUsername("demo").orElseThrow().isAdmin()).isFalse();
+
+    mockMvc
+        .perform(
+            post("/api/admin/invites")
+                .param("username", "freeloader")
+                .with(user("demo"))
+                .with(csrf()))
+        .andExpect(status().isForbidden());
+    mockMvc.perform(get("/actuator/metrics").with(user("demo"))).andExpect(status().isForbidden());
+  }
+
+  @Test
+  @DisplayName("a demo account made an admin, as upgrading makes the first account, is undone")
+  void demoAccountIsMadeAnOrdinaryAccountAgain() throws Exception {
+    User account = users.findByUsername("demo").orElseThrow();
+    account.setRole(User.ROLE_ADMIN);
+    account.setEnabled(false);
+    users.save(account);
+
+    demo.run(new DefaultApplicationArguments());
+
+    User after = users.findByUsername("demo").orElseThrow();
+    assertThat(after.isAdmin()).isFalse();
+    assertThat(after.isEnabled()).isTrue();
+    assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
+  }
+
+  // The demo account's folder.
+  private Path home() {
+    return storagePaths.home(users.findByUsername("demo").orElseThrow()).root();
   }
 
   private List<String> searchPaths(String q) throws Exception {

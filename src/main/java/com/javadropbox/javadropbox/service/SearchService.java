@@ -5,6 +5,8 @@ import com.javadropbox.javadropbox.dto.SearchResults;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.PreviewType;
+import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,7 +17,8 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
- * Answers searches: checks what was asked, runs it on the {@link SearchIndex}, and checks the hits.
+ * Answers searches of the signed-in user's folder: checks what was asked, runs it on the {@link
+ * SearchIndex}, and checks the hits.
  */
 @Service
 public class SearchService {
@@ -25,10 +28,12 @@ public class SearchService {
 
   private final StoragePaths storagePaths;
   private final SearchIndex index;
+  private final AuthService authService;
 
-  public SearchService(StoragePaths storagePaths, SearchIndex index) {
+  public SearchService(StoragePaths storagePaths, SearchIndex index, AuthService authService) {
     this.storagePaths = storagePaths;
     this.index = index;
+    this.authService = authService;
   }
 
   /**
@@ -51,15 +56,17 @@ public class SearchService {
     if (limit < 1 || limit > MAX_RESULTS) {
       throw new BadRequestException("limit must be between 1 and " + MAX_RESULTS);
     }
-    StoragePath folder = storagePaths.resolve(folderPath);
+    User user = authService.requireCurrentUser();
+    Home home = storagePaths.home(user);
+    StoragePath folder = home.resolve(folderPath);
     if (!Files.isDirectory(folder.path(), LinkOption.NOFOLLOW_LINKS)) {
       throw new NotFoundException("Folder not found: " + folder.key());
     }
 
-    SearchIndex.Hits hits = index.search(folder.key(), text, limit);
+    SearchIndex.Hits hits = index.search(home, folder.key(), text, limit);
     List<SearchResult> results = new ArrayList<>(hits.hits().size());
     for (SearchIndex.Hit hit : hits.hits()) {
-      SearchResult result = result(hit);
+      SearchResult result = result(home, hit);
       if (result != null) {
         results.add(result);
       }
@@ -69,15 +76,15 @@ public class SearchService {
 
   // The hit as it is on disk now. One that has gone since it was indexed, or can now only be
   // reached through a symlink, is left out, and the index told to drop it.
-  private SearchResult result(SearchIndex.Hit hit) {
+  private SearchResult result(Home home, SearchIndex.Hit hit) {
     StoragePath item;
     BasicFileAttributes attributes;
     try {
-      item = storagePaths.resolveItem(hit.path());
+      item = home.resolveItem(hit.path());
       attributes =
           Files.readAttributes(item.path(), BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
     } catch (BadRequestException | IOException e) {
-      index.changed(hit.path());
+      index.changed(home, hit.path());
       return null;
     }
     boolean isDirectory = attributes.isDirectory();

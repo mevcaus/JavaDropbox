@@ -9,32 +9,25 @@ import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.ShareLink;
+import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.ShareLinkRepository;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.HexFormat;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Public share links. Each link is a row bound to the metadata row of the item it was made for; the
- * URL carries a random token and only the token's SHA-256 hash is stored, so neither the URL nor
- * the database reveals or rebuilds anything usable.
+ * Public share links to items in their creator's folder. Each link is a row bound to the metadata
+ * row of the item it was made for; the URL carries a random token and only the token's SHA-256 hash
+ * is stored, so neither the URL nor the database reveals or rebuilds anything usable.
  */
 @Service
 public class ShareLinkService {
-
-  private static final int TOKEN_BYTES = 32;
 
   private final ShareLinkRepository links;
   private final FileMetadataRepository files;
@@ -42,7 +35,6 @@ public class ShareLinkService {
   private final FileService fileService;
   private final FileTreeService fileTree;
   private final AuthService authService;
-  private final SecureRandom random = new SecureRandom();
 
   public ShareLinkService(
       ShareLinkRepository links,
@@ -63,31 +55,30 @@ public class ShareLinkService {
   public record CreatedLink(String token, Instant expiresAt) {}
 
   /**
-   * Creates a link to the file or folder at {@code path}. An item copied in by hand, which has no
-   * metadata row yet, is given one so the link has something to belong to.
+   * Creates a link to the file or folder at {@code path} in the signed-in user's folder. An item
+   * copied in by hand, which has no metadata row yet, is given one so the link has something to
+   * belong to.
    *
    * @throws NotFoundException if nothing is there
    */
   @Transactional
   public CreatedLink create(String path, Duration lifetime) throws IOException {
-    StoragePath target = storagePaths.resolveItem(path);
+    User user = authService.requireCurrentUser();
+    StoragePath target = storagePaths.home(user).resolveItem(path);
     if (!Files.exists(target.path())) {
       throw new NotFoundException("Not found: " + target.key());
     }
-    FileMetadata file = files.findByPath(target.key()).orElse(null);
+    FileMetadata file = files.findByPath(user.getId(), target.key()).orElse(null);
     if (file == null) {
       boolean isDirectory = Files.isDirectory(target.path());
       long size = isDirectory ? 0 : Files.size(target.path());
-      file =
-          files.save(
-              new FileMetadata(
-                  target.key(), target.name(), size, isDirectory, authService.currentUser()));
+      file = files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, user));
     }
 
-    String token = newToken();
+    String token = Tokens.newToken();
     Instant now = Instant.now();
     Instant expiresAt = now.plus(lifetime);
-    links.save(new ShareLink(hash(token), file, now, expiresAt, authService.currentUser()));
+    links.save(new ShareLink(Tokens.hash(token), file, now, expiresAt, user));
     // Expired links can never open again; dropping them here keeps the table to about a week's.
     links.deleteExpiredBefore(now);
     return new CreatedLink(token, expiresAt);
@@ -100,7 +91,7 @@ public class ShareLinkService {
    *     made for is gone, has moved, or has changed between file and folder
    */
   public Download open(String token) throws IOException {
-    return fileService.download(resolve(token).link().getPath());
+    return fileService.download(resolve(token).target());
   }
 
   /**
@@ -139,24 +130,26 @@ public class ShareLinkService {
    * @throws BadRequestException for a folder, or a file of a kind that cannot be previewed
    */
   public Preview preview(String token) throws IOException {
-    return fileService.preview(resolve(token).link().getPath());
+    return fileService.preview(resolve(token).target());
   }
 
   /** A link that still opens, and the item it opens. */
   private record Shared(ShareLink link, StoragePath target, boolean isDirectory) {}
 
+  // A disabled account's links stop opening along with the account.
   private Shared resolve(String token) {
     ShareLink link =
         links
-            .findByTokenHash(hash(token))
+            .findByTokenHash(Tokens.hash(token))
             .filter(l -> l.isActive(Instant.now()))
+            .filter(l -> l.getFile().getOwner().isEnabled())
             .orElseThrow(ShareLinkService::linkNotFound);
 
     FileMetadata file = link.getFile();
     if (!file.getPath().equals(link.getPath())) {
       throw linkNotFound();
     }
-    StoragePath target = storagePaths.resolveItem(link.getPath());
+    StoragePath target = storagePaths.home(file.getOwner()).resolveItem(link.getPath());
     boolean isDirectory = Boolean.TRUE.equals(file.getIsDirectory());
     if (!Files.exists(target.path()) || Files.isDirectory(target.path()) != isDirectory) {
       throw linkNotFound();
@@ -164,12 +157,16 @@ public class ShareLinkService {
     return new Shared(link, target, isDirectory);
   }
 
-  /** The links to the item at {@code path} that still open, the soonest to expire first. */
+  /**
+   * The links to the item at {@code path} in the signed-in user's folder that still open, the
+   * soonest to expire first.
+   */
   @Transactional(readOnly = true)
   public List<ShareLinkDto> listActive(String path) {
-    StoragePath target = storagePaths.resolveItem(path);
+    User user = authService.requireCurrentUser();
+    StoragePath target = storagePaths.home(user).resolveItem(path);
     return files
-        .findByPath(target.key())
+        .findByPath(user.getId(), target.key())
         .map(file -> links.findActive(file, Instant.now()))
         .orElse(List.of())
         .stream()
@@ -178,28 +175,19 @@ public class ShareLinkService {
   }
 
   /**
-   * Revokes a link so it no longer opens. Revoking it again changes nothing.
+   * Revokes a link to one of the signed-in user's items so it no longer opens. Revoking it again
+   * changes nothing.
    *
-   * @throws NotFoundException if there is no such link
+   * @throws NotFoundException if there is no such link, or it is to someone else's item
    */
   @Transactional
   public void revoke(Long id) {
-    links.findById(id).orElseThrow(ShareLinkService::linkNotFound).revoke(Instant.now());
-  }
-
-  private String newToken() {
-    byte[] bytes = new byte[TOKEN_BYTES];
-    random.nextBytes(bytes);
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-  }
-
-  private static String hash(String token) {
-    try {
-      MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(sha256.digest(token.getBytes(StandardCharsets.UTF_8)));
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("Every Java runtime provides SHA-256", e);
-    }
+    Long userId = authService.requireCurrentUser().getId();
+    links
+        .findById(id)
+        .filter(link -> link.getFile().getOwner().getId().equals(userId))
+        .orElseThrow(ShareLinkService::linkNotFound)
+        .revoke(Instant.now());
   }
 
   private static NotFoundException linkNotFound() {

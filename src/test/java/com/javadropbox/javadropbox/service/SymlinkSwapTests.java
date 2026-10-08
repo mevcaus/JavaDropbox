@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.javadropbox.javadropbox.exception.BadRequestException;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,20 +26,21 @@ class SymlinkSwapTests {
 
   @TempDir Path tmp;
 
+  // The folder of the account the paths are resolved for.
   private Path root;
   private Path outside;
-  private StoragePaths paths;
+  private Home paths;
 
   @BeforeEach
   void setUp() throws IOException {
-    root = Files.createDirectory(tmp.resolve("root"));
+    paths = new StoragePaths(Files.createDirectory(tmp.resolve("root")).toString()).home(1);
+    root = paths.root();
     outside = Files.createDirectory(tmp.resolve("outside"));
     Files.writeString(outside.resolve("secret.txt"), "outside secret");
     Files.createDirectories(outside.resolve("sub"));
     Files.writeString(outside.resolve("sub/precious.txt"), "precious");
     Files.createDirectories(root.resolve("dir/sub"));
     Files.writeString(root.resolve("dir/secret.txt"), "inside");
-    paths = new StoragePaths(root.toString());
   }
 
   @Test

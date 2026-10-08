@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.config.SetupFilter;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,6 +54,7 @@ class ObservabilityIntegrationTests {
         registry,
         "management.endpoints.web.exposure.include",
         "management.endpoint.health.show-details",
+        "management.endpoint.health.roles",
         "management.health.diskspace.path");
   }
 
@@ -66,6 +68,8 @@ class ObservabilityIntegrationTests {
 
   @Autowired private SetupFilter setupFilter;
 
+  @Autowired private StoragePaths storagePaths;
+
   @AfterEach
   void tearDown() throws IOException {
     TestDatabase.wipe(jdbc);
@@ -76,10 +80,17 @@ class ObservabilityIntegrationTests {
     }
   }
 
-  private void completeSetup() {
-    if (userRepository.count() == 0) {
-      userRepository.save(new User("testadmin", "unused", "ROLE_ADMIN"));
+  // An admin and a user, so that setup is done and each signed-in test user has an account.
+  // Returns the admin's folder, where the files the admin's requests act on are.
+  private Path completeSetup() {
+    User admin =
+        userRepository
+            .findByUsername("testadmin")
+            .orElseGet(() -> userRepository.save(new User("testadmin", "unused", "ROLE_ADMIN")));
+    if (userRepository.findByUsername("testuser").isEmpty()) {
+      userRepository.save(new User("testuser", "unused", "ROLE_USER"));
     }
+    return storagePaths.home(admin).root();
   }
 
   @Test
@@ -109,9 +120,9 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
-  @DisplayName("signed in, the health check shows the database and the storage disk")
-  void signedInHealthShowsComponents() throws Exception {
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
+  @DisplayName("to an admin, the health check shows the database and the storage disk")
+  void adminHealthShowsComponents() throws Exception {
     completeSetup();
 
     mockMvc
@@ -122,6 +133,21 @@ class ObservabilityIntegrationTests {
         .andExpect(
             jsonPath("$.components.diskSpace.details.path")
                 .value(servingDir.toFile().getAbsolutePath()));
+  }
+
+  @Test
+  @WithMockUser(username = "testuser")
+  @DisplayName("to a user who is no admin, health says only UP or DOWN, and metrics are refused")
+  void userSeesNoDetailsAndNoMetrics() throws Exception {
+    completeSetup();
+
+    mockMvc
+        .perform(get("/actuator/health"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("UP"))
+        .andExpect(jsonPath("$.components").doesNotExist());
+    mockMvc.perform(get("/actuator/metrics")).andExpect(status().isForbidden());
+    mockMvc.perform(get("/actuator/metrics/" + FILES_SERVED)).andExpect(status().isForbidden());
   }
 
   @Test
@@ -138,7 +164,7 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
   @DisplayName("only health and metrics are exposed")
   void otherEndpointsAreNotExposed() throws Exception {
     completeSetup();
@@ -153,7 +179,7 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
   @DisplayName("each uploaded file is counted with its size")
   void uploadsRecordTheirSize() throws Exception {
     completeSetup();
@@ -174,11 +200,11 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
   @DisplayName("a refused upload is not counted")
   void refusedUploadIsNotCounted() throws Exception {
-    completeSetup();
-    Files.writeString(servingDir.resolve("a.txt"), "a file, not a folder");
+    Path home = completeSetup();
+    Files.writeString(home.resolve("a.txt"), "a file, not a folder");
     double count = metric(UPLOAD_SIZE, "COUNT");
 
     mockMvc
@@ -193,12 +219,12 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
   @DisplayName("files served are counted by the route they went out through")
   void filesServedByRoute() throws Exception {
-    completeSetup();
-    Files.writeString(servingDir.resolve("notes.txt"), "hello");
-    Files.createDirectory(servingDir.resolve("folder"));
+    Path home = completeSetup();
+    Files.writeString(home.resolve("notes.txt"), "hello");
+    Files.createDirectory(home.resolve("folder"));
     double downloads = filesServed("download");
     double previews = filesServed("preview");
     double shared = filesServed("share-link");
@@ -235,7 +261,7 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
   @DisplayName("a file that is not there, or a dead share link, is not counted as served")
   void missingFilesAreNotCounted() throws Exception {
     completeSetup();
@@ -260,11 +286,11 @@ class ObservabilityIntegrationTests {
   }
 
   @Test
-  @WithMockUser(username = "testadmin")
+  @WithMockUser(username = "testadmin", roles = "ADMIN")
   @DisplayName("share links are counted when created, and a refused one is not")
   void shareLinksCreated() throws Exception {
-    completeSetup();
-    Files.writeString(servingDir.resolve("shared.txt"), "share me");
+    Path home = completeSetup();
+    Files.writeString(home.resolve("shared.txt"), "share me");
     double created = metric(SHARE_LINKS_CREATED, "COUNT");
 
     mockMvc

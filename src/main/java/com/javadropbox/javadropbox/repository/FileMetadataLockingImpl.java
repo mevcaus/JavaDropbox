@@ -28,9 +28,12 @@ class FileMetadataLockingImpl implements FileMetadataLocking {
   }
 
   @Override
-  public Optional<FileMetadata> lockByPath(String path) {
+  public Optional<FileMetadata> lockByPath(Long ownerId, String path) {
     return entityManager
-        .createQuery("select m.id from FileMetadata m where m.path = :path", Long.class)
+        .createQuery(
+            "select m.id from FileMetadata m where m.owner.id = :ownerId and m.path = :path",
+            Long.class)
+        .setParameter("ownerId", ownerId)
         .setParameter("path", path)
         .getResultStream()
         .findFirst()

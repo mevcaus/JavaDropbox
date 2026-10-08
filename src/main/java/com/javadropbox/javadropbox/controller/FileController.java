@@ -3,17 +3,17 @@ package com.javadropbox.javadropbox.controller;
 import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.dto.Preview;
+import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileTreeService;
-import com.javadropbox.javadropbox.service.StoragePaths;
+import com.javadropbox.javadropbox.service.StorageQuota;
+import com.javadropbox.javadropbox.service.StorageQuota.Usage;
 import com.javadropbox.javadropbox.service.UsageMetrics;
 import com.javadropbox.javadropbox.service.UsageMetrics.Route;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.springframework.core.io.Resource;
@@ -26,8 +26,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Files and folders, addressed by their path relative to the storage root. Items with metadata also
- * have an id, used by the version endpoints in {@link FileVersionController}.
+ * The signed-in user's files and folders, addressed by their path relative to the user's folder.
+ * Nobody else's can be reached here. Items with metadata also have an id, used by the version
+ * endpoints in {@link FileVersionController}.
  */
 @RestController
 @Tag(name = "Files", description = "Browse, upload, download, delete and create files and folders")
@@ -35,31 +36,31 @@ public class FileController {
 
   private final FileService fileService;
   private final FileTreeService fileTreeService;
-  private final StoragePaths storagePaths;
+  private final AuthService authService;
+  private final StorageQuota quota;
   private final UsageMetrics metrics;
 
   public FileController(
       FileService fileService,
       FileTreeService fileTreeService,
-      StoragePaths storagePaths,
+      AuthService authService,
+      StorageQuota quota,
       UsageMetrics metrics) {
     this.fileService = fileService;
     this.fileTreeService = fileTreeService;
-    this.storagePaths = storagePaths;
+    this.authService = authService;
+    this.quota = quota;
     this.metrics = metrics;
   }
 
   @GetMapping("/api/storage")
   @Operation(
-      summary = "Get storage info",
-      description = "Where files are stored and whether that directory is usable.")
-  public Map<String, Object> getStorageInfo() {
-    Path root = storagePaths.root();
-    return Map.of(
-        "path", root.toString(),
-        "exists", Files.isDirectory(root),
-        "readable", Files.isReadable(root),
-        "writable", Files.isWritable(root));
+      summary = "Get storage use",
+      description =
+          "The bytes the signed-in user stores, previous versions included, and their quota"
+              + " (null for none).")
+  public Usage getStorageUsage() throws IOException {
+    return quota.usage(authService.requireCurrentUser());
   }
 
   @GetMapping("/api/files")
@@ -67,7 +68,7 @@ public class FileController {
       summary = "Get file tree",
       description = "The whole tree of files and folders, folders first, each sorted by name.")
   public List<FileTreeNode> getFileTree() {
-    return fileTreeService.tree();
+    return fileTreeService.tree(authService.requireCurrentUser());
   }
 
   @GetMapping("/api/files/download")

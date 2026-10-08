@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
 import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.PreviewType;
+import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
@@ -23,8 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Builds the file tree the UI browses. The disk is the source of truth for what exists; the
- * database adds ids, owners and dates for items the app created.
+ * Builds the file tree the UI browses: what is in one account's folder. The disk is the source of
+ * truth for what exists; the database adds ids, owners and dates for items the app created.
  */
 @Service
 public class FileTreeService {
@@ -46,20 +47,22 @@ public class FileTreeService {
     this.files = files;
   }
 
+  /** Everything in an account's folder. */
   @Transactional(readOnly = true)
-  public List<FileTreeNode> tree() {
-    return children(storagePaths.root(), "", metadata());
+  public List<FileTreeNode> tree(User user) {
+    StoragePath folder = storagePaths.home(user).resolve("");
+    return tree(folder);
   }
 
   /** The tree below one folder, built the same way: what a shared folder's page lists. */
   @Transactional(readOnly = true)
   public List<FileTreeNode> tree(StoragePath folder) {
-    return children(folder.path(), folder.key(), metadata());
+    return children(folder.path(), folder.key(), metadata(folder.home().userId()));
   }
 
   // One query for every row, rather than one per file on disk.
-  private Map<String, FileMetadata> metadata() {
-    return files.findAllWithOwner().stream()
+  private Map<String, FileMetadata> metadata(long ownerId) {
+    return files.findAllOf(ownerId).stream()
         .collect(Collectors.toMap(FileMetadata::getPath, Function.identity()));
   }
 

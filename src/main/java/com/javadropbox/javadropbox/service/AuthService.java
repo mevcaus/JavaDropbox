@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -30,5 +31,19 @@ public class AuthService {
       return null;
     }
     return userRepository.findByUsername(auth.getName()).orElse(null);
+  }
+
+  /**
+   * The signed-in user, whose files a request acts on.
+   *
+   * @throws AuthenticationCredentialsNotFoundException if nobody is signed in, or the account is
+   *     gone; Spring Security answers it with a 401
+   */
+  public User requireCurrentUser() {
+    User user = currentUser();
+    if (user == null) {
+      throw new AuthenticationCredentialsNotFoundException("Not signed in");
+    }
+    return user;
   }
 }

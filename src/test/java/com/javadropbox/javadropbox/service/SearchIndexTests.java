@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +36,9 @@ class SearchIndexTests {
   @TempDir Path indexDir;
 
   private StoragePaths storagePaths;
+  // The folder of the account the tests search, and where they put its files.
+  private Home home;
+  private Path files;
   private final AtomicInteger extracted = new AtomicInteger();
   private final List<SearchIndex> opened = new ArrayList<>();
 
@@ -51,6 +55,8 @@ class SearchIndexTests {
   @BeforeEach
   void setUp() throws IOException {
     storagePaths = new StoragePaths(servingDir);
+    home = storagePaths.home(1);
+    files = home.root();
   }
 
   @AfterEach
@@ -63,8 +69,8 @@ class SearchIndexTests {
   @Test
   @DisplayName("a reconcile reads again only the files whose size or modification time changed")
   void reconcileReadsOnlyWhatChanged() throws Exception {
-    Path a = Files.writeString(servingDir.resolve("a.txt"), "alpha");
-    Files.writeString(servingDir.resolve("b.txt"), "beta");
+    Path a = Files.writeString(files.resolve("a.txt"), "alpha");
+    Files.writeString(files.resolve("b.txt"), "beta");
     SearchIndex index = open();
     reconcile(index);
     assertThat(extracted).hasValue(2);
@@ -82,25 +88,25 @@ class SearchIndexTests {
   @Test
   @DisplayName("until it has caught up, it searches what was indexed before and says so")
   void searchesTheLastIndexWhileCatchingUp() throws Exception {
-    Files.writeString(servingDir.resolve("old.txt"), "remembered");
+    Files.writeString(files.resolve("old.txt"), "remembered");
     SearchIndex first = open();
     reconcile(first);
     first.close();
     opened.remove(first);
 
     SearchIndex second = open();
-    SearchIndex.Hits hits = second.search("", "remembered", 10);
+    SearchIndex.Hits hits = second.search(home, "", "remembered", 10);
     assertThat(hits.complete()).isFalse();
     assertThat(hits.hits()).extracting(SearchIndex.Hit::path).containsExactly("old.txt");
 
     reconcile(second);
-    assertThat(second.search("", "remembered", 10).complete()).isTrue();
+    assertThat(second.search(home, "", "remembered", 10).complete()).isTrue();
   }
 
   @Test
   @DisplayName("an index it cannot read is rebuilt")
   void rebuildsAnUnreadableIndex() throws Exception {
-    Files.writeString(servingDir.resolve("kept.txt"), "survivor");
+    Files.writeString(files.resolve("kept.txt"), "survivor");
     SearchIndex first = open();
     reconcile(first);
     first.close();
@@ -132,7 +138,7 @@ class SearchIndexTests {
       ghost.add(new StringField("name", "ghost.txt", Field.Store.NO));
       writer.addDocument(ghost);
     }
-    Files.writeString(servingDir.resolve("real.txt"), "ghost story");
+    Files.writeString(files.resolve("real.txt"), "ghost story");
 
     SearchIndex index = open();
     reconcile(index);
@@ -143,9 +149,9 @@ class SearchIndexTests {
   @Test
   @DisplayName("wildcards typed into a search match only themselves")
   void wildcardsAreLiteral() throws Exception {
-    Files.writeString(servingDir.resolve("a*b.txt"), "");
-    Files.writeString(servingDir.resolve("c?d.txt"), "");
-    Files.writeString(servingDir.resolve("plain.txt"), "");
+    Files.writeString(files.resolve("a*b.txt"), "");
+    Files.writeString(files.resolve("c?d.txt"), "");
+    Files.writeString(files.resolve("plain.txt"), "");
     SearchIndex index = open();
     reconcile(index);
 
@@ -158,18 +164,39 @@ class SearchIndexTests {
   void waitsForAnotherWriter() throws Exception {
     SearchIndex index = open();
     reconcile(index);
-    Files.writeString(servingDir.resolve("late.txt"), "patience");
+    Files.writeString(files.resolve("late.txt"), "patience");
 
     try (FSDirectory directory = FSDirectory.open(indexDir);
         IndexWriter other =
             new IndexWriter(directory, new IndexWriterConfig(new StandardAnalyzer()))) {
-      index.changed("late.txt");
+      index.changed(home, "late.txt");
       Thread.sleep(500);
       assertThat(paths(index, "patience")).isEmpty();
     }
     index.awaitIdle(INDEXING);
 
     assertThat(paths(index, "patience")).containsExactly("late.txt");
+  }
+
+  @Test
+  @DisplayName("a search finds the account's own files only, not another's or loose ones")
+  void searchFindsTheAccountsOwnFilesOnly() throws Exception {
+    Files.writeString(files.resolve("mine.txt"), "shared word");
+    Files.writeString(storagePaths.home(2).root().resolve("theirs.txt"), "shared word");
+    Files.writeString(storagePaths.home(12).root().resolve("also-theirs.txt"), "shared word");
+    Files.writeString(storagePaths.homesDir().resolve("loose.txt"), "shared word");
+    Files.createDirectories(storagePaths.homesDir().resolve("stray"));
+    Files.writeString(storagePaths.homesDir().resolve("stray/stray.txt"), "shared word");
+    SearchIndex index = open();
+    reconcile(index);
+
+    assertThat(paths(index, "shared")).containsExactly("mine.txt");
+    assertThat(
+            index.search(storagePaths.home(2), "", "shared", 10).hits().stream()
+                .map(SearchIndex.Hit::path))
+        .containsExactly("theirs.txt");
+    // The account's folder is no item of its own.
+    assertThat(paths(index, "1")).isEmpty();
   }
 
   private SearchIndex open() throws IOException {
@@ -183,7 +210,7 @@ class SearchIndexTests {
     index.awaitIdle(INDEXING);
   }
 
-  private static List<String> paths(SearchIndex index, String text) throws IOException {
-    return index.search("", text, 10).hits().stream().map(SearchIndex.Hit::path).toList();
+  private List<String> paths(SearchIndex index, String text) throws IOException {
+    return index.search(home, "", text, 10).hits().stream().map(SearchIndex.Hit::path).toList();
   }
 }

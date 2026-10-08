@@ -32,12 +32,13 @@ class SetupServiceTests {
 
   private final UserRepository users = mock(UserRepository.class);
   private final AuthService authService = mock(AuthService.class);
+  private final LooseFileAdoption adoption = mock(LooseFileAdoption.class);
   private SetupService setup;
 
   @BeforeEach
   void setUp() {
     when(authService.isSetupRequired()).thenReturn(true);
-    setup = new SetupService(users, NoOpPasswordEncoder.getInstance(), authService, "");
+    setup = new SetupService(users, NoOpPasswordEncoder.getInstance(), authService, adoption, "");
   }
 
   @Test
@@ -138,7 +139,8 @@ class SetupServiceTests {
     }
 
     private SetupService configured(String code) {
-      return new SetupService(users, NoOpPasswordEncoder.getInstance(), authService, code);
+      return new SetupService(
+          users, NoOpPasswordEncoder.getInstance(), authService, adoption, code);
     }
   }
 

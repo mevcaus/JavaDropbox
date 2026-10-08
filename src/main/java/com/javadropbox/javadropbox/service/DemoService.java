@@ -176,16 +176,31 @@ public class DemoService implements ApplicationRunner {
   }
 
   // The account is created on the first start and its password put back if it was changed, e.g.
-  // through the recovery procedure in docs/self-hosting.md.
+  // through the recovery procedure in docs/self-hosting.md. Everyone shares it, so it must never
+  // manage accounts: upgrading to accounts of their own made the first account, which on the demo
+  // is this one, an admin.
   private void ensureAccount() {
     User user = users.findByUsername(username).orElse(null);
     if (user == null) {
-      users.save(new User(username, passwordEncoder.encode(password), "ROLE_USER"));
+      users.save(new User(username, passwordEncoder.encode(password), User.ROLE_USER));
       log.info("Created the demo account \"{}\"", username);
-    } else if (!passwordEncoder.matches(password, user.getPassword())) {
+      return;
+    }
+    boolean changed = false;
+    if (!passwordEncoder.matches(password, user.getPassword())) {
       user.setPassword(passwordEncoder.encode(password));
-      users.save(user);
+      changed = true;
       log.info("Reset the demo account's password");
+    }
+    if (user.isAdmin() || !user.isEnabled()) {
+      user.setRole(User.ROLE_USER);
+      user.setEnabled(true);
+      user.endSessions();
+      changed = true;
+      log.info("Made the demo account an ordinary account that can sign in");
+    }
+    if (changed) {
+      users.save(user);
     }
   }
 

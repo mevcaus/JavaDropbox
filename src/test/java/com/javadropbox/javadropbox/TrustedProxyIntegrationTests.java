@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
@@ -53,13 +54,24 @@ class TrustedProxyIntegrationTests {
 
   private HttpTestClient http;
 
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
   @BeforeEach
   void setUp() throws IOException {
     http = new HttpTestClient(port);
-    if (userRepository.count() == 0) {
-      userRepository.save(new User("owner", passwordEncoder.encode("correct-horse"), "ROLE_ADMIN"));
-    }
-    Files.writeString(servingDir.resolve("shared.txt"), "share me");
+    owner =
+        userRepository
+            .findByUsername("owner")
+            .orElseGet(
+                () ->
+                    userRepository.save(
+                        new User("owner", passwordEncoder.encode("correct-horse"), "ROLE_ADMIN")));
+    home = storagePaths.home(owner).root();
+    Files.writeString(home.resolve("shared.txt"), "share me");
   }
 
   @AfterEach

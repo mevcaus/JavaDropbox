@@ -21,14 +21,20 @@ public interface FileVersionRepository extends JpaRepository<FileVersion, Long> 
    * FileMetadataRepository#below}.
    */
   @Query(
-      "select v.storedFilename from FileVersion v join v.fileMetadata m"
-          + " where m.path = :path or m.path like :below escape '!'")
-  List<String> findStoredFilenamesAtOrBelow(String path, String below);
+      "select v.storedFilename from FileVersion v join v.fileMetadata m where m.owner.id = :ownerId"
+          + " and (m.path = :path or m.path like :below escape '!')")
+  List<String> findStoredFilenamesAtOrBelow(Long ownerId, String path, String below);
 
   /** Deletes the versions of the row at {@code path} and of every row below it. */
   @Modifying
   @Query(
       "delete from FileVersion v where v.fileMetadata.id in (select m.id from FileMetadata m"
-          + " where m.path = :path or m.path like :below escape '!')")
-  int deleteAtOrBelow(String path, String below);
+          + " where m.owner.id = :ownerId and (m.path = :path or m.path like :below escape '!'))")
+  int deleteAtOrBelow(Long ownerId, String path, String below);
+
+  /** The bytes the stored versions of an account's files take up. */
+  @Query(
+      "select coalesce(sum(v.size), 0) from FileVersion v"
+          + " where v.fileMetadata.owner.id = :ownerId")
+  long totalSizeOf(Long ownerId);
 }

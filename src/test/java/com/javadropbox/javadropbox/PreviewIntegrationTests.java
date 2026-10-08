@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -52,6 +53,7 @@ class PreviewIntegrationTests {
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private StoragePaths storagePaths;
 
   @AfterEach
   void tearDown() {
@@ -60,18 +62,16 @@ class PreviewIntegrationTests {
 
   @BeforeEach
   void setUp() throws IOException {
-    if (users.count() == 0) {
-      users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    }
-    Files.createDirectories(servingDir.resolve("docs"));
-    Files.write(servingDir.resolve("docs/photo.PNG"), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
-    Files.writeString(servingDir.resolve("docs/report.pdf"), "%PDF-1.7");
-    Files.writeString(servingDir.resolve("docs/notes.txt"), "line one\nline two\n");
-    Files.writeString(servingDir.resolve("page.html"), "<script>alert(1)</script>");
+    Path home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
+    Files.createDirectories(home.resolve("docs"));
+    Files.write(home.resolve("docs/photo.PNG"), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    Files.writeString(home.resolve("docs/report.pdf"), "%PDF-1.7");
+    Files.writeString(home.resolve("docs/notes.txt"), "line one\nline two\n");
+    Files.writeString(home.resolve("page.html"), "<script>alert(1)</script>");
     Files.writeString(
-        servingDir.resolve("logo.svg"),
+        home.resolve("logo.svg"),
         "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>");
-    Files.write(servingDir.resolve("archive.zip"), new byte[] {'P', 'K', 3, 4});
+    Files.write(home.resolve("archive.zip"), new byte[] {'P', 'K', 3, 4});
   }
 
   @ParameterizedTest(name = "{0} is served inline as {1}")

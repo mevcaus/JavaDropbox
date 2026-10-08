@@ -12,6 +12,7 @@ import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.ShareLinkRepository;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,10 +33,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Changes to stored files and folders. Each change runs in one database transaction, and a failure
- * part-way leaves the previous content in place: new content is written to a scratch file outside
- * the transaction, and the moves inside it -- the live file into the version store, the scratch
- * file onto the live path -- are undone if the transaction does not commit.
+ * Changes to stored files and folders, each in the folder of the account making it. Each change
+ * runs in one database transaction, and a failure part-way leaves the previous content in place:
+ * new content is written to a scratch file outside the transaction, and the moves inside it -- the
+ * live file into the version store, the scratch file onto the live path -- are undone if the
+ * transaction does not commit.
  *
  * <p>Failures are logged to the history in a transaction of their own after the change's
  * transaction has rolled back. Each change also tells the {@link SearchIndex}, which reads the
@@ -87,10 +89,11 @@ public class FileService {
    * @return how many files were stored
    */
   public int upload(MultipartFile[] uploads, String folderPath) throws IOException {
-    User user = authService.currentUser();
+    User user = authService.requireCurrentUser();
+    Home home = storagePaths.home(user);
     StoragePath folder;
     try {
-      folder = storagePaths.resolve(folderPath);
+      folder = home.resolve(folderPath);
       createFolders(folder);
     } catch (IOException | RuntimeException e) {
       // Recorded against the first file, the one that could not be stored, like any failed upload.
@@ -112,7 +115,7 @@ public class FileService {
         continue;
       }
       try {
-        store(upload, storagePaths.resolveChild(folder, name), user);
+        store(upload, home.resolveChild(folder, name), user);
       } catch (IOException | RuntimeException e) {
         history.recordFailure(childKey(folder, name), name, ChangeType.UPLOAD, user, e);
         throw e;
@@ -124,13 +127,14 @@ public class FileService {
 
   /**
    * Stores a file the server supplies itself, such as one of the demo's sample files, as if {@code
-   * user} had uploaded it to {@code folderPath} (which is created if need be).
+   * user} had uploaded it to {@code folderPath} in their folder (which is created if need be).
    */
   public void store(String folderPath, String name, InputStreamSource content, User user)
       throws IOException {
-    StoragePath folder = storagePaths.resolve(folderPath);
+    Home home = storagePaths.home(user);
+    StoragePath folder = home.resolve(folderPath);
     createFolders(folder);
-    store(content, storagePaths.resolveChild(folder, name), user);
+    store(content, home.resolveChild(folder, name), user);
   }
 
   // Where a segment of the path is a file, createDirectories fails with a disk error that says
@@ -149,7 +153,7 @@ public class FileService {
     if (missing > 0) {
       Files.createDirectories(folder.path());
       // The file going into them is reported on its own, once it is stored.
-      searchIndex.changed(ancestorKey(folder.key(), missing - 1));
+      searchIndex.changed(folder.home(), ancestorKey(folder.key(), missing - 1));
     }
   }
 
@@ -171,13 +175,13 @@ public class FileService {
         Files.copy(in, scratch, StandardCopyOption.REPLACE_EXISTING);
       }
       long size = Files.size(scratch);
-      quota.check();
+      quota.check(user);
 
       inTransaction(
           () -> {
             // Locked before looking at the disk, so that concurrent uploads of one file take
             // turns and each archives what the one before it left.
-            Optional<FileMetadata> row = files.lockByPath(target.key());
+            Optional<FileMetadata> row = files.lockByPath(user.getId(), target.key());
             boolean replacing = Files.exists(target.path());
             FileMetadata file =
                 replacing
@@ -191,7 +195,7 @@ public class FileService {
             file.setSize(size);
             file.setUpdatedAt(Instant.now());
             history.recordSuccess(file, ChangeType.UPLOAD, user, null);
-            searchIndex.changed(target.key());
+            searchIndex.changed(target);
           });
       metrics.fileUploaded(size);
     } finally {
@@ -201,9 +205,9 @@ public class FileService {
 
   /** Deletes a file, or a folder with everything in it, along with their metadata and versions. */
   public void delete(String path) throws IOException {
-    User user = authService.currentUser();
+    User user = authService.requireCurrentUser();
     try {
-      StoragePath target = storagePaths.resolveItem(path);
+      StoragePath target = storagePaths.home(user).resolveItem(path);
       if (!Files.exists(target.path(), LinkOption.NOFOLLOW_LINKS)) {
         throw new NotFoundException("Not found: " + target.key());
       }
@@ -212,8 +216,9 @@ public class FileService {
           () -> {
             // Bulk statements, so a folder costs the same few queries however much it holds. They
             // run before anything irreversible happens on disk, so a database problem stops it.
-            versions.discardAllAtOrBelow(target.key());
-            files.deleteAtOrBelow(target.key(), FileMetadataRepository.below(target.key()));
+            versions.discardAllAtOrBelow(user.getId(), target.key());
+            files.deleteAtOrBelow(
+                user.getId(), target.key(), FileMetadataRepository.below(target.key()));
 
             // A concurrent delete of the same item got here first: the deletes above waited for
             // its row locks and found nothing, and now the disk has nothing either.
@@ -226,7 +231,7 @@ public class FileService {
               throw new NotFoundException("Not found: " + target.key());
             }
             history.recordDeletion(target.key(), target.name(), user);
-            searchIndex.changed(target.key());
+            searchIndex.changed(target);
           });
     } catch (IOException | RuntimeException e) {
       history.recordFailure(path, lastSegment(path), ChangeType.DELETE, user, e);
@@ -235,10 +240,11 @@ public class FileService {
   }
 
   public void createFolder(String parentPath, String name) throws IOException {
-    User user = authService.currentUser();
+    User user = authService.requireCurrentUser();
     try {
-      StoragePath parent = storagePaths.resolve(parentPath);
-      StoragePath target = storagePaths.resolveChild(parent, name);
+      Home home = storagePaths.home(user);
+      StoragePath parent = home.resolve(parentPath);
+      StoragePath target = home.resolveChild(parent, name);
       if (!Files.isDirectory(parent.path())) {
         throw new NotFoundException("Folder not found: " + parent.key());
       }
@@ -248,10 +254,11 @@ public class FileService {
 
       inTransaction(
           () -> {
-            FileMetadata folder = claim(target, files.lockByPath(target.key()), true, 0, user);
+            FileMetadata folder =
+                claim(target, files.lockByPath(user.getId(), target.key()), true, 0, user);
             Files.createDirectory(StoragePaths.recheck(target.path()));
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
-            searchIndex.changed(target.key());
+            searchIndex.changed(target);
           });
     } catch (IOException | RuntimeException e) {
       history.recordFailure(join(parentPath, name), name, ChangeType.CREATE_FOLDER, user, e);
@@ -264,9 +271,12 @@ public class FileService {
    * version first) or as a copy next to it.
    */
   public void restoreVersion(Long fileId, int number, RestoreMode mode) throws IOException {
-    User user = authService.currentUser();
+    User user = authService.requireCurrentUser();
+    // Another account's file is as good as missing.
     FileMetadata file =
-        files.findById(fileId).orElseThrow(() -> new NotFoundException("File not found"));
+        files
+            .findOwned(fileId, user.getId())
+            .orElseThrow(() -> new NotFoundException("File not found"));
     if (Boolean.TRUE.equals(file.getIsDirectory())) {
       throw new BadRequestException("Folders do not have versions");
     }
@@ -293,12 +303,12 @@ public class FileService {
 
   private void restoreInPlace(FileMetadata file, Path source, int number, User user)
       throws IOException {
-    StoragePath live = storagePaths.resolveItem(file.getPath());
+    StoragePath live = storagePaths.home(user).resolveItem(file.getPath());
     Files.createDirectories(live.path().getParent());
     Path scratch = StorageFiles.tempFileBeside(live.path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
-      quota.check();
+      quota.check(user);
       boolean replacing = Files.exists(live.path());
       if (replacing) {
         versions.archive(file, StoragePaths.recheck(live.path()), user);
@@ -311,31 +321,37 @@ public class FileService {
     file.setSize(Files.size(live.path()));
     file.setUpdatedAt(Instant.now());
     history.recordSuccess(file, ChangeType.RESTORE, user, "Restored version " + number);
-    searchIndex.changed(live.key());
+    searchIndex.changed(live);
   }
 
   private void restoreAsCopy(FileMetadata file, Path source, int number, User user)
       throws IOException {
-    StoragePath parent = storagePaths.resolve(parentKey(file.getPath()));
+    Home home = storagePaths.home(user);
+    StoragePath parent = home.resolve(parentKey(file.getPath()));
     Files.createDirectories(parent.path());
     // Copied to a scratch file first and renamed into place, like an upload, so the copy never
     // shows up under its name half-written.
-    Path scratch = StorageFiles.tempFileBeside(storagePaths.resolveItem(file.getPath()).path());
+    Path scratch = StorageFiles.tempFileBeside(home.resolveItem(file.getPath()).path());
     try {
       Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
-      quota.check();
+      quota.check(user);
       StoragePath target = claimCopyName(parent, file.getFilename(), number);
       OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
       StorageFiles.moveIntoPlace(scratch, target.path());
 
       FileMetadata copy =
-          claim(target, files.lockByPath(target.key()), false, Files.size(target.path()), user);
+          claim(
+              target,
+              files.lockByPath(user.getId(), target.key()),
+              false,
+              Files.size(target.path()),
+              user);
       history.recordSuccess(
           copy,
           ChangeType.RESTORE,
           user,
           "Restored a copy of " + file.getPath() + " (version " + number + ")");
-      searchIndex.changed(target.key());
+      searchIndex.changed(target);
     } finally {
       Files.deleteIfExists(scratch);
     }
@@ -353,7 +369,7 @@ public class FileService {
     for (int attempt = 1; attempt <= MAX_COPY_NAME_ATTEMPTS; attempt++) {
       String suffix = attempt == 1 ? "" : " (" + attempt + ")";
       StoragePath candidate =
-          storagePaths.resolveChild(parent, base + "_v" + number + suffix + extension);
+          parent.home().resolveChild(parent, base + "_v" + number + suffix + extension);
       try {
         Files.createFile(StoragePaths.recheck(candidate.path()));
         return candidate;
@@ -377,16 +393,21 @@ public class FileService {
   }
 
   /**
-   * The downloadable content at a path: the file itself, or a folder to be zipped.
+   * The downloadable content at a path in the signed-in user's folder: the file itself, or a folder
+   * to be zipped.
    *
    * @throws NotFoundException if nothing is there
    */
   public Download download(String path) throws IOException {
-    StoragePath target = storagePaths.resolveItem(path);
+    return download(storagePaths.home(authService.requireCurrentUser()).resolveItem(path));
+  }
+
+  /** Like {@link #download(String)}, for an item already resolved, such as a share link's. */
+  public Download download(StoragePath target) throws IOException {
     if (!Files.exists(target.path())) {
       throw new NotFoundException("Not found: " + target.key());
     }
-    files.markAccessed(target.key(), Instant.now());
+    files.markAccessed(target.home().userId(), target.key(), Instant.now());
 
     if (Files.isDirectory(target.path())) {
       return new Download.FolderDownload(target.path(), target.name() + ".zip");
@@ -399,14 +420,18 @@ public class FileService {
   }
 
   /**
-   * A file to show in the browser. Only the kinds {@link PreviewType} knows are offered; anything
-   * else has to be downloaded.
+   * A file in the signed-in user's folder to show in the browser. Only the kinds {@link
+   * PreviewType} knows are offered; anything else has to be downloaded.
    *
    * @throws NotFoundException if nothing is there
    * @throws BadRequestException for a folder, or a file of a kind that cannot be previewed
    */
   public Preview preview(String path) throws IOException {
-    StoragePath target = storagePaths.resolveItem(path);
+    return preview(storagePaths.home(authService.requireCurrentUser()).resolveItem(path));
+  }
+
+  /** Like {@link #preview(String)}, for an item already resolved, such as a share link's. */
+  public Preview preview(StoragePath target) throws IOException {
     if (!Files.exists(target.path())) {
       throw new NotFoundException("Not found: " + target.key());
     }
@@ -419,13 +444,8 @@ public class FileService {
                 () ->
                     new BadRequestException(
                         "This kind of file cannot be previewed: " + target.key()));
-    files.markAccessed(target.key(), Instant.now());
+    files.markAccessed(target.home().userId(), target.key(), Instant.now());
     return new Preview(target.path(), target.name(), type, PreviewType.contentType(target.name()));
-  }
-
-  /** Whether something exists at a path. Refuses the root, which can never be shared. */
-  public boolean exists(String path) {
-    return Files.exists(storagePaths.resolveItem(path).path());
   }
 
   /**
@@ -443,7 +463,7 @@ public class FileService {
       FileMetadata row = leftover.get();
       versions.discardAll(row);
       shareLinks.deleteByFile(row);
-      row.startOver(size, isDirectory, owner);
+      row.startOver(size, isDirectory);
       return files.save(row);
     }
     return files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, owner));

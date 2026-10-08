@@ -44,12 +44,15 @@ class SecurityIntegrationTests {
 
   @Autowired private PasswordEncoder passwordEncoder;
 
+  // Creating accounts also makes setup no longer required. Each signed-in test user has one: a
+  // session whose account is gone is signed out.
   @BeforeEach
   void setUp() {
-    // Ensure setup is NOT required by creating a user
     if (userRepository.count() == 0) {
-      User user = new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN");
-      userRepository.save(user);
+      userRepository.save(new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN"));
+      userRepository.save(new User("testuser", "unused", "ROLE_USER"));
+      userRepository.save(new User("user", "unused", "ROLE_USER"));
+      userRepository.save(new User("admin", "unused", "ROLE_ADMIN"));
     }
   }
 
@@ -173,21 +176,44 @@ class SecurityIntegrationTests {
   class ControllerSecurityTests {
 
     @Test
-    @DisplayName("Unauthenticated user cannot access directory-info")
-    void unauthenticatedUserCannotAccessDirectoryInfo() throws Exception {
+    @DisplayName("Unauthenticated user cannot see what is stored")
+    void unauthenticatedUserCannotAccessStorageUse() throws Exception {
       mockMvc.perform(get("/api/storage")).andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("Authenticated user can access directory-info")
+    @DisplayName("Authenticated user sees what they store and their quota, not the server's path")
     @WithMockUser(
         username = "testuser",
         roles = {"USER"})
-    void authenticatedUserCanAccessDirectoryInfo() throws Exception {
+    void authenticatedUserCanAccessStorageUse() throws Exception {
       mockMvc
           .perform(get("/api/storage"))
           .andExpect(status().isOk())
-          .andExpect(content().contentType(MediaType.APPLICATION_JSON));
+          .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+          .andExpect(jsonPath("$.usedBytes").value(0))
+          .andExpect(jsonPath("$.quotaBytes").doesNotExist())
+          .andExpect(jsonPath("$.path").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("A user cannot reach the admin endpoints")
+    @WithMockUser(
+        username = "testuser",
+        roles = {"USER"})
+    void userCannotReachAdminEndpoints() throws Exception {
+      mockMvc.perform(get("/api/admin/users")).andExpect(status().isForbidden());
+      mockMvc
+          .perform(post("/api/admin/invites").param("username", "eve").with(csrf()))
+          .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("A signed-in principal whose account is gone is treated as signed out")
+    @WithMockUser(username = "ghost")
+    void principalWithoutAccountIsSignedOut() throws Exception {
+      mockMvc.perform(get("/api/files")).andExpect(status().isUnauthorized());
+      mockMvc.perform(get("/api/me")).andExpect(status().isUnauthorized());
     }
   }
 

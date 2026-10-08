@@ -11,8 +11,10 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface ShareLinkRepository extends JpaRepository<ShareLink, Long> {
 
-  /** The link with this token hash, with the item it was made for. */
-  @Query("select l from ShareLink l join fetch l.file where l.tokenHash = :tokenHash")
+  /** The link with this token hash, with the item it was made for and the item's owner. */
+  @Query(
+      "select l from ShareLink l join fetch l.file f join fetch f.owner"
+          + " where l.tokenHash = :tokenHash")
   Optional<ShareLink> findByTokenHash(String tokenHash);
 
   /** An item's links that still open at {@code now}, the soonest to expire first. */

@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -57,12 +58,20 @@ class ShareLinkIntegrationTests {
 
   @Autowired private ObjectMapper json;
 
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
   @BeforeEach
   void setUp() throws IOException {
-    if (userRepository.count() == 0) {
-      userRepository.save(new User("testadmin", "unused", "ROLE_ADMIN"));
-    }
-    Files.writeString(servingDir.resolve("shared.txt"), "share me");
+    owner =
+        userRepository
+            .findByUsername("testadmin")
+            .orElseGet(() -> userRepository.save(new User("testadmin", "unused", "ROLE_ADMIN")));
+    home = storagePaths.home(owner).root();
+    Files.writeString(home.resolve("shared.txt"), "share me");
   }
 
   @AfterEach
@@ -150,8 +159,8 @@ class ShareLinkIntegrationTests {
   @Test
   @DisplayName("The link carries only a random token: no path, and the token is not stored")
   void linkRevealsNothingAboutThePath() throws Exception {
-    Files.createDirectories(servingDir.resolve("docs/private"));
-    Files.writeString(servingDir.resolve("docs/private/report.pdf"), "secret");
+    Files.createDirectories(home.resolve("docs/private"));
+    Files.writeString(home.resolve("docs/private/report.pdf"), "secret");
 
     String token = share("docs/private/report.pdf");
 
@@ -181,7 +190,7 @@ class ShareLinkIntegrationTests {
   void linkDiesWhenItsFileIsReplacedAfterRemovalOnDisk() throws Exception {
     String token = share("shared.txt");
 
-    Files.delete(servingDir.resolve("shared.txt"));
+    Files.delete(home.resolve("shared.txt"));
     upload("", "shared.txt", "someone else's file");
 
     download(token).andExpect(status().isNotFound());
@@ -190,11 +199,11 @@ class ShareLinkIntegrationTests {
   @Test
   @DisplayName("A folder link stops working when a file takes the folder's place on disk")
   void linkDiesWhenTheItemChangesType() throws Exception {
-    Files.createDirectories(servingDir.resolve("photos"));
+    Files.createDirectories(home.resolve("photos"));
     String token = share("photos");
 
-    Files.delete(servingDir.resolve("photos"));
-    Files.writeString(servingDir.resolve("photos"), "not a folder");
+    Files.delete(home.resolve("photos"));
+    Files.writeString(home.resolve("photos"), "not a folder");
 
     download(token).andExpect(status().isNotFound());
   }
@@ -224,7 +233,7 @@ class ShareLinkIntegrationTests {
   @Test
   @DisplayName("A path's active links are listed without their tokens")
   void listsActiveLinks() throws Exception {
-    Files.writeString(servingDir.resolve("other.txt"), "other");
+    Files.writeString(home.resolve("other.txt"), "other");
     share("shared.txt");
     share("shared.txt");
     share("other.txt");
@@ -334,8 +343,8 @@ class ShareLinkIntegrationTests {
   @Test
   @DisplayName("A file's page is described by name, size and expiry, without its path")
   void describesASharedFile() throws Exception {
-    Files.createDirectories(servingDir.resolve("clients/acme"));
-    Files.writeString(servingDir.resolve("clients/acme/report.pdf"), "%PDF-1");
+    Files.createDirectories(home.resolve("clients/acme"));
+    Files.writeString(home.resolve("clients/acme/report.pdf"), "%PDF-1");
     String token = share("clients/acme/report.pdf");
 
     mockMvc
@@ -357,10 +366,10 @@ class ShareLinkIntegrationTests {
   @Test
   @DisplayName("A folder's page lists what it holds by name, folders first, without paths")
   void describesASharedFolder() throws Exception {
-    Files.createDirectories(servingDir.resolve("clients/acme/drafts"));
-    Files.writeString(servingDir.resolve("clients/acme/notes.txt"), "four");
-    Files.writeString(servingDir.resolve("clients/acme/drafts/v1.txt"), "draft");
-    Files.writeString(servingDir.resolve("clients/acme/.hidden"), "not listed");
+    Files.createDirectories(home.resolve("clients/acme/drafts"));
+    Files.writeString(home.resolve("clients/acme/notes.txt"), "four");
+    Files.writeString(home.resolve("clients/acme/drafts/v1.txt"), "draft");
+    Files.writeString(home.resolve("clients/acme/.hidden"), "not listed");
     String token = share("clients/acme");
 
     mockMvc
@@ -397,7 +406,7 @@ class ShareLinkIntegrationTests {
         .andExpect(header().string("Content-Security-Policy", "sandbox"))
         .andExpect(content().string("share me"));
 
-    Files.writeString(servingDir.resolve("report.pdf"), "%PDF-1");
+    Files.writeString(home.resolve("report.pdf"), "%PDF-1");
     mockMvc
         .perform(get("/share/" + share("report.pdf") + "/preview").with(anonymous()))
         .andExpect(status().isOk())
@@ -409,8 +418,8 @@ class ShareLinkIntegrationTests {
   @Test
   @DisplayName("A folder, or a file that cannot be previewed, has no preview")
   void noPreviewForFoldersOrOtherFiles() throws Exception {
-    Files.createDirectory(servingDir.resolve("docs"));
-    Files.write(servingDir.resolve("data.bin"), new byte[] {1, 2, 3});
+    Files.createDirectory(home.resolve("docs"));
+    Files.write(home.resolve("data.bin"), new byte[] {1, 2, 3});
 
     for (String path : new String[] {"docs", "data.bin"}) {
       mockMvc
@@ -425,9 +434,9 @@ class ShareLinkIntegrationTests {
   void deadLinksAreBareNotFoundEverywhere() throws Exception {
     String expired = share("shared.txt");
     jdbc.update("UPDATE share_links SET expires_at = created_at - INTERVAL '1' MINUTE");
-    Files.writeString(servingDir.resolve("gone.txt"), "soon gone");
+    Files.writeString(home.resolve("gone.txt"), "soon gone");
     String deleted = share("gone.txt");
-    Files.delete(servingDir.resolve("gone.txt"));
+    Files.delete(home.resolve("gone.txt"));
 
     for (String token : new String[] {expired, deleted, "not-a-real-token"}) {
       for (String route : new String[] {"", "/info", "/preview", "/download"}) {
