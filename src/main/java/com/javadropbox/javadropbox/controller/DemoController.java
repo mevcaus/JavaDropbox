@@ -1,7 +1,6 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.service.DemoService;
-import com.javadropbox.javadropbox.service.StorageQuota;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.Duration;
@@ -32,17 +31,14 @@ public class DemoController {
       Instant nextReset) {}
 
   private final DemoService demo;
-  private final StorageQuota quota;
   private final DataSize maxUploadSize;
   private final Duration maxShareExpiration;
 
   public DemoController(
       DemoService demo,
-      StorageQuota quota,
       @Value("${spring.servlet.multipart.max-file-size}") DataSize maxUploadSize,
       @Value("${javadropbox.share.max-expiration:7d}") Duration maxShareExpiration) {
     this.demo = demo;
-    this.quota = quota;
     this.maxUploadSize = maxUploadSize;
     this.maxShareExpiration = maxShareExpiration;
   }
@@ -54,7 +50,7 @@ public class DemoController {
         demo.username(),
         demo.password(),
         maxUploadSize.toBytes(),
-        quota.limit().map(DataSize::toBytes).orElse(null),
+        demo.quotaBytes(),
         maxShareExpiration.toMinutes(),
         demo.nextReset());
   }

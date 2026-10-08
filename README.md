@@ -289,7 +289,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 - `ADMIN` and `USER` roles; metrics and account management for admins only
 - Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy
 - Path safety, as above; paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one record
-- Optional caps on upload size, the server's total storage (versions included) and share-link lifetime
+- Optional caps on upload size and share-link lifetime, and a quota per account (versions included)
 
 **Frontend**
 - React 19 single-page app with Redux Toolkit, Tailwind CSS and responsive layout

@@ -222,6 +222,24 @@ class DemoIntegrationTests {
   }
 
   @Test
+  @DisplayName("the demo account has a 50 MB quota, put back at start if it was changed")
+  void demoAccountHasAQuota() throws Exception {
+    long quota = 50L * 1024 * 1024;
+    assertThat(users.findByUsername("demo").orElseThrow().getQuotaBytes()).isEqualTo(quota);
+
+    User account = users.findByUsername("demo").orElseThrow();
+    account.setQuotaBytes(null);
+    users.save(account);
+    demo.run(new DefaultApplicationArguments());
+
+    assertThat(users.findByUsername("demo").orElseThrow().getQuotaBytes()).isEqualTo(quota);
+    // Reported to the demo as its own use against that quota.
+    mockMvc
+        .perform(get("/api/storage").session(signIn()))
+        .andExpect(jsonPath("$.quotaBytes").value(50 * 1024 * 1024));
+  }
+
+  @Test
   @DisplayName("a demo account made an admin, as upgrading makes the first account, is undone")
   void demoAccountIsMadeAnOrdinaryAccountAgain() throws Exception {
     User account = users.findByUsername("demo").orElseThrow();

@@ -14,6 +14,7 @@ import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +29,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.unit.DataSize;
 
 /**
  * The public demo ({@code demo} profile): a shared account whose credentials the sign-in page
@@ -76,6 +78,8 @@ public class DemoService implements ApplicationRunner {
   private final String username;
   private final String password;
   private final LocalTime resetAt;
+  // What the shared account may store, previous versions included; null for no limit.
+  private final Long quotaBytes;
 
   // Never until run() has worked it out: the server takes requests before the account exists.
   private volatile Instant nextReset = Instant.MAX;
@@ -91,7 +95,8 @@ public class DemoService implements ApplicationRunner {
       PlatformTransactionManager transactionManager,
       @Value("${javadropbox.demo.username}") String username,
       @Value("${javadropbox.demo.password}") String password,
-      @Value("${javadropbox.demo.reset-at}") LocalTime resetAt) {
+      @Value("${javadropbox.demo.reset-at}") LocalTime resetAt,
+      @Value("${javadropbox.demo.quota:}") String quota) {
     this(
         users,
         passwordEncoder,
@@ -103,7 +108,8 @@ public class DemoService implements ApplicationRunner {
         Clock.systemUTC(),
         username,
         password,
-        resetAt);
+        resetAt,
+        quota.isBlank() ? null : DataSize.parse(quota.trim()).toBytes());
   }
 
   DemoService(
@@ -117,7 +123,8 @@ public class DemoService implements ApplicationRunner {
       Clock clock,
       String username,
       String password,
-      LocalTime resetAt) {
+      LocalTime resetAt,
+      Long quotaBytes) {
     this.users = users;
     this.passwordEncoder = passwordEncoder;
     this.fileService = fileService;
@@ -129,6 +136,7 @@ public class DemoService implements ApplicationRunner {
     this.username = username;
     this.password = password;
     this.resetAt = resetAt;
+    this.quotaBytes = quotaBytes;
   }
 
   public String username() {
@@ -137,6 +145,11 @@ public class DemoService implements ApplicationRunner {
 
   public String password() {
     return password;
+  }
+
+  /** What the shared account may store, previous versions included; null for no limit. */
+  public Long quotaBytes() {
+    return quotaBytes;
   }
 
   /** When the files will next be reset. */
@@ -175,14 +188,16 @@ public class DemoService implements ApplicationRunner {
     }
   }
 
-  // The account is created on the first start and its password put back if it was changed, e.g.
-  // through the recovery procedure in docs/self-hosting.md. Everyone shares it, so it must never
-  // manage accounts: upgrading to accounts of their own made the first account, which on the demo
-  // is this one, an admin.
+  // The account is created on the first start, and its password and quota put back if they were
+  // changed, e.g. through the recovery procedure in docs/self-hosting.md. Everyone shares it, so it
+  // must never manage accounts: upgrading to accounts of their own made the first account, which on
+  // the demo is this one, an admin.
   private void ensureAccount() {
     User user = users.findByUsername(username).orElse(null);
     if (user == null) {
-      users.save(new User(username, passwordEncoder.encode(password), User.ROLE_USER));
+      User created = new User(username, passwordEncoder.encode(password), User.ROLE_USER);
+      created.setQuotaBytes(quotaBytes);
+      users.save(created);
       log.info("Created the demo account \"{}\"", username);
       return;
     }
@@ -191,6 +206,11 @@ public class DemoService implements ApplicationRunner {
       user.setPassword(passwordEncoder.encode(password));
       changed = true;
       log.info("Reset the demo account's password");
+    }
+    if (!Objects.equals(user.getQuotaBytes(), quotaBytes)) {
+      user.setQuotaBytes(quotaBytes);
+      changed = true;
+      log.info("Reset the demo account's quota");
     }
     if (user.isAdmin() || !user.isEnabled()) {
       user.setRole(User.ROLE_USER);

@@ -40,6 +40,8 @@ An admin can't disable their own account or change their own role, and the app a
 
 **Upgrading** from a version without accounts of their own: at the first start, the database migration gives every file, version, share link and history entry to the first account (the one setup created), makes that account an admin, and the app moves everything at the top of the serving directory into its folder. Paths, versions and share links keep working. Other accounts start with nothing. Anything put at the top of the serving directory later is moved into the first account's folder at the next start, unless that folder already has something by the same name.
 
+**`javadropbox.storage.max-total-size` is gone.** It capped everything the server stored, every account's files together; give each account a quota in the app instead (see above). A server still configured with it refuses to start and says so, rather than running without the cap you set: remove the setting (or `JAVADROPBOX_STORAGE_MAX_TOTAL_SIZE`) once the accounts have quotas.
+
 ## Forgot your password?
 
 An admin can make you a reset link (see [Accounts](#accounts)). If you are the only admin, store a new bcrypt hash on your account. `htpasswd` makes one (run it from the `httpd` image as here, or use a local `htpasswd`, which can prompt for the password if you leave out `-b` and the password); replace `admin` with your username:
@@ -65,7 +67,6 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
 | `javadropbox.serving.directory` | `./JDB` | Where files are stored, each account's in `.users/<id>/`; also `--directory=/path` or a bare path as the first argument |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
-| `javadropbox.storage.max-total-size` | none | Cap on everything the server stores, every account's files and previous versions together (e.g. `50MB`); an upload or restore that would go over it is refused with `507`. Each account's own quota is set in the app (see [Accounts](#accounts)) |
 | `javadropbox.share.max-expiration` | `7d` | Longest lifetime a share link can be given |
 | `javadropbox.search.max-file-size` | `50MB` | Files larger than this are found by name only, without their text being read; `0` searches names alone |
 | `javadropbox.search.index-directory` | `.javadropbox/search-index` in the serving directory | Where the search index is kept |
@@ -79,7 +80,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 
 ## Search
 
-The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files. It does not count toward `javadropbox.storage.max-total-size`.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files. It does not count toward any account's quota.
 
 The files on disk are the source of truth, and the index only mirrors them:
 
