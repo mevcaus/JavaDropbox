@@ -73,7 +73,7 @@ describe('App routing', () => {
 
         expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
         expect(window.location.pathname).toBe('/invite/tok-1');
-        expect(api.get).toHaveBeenCalledWith('/invite/tok-1/info');
+        expect(api.get).toHaveBeenCalledWith('/api/invite/tok-1');
     });
 
     it('shows admins the accounts page', async () => {

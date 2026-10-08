@@ -136,15 +136,16 @@ class AdminIntegrationTests {
     String token = invite("carol", "USER", "1MB");
 
     mockMvc
-        .perform(get("/invite/" + token + "/info").with(anonymous()))
+        .perform(get("/api/invite/" + token).with(anonymous()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.username").value("carol"));
     mockMvc
-        .perform(post("/invite/" + token).param("password", "short").with(anonymous()).with(csrf()))
+        .perform(
+            post("/api/invite/" + token).param("password", "short").with(anonymous()).with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(
-            post("/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
         .andExpect(status().isOk());
 
     signIn("carol", PASSWORD)
@@ -156,11 +157,9 @@ class AdminIntegrationTests {
 
     mockMvc
         .perform(
-            post("/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
         .andExpect(status().isNotFound());
-    mockMvc
-        .perform(get("/invite/" + token + "/info").with(anonymous()))
-        .andExpect(status().isNotFound());
+    mockMvc.perform(get("/api/invite/" + token).with(anonymous())).andExpect(status().isNotFound());
     mockMvc
         .perform(get("/api/admin/invites").with(ADMIN))
         .andExpect(jsonPath("$.length()").value(0));
@@ -172,7 +171,7 @@ class AdminIntegrationTests {
     String token = invite("dana", "ADMIN", "");
     mockMvc
         .perform(
-            post("/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
         .andExpect(status().isOk());
 
     signIn("dana", PASSWORD).andExpect(jsonPath("$.role").value("ADMIN"));
@@ -189,12 +188,8 @@ class AdminIntegrationTests {
     String first = invite("erin", "USER", "");
     String second = invite("erin", "USER", "");
 
-    mockMvc
-        .perform(get("/invite/" + first + "/info").with(anonymous()))
-        .andExpect(status().isNotFound());
-    mockMvc
-        .perform(get("/invite/" + second + "/info").with(anonymous()))
-        .andExpect(status().isOk());
+    mockMvc.perform(get("/api/invite/" + first).with(anonymous())).andExpect(status().isNotFound());
+    mockMvc.perform(get("/api/invite/" + second).with(anonymous())).andExpect(status().isOk());
     mockMvc
         .perform(get("/api/admin/invites").with(ADMIN))
         .andExpect(jsonPath("$.length()").value(1))
@@ -226,7 +221,10 @@ class AdminIntegrationTests {
     for (String token : new String[] {withdrawn, expired}) {
       mockMvc
           .perform(
-              post("/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+              post("/api/invite/" + token)
+                  .param("password", PASSWORD)
+                  .with(anonymous())
+                  .with(csrf()))
           .andExpect(status().isNotFound());
     }
     assertThat(users.findByUsername("frank")).isEmpty();
@@ -243,17 +241,15 @@ class AdminIntegrationTests {
     String reset = passwordReset(bob);
 
     mockMvc
-        .perform(get("/reset-password/" + invitation + "/info").with(anonymous()))
+        .perform(get("/api/reset-password/" + invitation).with(anonymous()))
         .andExpect(status().isNotFound());
-    mockMvc
-        .perform(get("/invite/" + reset + "/info").with(anonymous()))
-        .andExpect(status().isNotFound());
+    mockMvc.perform(get("/api/invite/" + reset).with(anonymous())).andExpect(status().isNotFound());
 
     // Nor do they when used, and trying leaves both links working for what they are for.
     String bobsPassword = users.findById(bob.getId()).orElseThrow().getPassword();
     mockMvc
         .perform(
-            post("/invite/" + reset).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + reset).param("password", PASSWORD).with(anonymous()).with(csrf()))
         .andExpect(status().isNotFound());
     resetPassword(invitation, "a brand new password").andExpect(status().isNotFound());
     assertThat(users.count()).isEqualTo(2);
@@ -262,7 +258,7 @@ class AdminIntegrationTests {
 
     mockMvc
         .perform(
-            post("/invite/" + invitation)
+            post("/api/invite/" + invitation)
                 .param("password", PASSWORD)
                 .with(anonymous())
                 .with(csrf()))
@@ -300,7 +296,7 @@ class AdminIntegrationTests {
 
     mockMvc
         .perform(
-            post("/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.message").value(Matchers.containsString("already an account")));
 
@@ -314,7 +310,7 @@ class AdminIntegrationTests {
 
     // Refusing it rolls everything back, the link's use with it: the invitation is still open,
     // and listed for an admin to withdraw.
-    mockMvc.perform(get("/invite/" + token + "/info").with(anonymous())).andExpect(status().isOk());
+    mockMvc.perform(get("/api/invite/" + token).with(anonymous())).andExpect(status().isOk());
     mockMvc
         .perform(get("/api/admin/invites").with(ADMIN))
         .andExpect(jsonPath("$.length()").value(1))
@@ -405,19 +401,17 @@ class AdminIntegrationTests {
     setEnabled(dana, false).andExpect(status().isOk());
 
     mockMvc
-        .perform(get("/invite/" + danasInvite + "/info").with(anonymous()))
+        .perform(get("/api/invite/" + danasInvite).with(anonymous()))
         .andExpect(status().isNotFound());
     resetPassword(danasReset, "a brand new password").andExpect(status().isNotFound());
     signIn("bob", PASSWORD).andExpect(status().isOk());
     // Links other admins made are not Dana's to take with her.
-    mockMvc
-        .perform(get("/invite/" + rootsInvite + "/info").with(anonymous()))
-        .andExpect(status().isOk());
+    mockMvc.perform(get("/api/invite/" + rootsInvite).with(anonymous())).andExpect(status().isOk());
 
     // Enabling the account again does not bring them back.
     setEnabled(dana, true).andExpect(status().isOk());
     mockMvc
-        .perform(get("/invite/" + danasInvite + "/info").with(anonymous()))
+        .perform(get("/api/invite/" + danasInvite).with(anonymous()))
         .andExpect(status().isNotFound());
   }
 
@@ -571,12 +565,12 @@ class AdminIntegrationTests {
     // Until the link is used, nothing has changed.
     mockMvc.perform(get("/api/files").session(session)).andExpect(status().isOk());
     mockMvc
-        .perform(get("/reset-password/" + token + "/info").with(anonymous()))
+        .perform(get("/api/reset-password/" + token).with(anonymous()))
         .andExpect(jsonPath("$.username").value("bob"));
 
     mockMvc
         .perform(
-            post("/reset-password/" + token)
+            post("/api/reset-password/" + token)
                 .param("password", "a brand new password")
                 .with(anonymous())
                 .with(csrf()))
@@ -587,7 +581,7 @@ class AdminIntegrationTests {
     signIn("bob", "a brand new password").andExpect(status().isOk());
     mockMvc
         .perform(
-            post("/reset-password/" + token)
+            post("/api/reset-password/" + token)
                 .param("password", "yet another password")
                 .with(anonymous())
                 .with(csrf()))
@@ -621,7 +615,7 @@ class AdminIntegrationTests {
     jdbc.update("UPDATE account_links SET expires_at = ?", Instant.now().minusSeconds(1));
 
     mockMvc
-        .perform(get("/reset-password/" + token + "/info").with(anonymous()))
+        .perform(get("/api/reset-password/" + token).with(anonymous()))
         .andExpect(status().isNotFound());
     resetPassword(token, "a brand new password").andExpect(status().isNotFound());
 
@@ -660,7 +654,7 @@ class AdminIntegrationTests {
 
   private ResultActions resetPassword(String token, String password) throws Exception {
     return mockMvc.perform(
-        post("/reset-password/" + token)
+        post("/api/reset-password/" + token)
             .param("password", password)
             .with(anonymous())
             .with(csrf()));

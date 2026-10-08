@@ -108,8 +108,9 @@ public class SecurityConfig {
                         "/error",
                         "/share/**",
                         // Invitations and password resets, used by someone without a session.
-                        "/invite/**",
-                        "/reset-password/**",
+                        // The links' own pages are the app, let through like any navigation.
+                        "/api/invite/**",
+                        "/api/reset-password/**",
                         // Only exists in the demo profile, for the sign-in page.
                         "/api/demo",
                         "/swagger-ui.html",
