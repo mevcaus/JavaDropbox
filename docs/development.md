@@ -176,12 +176,12 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 **What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`). `V7` gives each account its own files: everything stored so far goes to the first account (made an admin), paths become unique per account, `users` gains `enabled`, `quota_bytes` and `session_version`, and `account_links` holds invitations and password resets.
 
-**Tests.** The H2 integration tests keep `ddl-auto=create-drop` with Flyway disabled, because the migrations are PostgreSQL SQL. Tests that need the real schema run against Testcontainers PostgreSQL through `PostgresTestSupport`, which applies the production Flyway and `ddl-auto` settings unchanged.
+**Tests.** Every test runs on the schema the migrations build. Each Spring context gets an empty database of its own in one Testcontainers PostgreSQL shared by the whole run, which Flyway migrates and Hibernate validates with the production Flyway and `ddl-auto` settings unchanged (`TestDatabaseEnvironment`). The migration tests start containers of their own, to begin from an older schema, through `PostgresTestSupport`.
 
 ## Tests
 
 ```bash
-./gradlew test             # backend; Docker must be running for the PostgreSQL tests
+./gradlew test             # backend; Docker must be running (PostgreSQL in Testcontainers)
 cd frontend && npm test    # frontend
 ```
 

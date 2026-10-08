@@ -42,7 +42,7 @@ A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox
 - **Revocable share links** that open as a page previewing the file, or listing the folder, before anything is downloaded. Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
 - **Streaming downloads.** Folders are zipped straight into the HTTP response, so memory use is flat however big the folder is. Files support range requests for resumable downloads.
 - **Full-text search** inside text files, PDFs and Word documents, ranked by relevance with the matching passage highlighted. An embedded Lucene index follows every change on a background thread, and catches up with files changed outside the app.
-- **Tested against the real thing.** About 400 backend tests, including concurrency, migration and upgrade tests on PostgreSQL via Testcontainers, cross-account isolation tests for every endpoint, and symlink-swap tests, plus about 270 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
+- **Tested against the real thing.** About 400 backend tests, all on PostgreSQL via Testcontainers with the schema the migrations build, including concurrency, migration and upgrade tests, cross-account isolation tests for every endpoint, and symlink-swap tests, plus about 270 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
 
 ## Architecture
 
@@ -232,7 +232,7 @@ Elasticsearch is Lucene with a cluster around it. Its indexing, BM25 relevance, 
 
 Elasticsearch (or OpenSearch) becomes the better choice once the app runs as several servers behind a load balancer: an embedded index belongs to one server, and Lucene over a network filesystem is unreliable. Lucene stays inside `SearchIndex`, whose callers see only paths and snippets, so that move would replace one class rather than the API or the UI ([#222](https://github.com/mevcaus/JavaDropbox/issues/222)).
 
-PostgreSQL's full-text search was the other candidate, but it would put the text of every file into the database, and the tests that run on H2 could not exercise it.
+PostgreSQL's full-text search was the other candidate, but it would put the text of every file into the database.
 
 ### Why stream ZIPs on the fly?
 Folder downloads write a `ZipOutputStream` straight to the HTTP response (`FolderArchive`) rather than building the archive in memory or in a temporary file. Memory use stays flat however large the folder is, and there is nothing to clean up afterwards. The cost is that the size is not known up front, so the response has no `Content-Length`.
@@ -307,20 +307,20 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 | **Database** | PostgreSQL, Flyway migrations |
 | **Search** | Apache Lucene (embedded), Apache PDFBox for the text of PDFs |
 | **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
-| **Testing** | JUnit 5, MockMvc, Testcontainers, H2, Jimfs; Vitest, Testing Library |
+| **Testing** | JUnit 5, MockMvc, Testcontainers, Jimfs; Vitest, Testing Library |
 | **Build and style** | Gradle, Spotless with google-java-format, ESLint |
 | **Delivery** | Docker (multi-stage build), Docker Compose, GitHub Actions, Fly.io |
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, upgrading an install from before accounts had their own files, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc. All of them run on **PostgreSQL in Testcontainers**, each test context on an empty database of its own built by the Flyway migrations, so the constraints, unique indexes and cascades of a real install are under test everywhere, concurrent replaces and deletes of one file included. Other suites run every Flyway migration on its own and upgrade an install from before accounts had their own files. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
     Push["Push or pull request<br/>to main"] --> Build & Docker & Frontend
 
     subgraph Gradle["Java CI with Gradle"]
-        Build["build<br/>tests on H2 and PostgreSQL<br/>Spotless format check"]
+        Build["build<br/>tests on PostgreSQL<br/>Spotless format check"]
         Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests"]
     end
 
