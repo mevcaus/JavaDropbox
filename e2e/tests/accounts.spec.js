@@ -46,6 +46,10 @@ test('an admin invites someone, who gets files of their own, and disables them',
     // Disabled, they are signed out on their next request.
     await page.reload();
     await page.getByRole('button', { name: `Disable ${invitee.username}` }).click();
+    await page
+        .getByRole('dialog', { name: `Disable ${invitee.username}?` })
+        .getByRole('button', { name: 'Disable', exact: true })
+        .click();
     await expect(page.getByRole('row').filter({ hasText: invitee.username })).toContainText('Disabled');
     await them.reload();
     await expect(them).toHaveURL(/\/login$/);

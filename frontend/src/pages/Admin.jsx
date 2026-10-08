@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Navigate } from 'react-router-dom';
-import { KeyRound, Loader2, UserPlus } from 'lucide-react';
+import { KeyRound, Loader2, ShieldCheck, UserMinus, UserPlus, UserX } from 'lucide-react';
 import api from '../services/api';
 import { selectIsAdmin } from '../features/authSlice';
 import { useToast } from '../hooks/useToast';
@@ -11,6 +11,7 @@ import { formatSize } from '../utils/format';
 import InviteModal, { INVITES_ENDPOINT } from '../components/InviteModal';
 import QuotaModal from '../components/QuotaModal';
 import Modal, { ModalActions } from '../components/Modal';
+import ConfirmModal from '../components/ConfirmModal';
 import CopyLinkField from '../components/CopyLinkField';
 import { primaryButton } from '../components/modalStyles';
 
@@ -24,6 +25,68 @@ const dangerButton =
     'text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500';
 
 const roleLabel = (role) => (role === 'ADMIN' ? 'Admin' : 'User');
+
+// What the dialog asking before a change to an account says. Enabling an account is not asked
+// about: it gives back what disabling took away, and nothing more.
+const CONFIRMATIONS = {
+    disable: (account) => ({
+        title: (
+            <>
+                Disable <span className="font-semibold">{account.username}</span>?
+            </>
+        ),
+        icon: <UserX className="h-6 w-6 text-red-600" aria-hidden="true" />,
+        iconClassName: 'bg-red-100',
+        tone: 'red',
+        confirmLabel: 'Disable',
+        message: (
+            <>
+                <p>
+                    {account.username} is signed out everywhere and can&apos;t sign in, and their share links stop
+                    working, until you enable the account again. Their files are kept.
+                </p>
+                {account.role === 'ADMIN' && (
+                    <p>The invitations and password reset links they made stop working for good.</p>
+                )}
+            </>
+        ),
+    }),
+    makeAdmin: (account) => ({
+        title: (
+            <>
+                Make <span className="font-semibold">{account.username}</span> an admin?
+            </>
+        ),
+        icon: <ShieldCheck className="h-6 w-6 text-blue-600" aria-hidden="true" />,
+        iconClassName: 'bg-blue-100',
+        tone: 'blue',
+        confirmLabel: 'Make admin',
+        message: (
+            <p>
+                Admins manage every account: they invite people, disable accounts, change roles and quotas, and
+                make password reset links, which can open any account. {account.username} is signed out, and
+                signs in again as an admin.
+            </p>
+        ),
+    }),
+    makeUser: (account) => ({
+        title: (
+            <>
+                Make <span className="font-semibold">{account.username}</span> a user?
+            </>
+        ),
+        icon: <UserMinus className="h-6 w-6 text-blue-600" aria-hidden="true" />,
+        iconClassName: 'bg-blue-100',
+        tone: 'blue',
+        confirmLabel: 'Make user',
+        message: (
+            <p>
+                {account.username} no longer manages the accounts. They are signed out, and keep their files
+                when they sign in again.
+            </p>
+        ),
+    }),
+};
 
 const usageLabel = (account) =>
     account.quotaBytes
@@ -56,6 +119,8 @@ const AccountsPage = () => {
     const [inviting, setInviting] = useState(false);
     const [quotaFor, setQuotaFor] = useState(null);
     const [resetLink, setResetLink] = useState(null);
+    // The change waiting to be confirmed: { action, account }, action a key of CONFIRMATIONS.
+    const [confirming, setConfirming] = useState(null);
     const { addToast } = useToast();
 
     // Counts loads, so that only the latest one's answer is shown: an earlier, slower one would show
@@ -120,6 +185,17 @@ const AccountsPage = () => {
             `${account.username} is now ${role === 'ADMIN' ? 'an admin' : 'a user'}`,
             'Could not change the role.',
         );
+
+    const confirmChange = async () => {
+        const { action, account } = confirming;
+        if (action === 'disable') {
+            await setEnabled(account, false);
+        } else {
+            await setRole(account, action === 'makeAdmin' ? 'ADMIN' : 'USER');
+        }
+        setConfirming(null);
+    };
+    const confirmation = confirming && CONFIRMATIONS[confirming.action](confirming.account);
 
     const resetPassword = async (account) => {
         setBusy(account.id);
@@ -243,7 +319,12 @@ const AccountsPage = () => {
                                                         <button
                                                             type="button"
                                                             disabled={waiting}
-                                                            onClick={() => setRole(account, account.role === 'ADMIN' ? 'USER' : 'ADMIN')}
+                                                            onClick={() =>
+                                                                setConfirming({
+                                                                    action: account.role === 'ADMIN' ? 'makeUser' : 'makeAdmin',
+                                                                    account,
+                                                                })
+                                                            }
                                                             aria-label={`${account.role === 'ADMIN' ? 'Make user' : 'Make admin'}, ${account.username}`}
                                                             className={actionButton}
                                                         >
@@ -252,7 +333,11 @@ const AccountsPage = () => {
                                                         <button
                                                             type="button"
                                                             disabled={waiting}
-                                                            onClick={() => setEnabled(account, !account.enabled)}
+                                                            onClick={() =>
+                                                                account.enabled
+                                                                    ? setConfirming({ action: 'disable', account })
+                                                                    : setEnabled(account, true)
+                                                            }
                                                             aria-label={`${account.enabled ? 'Disable' : 'Enable'} ${account.username}`}
                                                             className={account.enabled ? dangerButton : actionButton}
                                                         >
@@ -319,6 +404,20 @@ const AccountsPage = () => {
                     reload();
                 }}
             />
+
+            <ConfirmModal
+                isOpen={confirmation !== null}
+                onClose={() => setConfirming(null)}
+                onConfirm={confirmChange}
+                busy={busy !== null}
+                title={confirmation?.title}
+                icon={confirmation?.icon}
+                iconClassName={confirmation?.iconClassName}
+                tone={confirmation?.tone}
+                confirmLabel={confirmation?.confirmLabel}
+            >
+                {confirmation?.message}
+            </ConfirmModal>
 
             <Modal
                 isOpen={resetLink !== null}

@@ -60,6 +60,10 @@ const renderAs = (role, username = 'ada') => {
 const rowOf = async (username) => (await screen.findByRole('cell', { name: new RegExp(`^${username}`) })).closest('tr');
 const params = (call) => Object.fromEntries(call[1]);
 
+// Says yes in the dialog that asks before a change to an account.
+const confirmIn = async (user, dialogName, button) =>
+    user.click(within(await screen.findByRole('dialog', { name: dialogName })).getByRole('button', { name: button }));
+
 describe('Admin', () => {
     afterEach(cleanup);
     beforeEach(() => {
@@ -104,8 +108,10 @@ describe('Admin', () => {
         renderAs('ADMIN');
 
         await user.click(await screen.findByRole('button', { name: 'Disable bob' }));
-        // The row's buttons wait while a change is under way.
+        await confirmIn(user, 'Disable bob?', 'Disable');
+        // The buttons wait while a change is under way.
         await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Enable eve' })).toBeEnabled());
+        // Enabling gives back what disabling took, so it is not asked about.
         await user.click(screen.getByRole('button', { name: 'Enable eve' }));
 
         expect(api.put.mock.calls.map((call) => [call[0], params(call)])).toEqual([
@@ -135,6 +141,7 @@ describe('Admin', () => {
             return { data: ACCOUNTS.map((account) => (account.id === 2 ? { ...account, enabled: false } : account)) };
         });
         await user.click(disableBob);
+        await confirmIn(user, 'Disable bob?', 'Disable');
         await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('bob is disabled', 'success'));
 
         // The list still shows bob as active: a click now would act on what it used to say.
@@ -143,7 +150,59 @@ describe('Admin', () => {
 
         finishLoading();
         expect(await screen.findByRole('button', { name: 'Enable bob' })).toBeEnabled();
+        expect(screen.queryByRole('dialog')).toBeNull();
         expect(within(await rowOf('bob')).getByText('Disabled')).toBeInTheDocument();
+    });
+
+    it('asks before disabling an account or changing its role, and does nothing when cancelled', async () => {
+        const user = userEvent.setup();
+        serve({ accounts: [...ACCOUNTS, { id: 4, username: 'max', role: 'ADMIN', enabled: true, quotaBytes: null, usedBytes: 0 }] });
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Disable bob' }));
+        const disabling = screen.getByRole('dialog', { name: 'Disable bob?' });
+        expect(disabling).toHaveTextContent('signed out everywhere');
+        // bob is no admin, so has made no invitations to lose.
+        expect(disabling).not.toHaveTextContent('invitations');
+        await user.click(within(disabling).getByRole('button', { name: 'Cancel' }));
+
+        await user.click(screen.getByRole('button', { name: 'Disable max' }));
+        expect(screen.getByRole('dialog', { name: 'Disable max?' })).toHaveTextContent(
+            'The invitations and password reset links they made stop working for good.',
+        );
+        await user.keyboard('{Escape}');
+
+        await user.click(screen.getByRole('button', { name: 'Make admin, bob' }));
+        expect(screen.getByRole('dialog', { name: 'Make bob an admin?' })).toHaveTextContent('can open any account');
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(api.put).not.toHaveBeenCalled();
+    });
+
+    it('keeps the confirmation open and waiting until the change is done', async () => {
+        const user = userEvent.setup();
+        serve();
+        let finish;
+        api.put.mockReturnValue(
+            new Promise((resolve) => {
+                finish = resolve;
+            }),
+        );
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Disable bob' }));
+        const dialog = screen.getByRole('dialog', { name: 'Disable bob?' });
+        await user.click(within(dialog).getByRole('button', { name: 'Disable' }));
+        await user.keyboard('{Escape}');
+
+        expect(within(dialog).getByRole('button', { name: 'Working' })).toBeDisabled();
+        expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+        expect(api.put).toHaveBeenCalledTimes(1);
+
+        finish({ data: {} });
+        await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(addToast).toHaveBeenCalledWith('bob is disabled', 'success');
     });
 
     it('takes admin rights away', async () => {
@@ -153,6 +212,7 @@ describe('Admin', () => {
         renderAs('ADMIN');
 
         await user.click(await screen.findByRole('button', { name: 'Make user, max' }));
+        await confirmIn(user, 'Make max a user?', 'Make user');
 
         expect(api.put.mock.calls.map((call) => [call[0], params(call)])).toEqual([
             ['/api/admin/users/4/role', { role: 'USER' }],
@@ -169,6 +229,7 @@ describe('Admin', () => {
         renderAs('ADMIN');
 
         await user.click(await screen.findByRole('button', { name: 'Make admin, bob' }));
+        await confirmIn(user, 'Make bob an admin?', 'Make admin');
 
         expect(params(api.put.mock.calls[0])).toEqual({ role: 'ADMIN' });
         expect(addToast).toHaveBeenCalledWith('There has to be at least one admin who can sign in', 'error');
