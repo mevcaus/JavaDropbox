@@ -244,7 +244,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 ## Features
 
 **Files**
-- Multi-file upload, folder creation, recursive delete (with the metadata and versions of everything inside)
+- Multi-file upload, and whole folders uploaded with their subfolders; folder creation, recursive delete (with the metadata and versions of everything inside)
 - Downloads with MIME detection and HTTP range support; folders download as streamed ZIPs
 - In-browser previews of images, PDFs and text or source files; text previews fetch only the first 256 KB by range request
 - Full-text search across the open folder and everything beneath it, of names and of the text in text and source files, PDFs and Word documents, ranked by relevance with the matching words highlighted in a passage of each file
@@ -284,7 +284,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads, folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, and deletes. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, and deletes. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
@@ -329,7 +329,7 @@ Then open `http://localhost:8080` and create the first account with the setup co
 - [x] **File previews** for images, PDFs and text files
 - [x] **Live demo** deployed on every merge
 - [x] **Full-text search** across file contents and metadata on the server
-- [ ] **Folder upload** of whole directory structures
+- [x] **Folder upload** of whole directory structures
 - [ ] **Multi-user support** with role-based access and per-user quotas
 - [ ] **S3-compatible storage backend**
 - [ ] **Desktop sync client** that keeps a local folder in sync

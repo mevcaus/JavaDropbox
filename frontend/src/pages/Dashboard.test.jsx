@@ -143,6 +143,84 @@ describe('Dashboard', () => {
         expect(api.post).not.toHaveBeenCalled();
     });
 
+    describe('uploading a folder', () => {
+        // A file as the folder picker hands it over: jsdom has no webkitRelativePath of its own.
+        const pickedFile = (relativePath) => {
+            const file = new File(['x'], relativePath.split('/').at(-1));
+            Object.defineProperty(file, 'webkitRelativePath', { value: relativePath });
+            return file;
+        };
+        const postedPaths = () => api.post.mock.calls.map(([, form]) => form.get('path'));
+
+        it('opens a folder picker', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+
+            expect(await screen.findByLabelText('Upload folder')).toHaveAttribute('webkitdirectory');
+        });
+
+        it('keeps its subfolders, below the open folder', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            api.post.mockResolvedValue({ data: {} });
+            const user = userEvent.setup();
+            renderDashboard({ url: '/dashboard?path=Photos' });
+            await screen.findByText('beach.jpg');
+
+            await user.upload(screen.getByLabelText('Upload folder'), [
+                pickedFile('Trip/plan.txt'),
+                pickedFile('Trip/Day 1/arrival.jpg'),
+            ]);
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Uploaded folder "Trip" (2 files) successfully.', 'success'));
+            expect(postedPaths()).toEqual(['Photos/Trip', 'Photos/Trip/Day 1']);
+        });
+
+        it('leaves out dot-named files and folders, naming each once', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            api.post.mockResolvedValue({ data: {} });
+            const user = userEvent.setup();
+            renderDashboard();
+            await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            await user.upload(screen.getByLabelText('Upload folder'), [
+                pickedFile('Trip/plan.txt'),
+                pickedFile('Trip/.DS_Store'),
+                pickedFile('Trip/Day 1/.DS_Store'),
+                pickedFile('Trip/.git/config'),
+            ]);
+
+            expect(addToast).toHaveBeenCalledWith('.DS_Store, .git were not uploaded. Names cannot start with a dot.', 'info');
+            await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+            expect(api.post.mock.calls[0][1].getAll('files').map((file) => file.name)).toEqual(['plan.txt']);
+        });
+
+        it('sends nothing when the folder itself has a dot name', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            const user = userEvent.setup();
+            renderDashboard();
+            await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            await user.upload(screen.getByLabelText('Upload folder'), [pickedFile('.config/a.txt'), pickedFile('.config/b/c.txt')]);
+
+            expect(addToast).toHaveBeenCalledWith('.config was not uploaded. Names cannot start with a dot.', 'info');
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('reports a failure and keeps both upload buttons usable afterwards', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            api.post.mockRejectedValueOnce({ response: { status: 400, data: { message: '"Trip" is a file, not a folder' } } });
+            const user = userEvent.setup();
+            renderDashboard();
+            await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            await user.upload(screen.getByLabelText('Upload folder'), [pickedFile('Trip/plan.txt')]);
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('"Trip" is a file, not a folder', 'error'));
+            expect(screen.getByLabelText('Upload folder')).toBeEnabled();
+            expect(screen.getByLabelText('Upload')).toBeEnabled();
+        });
+    });
+
     it('keeps the table on screen while the list refreshes', async () => {
         api.get.mockResolvedValueOnce({ data: TREE });
         const store = renderDashboard();
