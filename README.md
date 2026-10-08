@@ -14,7 +14,7 @@
 
 # ☁️ JavaDropbox
 
-A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox and Google Drive. Upload, preview, version, share and restore files through a React dashboard, backed by a Spring Boot REST API, PostgreSQL and the filesystem.
+A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox and Google Drive. Upload, preview, version, share and restore files through a React dashboard, backed by a Spring Boot REST API, PostgreSQL and the filesystem. Each account has files of its own, and admins invite people and set their quotas.
 
 **[Try the live demo →](https://javadropbox.mevcaus.dev)** Sign in as `demo` with the password `javadropbox`. Everyone shares that account, and it is reset every day.
 
@@ -37,15 +37,16 @@ A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox
 
 - **Crash-safe uploads.** New content is streamed to a scratch file and renamed into place inside a database transaction. If anything fails, rollback hooks put the previous file back on disk, so a failed or dropped upload never leaves a half-written or lost file.
 - **File versioning.** Replacing a file keeps the old content as a version that can be restored in place or as a copy, with configurable retention and concurrent replaces serialized by a row lock.
-- **Defense against path attacks.** Every client-supplied path goes through one class that rejects `..` traversal, symlinks (rechecked right before each disk operation), reserved folders in any letter case, and hidden names.
+- **Accounts of their own.** Each account's files live in a folder of its own, and every path is resolved inside it, so one account can't reach another's files by path or by id, through any endpoint. Admins invite people with one-time links, set roles and per-account quotas, and disable accounts, whose sessions end on their next request.
+- **Defense against path attacks.** Every client-supplied path goes through one class that rejects `..` traversal out of the account's folder, symlinks (rechecked right before each disk operation), reserved folders in any letter case, and hidden names.
 - **Revocable share links** that open as a page previewing the file, or listing the folder, before anything is downloaded. Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
 - **Streaming downloads.** Folders are zipped straight into the HTTP response, so memory use is flat however big the folder is. Files support range requests for resumable downloads.
 - **Full-text search** inside text files, PDFs and Word documents, ranked by relevance with the matching passage highlighted. An embedded Lucene index follows every change on a background thread, and catches up with files changed outside the app.
-- **Tested against the real thing.** About 300 backend tests, including concurrency and migration tests on PostgreSQL via Testcontainers and symlink-swap tests, plus about 200 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
+- **Tested against the real thing.** About 400 backend tests, including concurrency, migration and upgrade tests on PostgreSQL via Testcontainers, cross-account isolation tests for every endpoint, and symlink-swap tests, plus about 270 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
 
 ## Architecture
 
-The whole app ships as one container: Spring Boot serves the REST API and the built React app. File bytes live on the filesystem; everything about them (metadata, versions, history, share links) lives in PostgreSQL. The search index is a Lucene index on the filesystem too, built from the files and rebuilt from them whenever it has to be.
+The whole app ships as one container: Spring Boot serves the REST API and the built React app. File bytes live on the filesystem, in a folder per account; everything about them (accounts, metadata, versions, history, share links) lives in PostgreSQL. The search index is a Lucene index on the filesystem too, built from the files and rebuilt from them whenever it has to be.
 
 ```mermaid
 flowchart TB
@@ -53,11 +54,11 @@ flowchart TB
 
     subgraph App["Spring Boot 3.5"]
         direction TB
-        Security["Security filter chain<br/>setup gate · sign-in throttle · CSRF · sessions"]
-        Controllers["REST controllers<br/>files · versions · shares · history · search"]
-        Services["Services<br/>FileService · FileVersionService · ShareLinkService · SearchService"]
+        Security["Security filter chain<br/>setup gate · sign-in throttle · CSRF · sessions · roles"]
+        Controllers["REST controllers<br/>files · versions · shares · history · search · admin"]
+        Services["Services<br/>FileService · FileVersionService · ShareLinkService · SearchService · AccountService"]
         Index["SearchIndex<br/>Lucene, written on a background thread"]
-        Paths["StoragePaths<br/>the only way a client path reaches the disk"]
+        Paths["StoragePaths<br/>the only way a client path reaches the disk,<br/>inside the account's own folder"]
         Repos["Spring Data JPA repositories"]
         Security --> Controllers --> Services
         Services --> Paths
@@ -65,8 +66,8 @@ flowchart TB
         Services --> Index
     end
 
-    DB[("PostgreSQL<br/>metadata · versions · history · share links")]
-    Disk[("Filesystem<br/>files · .versions/ · .javadropbox/search-index")]
+    DB[("PostgreSQL<br/>accounts · metadata · versions · history · share links")]
+    Disk[("Filesystem<br/>.users/&lt;id&gt;/ · .versions/ · .javadropbox/search-index")]
 
     Browser -- "JSON over HTTPS<br/>session cookie + CSRF token" --> Security
     Repos -- "JDBC · schema by Flyway" --> DB
@@ -76,10 +77,10 @@ flowchart TB
 
 | Layer | Responsibility | Key classes |
 |-------|----------------|-------------|
-| **Config** | Security chain, first-run setup gate, sign-in throttling, CORS | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `SpaFallbackFilter` |
-| **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `SearchController`, `DownloadResponses`, `ApiExceptionHandler` |
-| **Service** | Path validation, file I/O, versioning, audit log, share links, search | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor` |
-| **Repository** | Data access, including pessimistic row locks | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `ShareLinkRepository` |
+| **Config** | Security chain, first-run setup gate, sign-in throttling, ending sessions of changed accounts, CORS | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `AccountSessionFilter`, `SpaFallbackFilter` |
+| **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `SearchController`, `AdminController`, `AccountLinkController`, `DownloadResponses`, `ApiExceptionHandler` |
+| **Service** | Path validation, file I/O, versioning, audit log, share links, search, accounts and quotas | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor`, `AccountService`, `AccountLinkService`, `StorageQuota` |
+| **Repository** | Data access, including pessimistic row locks | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `ShareLinkRepository`, `UserRepository`, `AccountLinkRepository` |
 
 ### Data model
 
@@ -90,20 +91,24 @@ erDiagram
     file_metadata |o--o{ file_history : "is logged in"
     file_metadata ||--o{ share_links : "is shared by"
     users ||--o{ share_links : creates
+    users |o--o{ account_links : "is reset by"
 
     users {
         bigint id PK
         varchar username UK
         varchar password "BCrypt hash"
-        varchar role
+        varchar role "ROLE_ADMIN or ROLE_USER"
+        boolean enabled
+        bigint quota_bytes "null for no limit"
+        int session_version "bumped to end its sessions"
     }
     file_metadata {
         bigint id PK
-        varchar path UK "keyed by its on-disk spelling"
+        bigint user_id FK "the owner, unique with path"
+        varchar path "in the owner's folder, keyed by its on-disk spelling"
         varchar filename
         boolean is_directory
         bigint size
-        bigint user_id FK
     }
     file_versions {
         bigint id PK
@@ -127,9 +132,17 @@ erDiagram
         timestamptz expires_at
         timestamptz revoked_at
     }
+    account_links {
+        bigint id PK
+        varchar token_hash UK "SHA-256 of the token"
+        varchar purpose "INVITE or PASSWORD_RESET"
+        varchar username "an invitation's account"
+        bigint user_id FK "a reset's account"
+        timestamptz expires_at
+    }
 ```
 
-The schema is owned by six versioned [Flyway](https://documentation.red-gate.com/flyway) migrations; Hibernate only validates that the entities match it.
+The schema is owned by seven versioned [Flyway](https://documentation.red-gate.com/flyway) migrations; Hibernate only validates that the entities match it.
 
 ## How it works
 
@@ -224,6 +237,13 @@ PostgreSQL's full-text search was the other candidate, but it would put the text
 ### Why stream ZIPs on the fly?
 Folder downloads write a `ZipOutputStream` straight to the HTTP response (`FolderArchive`) rather than building the archive in memory or in a temporary file. Memory use stays flat however large the folder is, and there is nothing to clean up afterwards. The cost is that the size is not known up front, so the response has no `Content-Length`.
 
+### Why a folder per account?
+Every account's files live in `.users/<id>/` inside the serving directory, and `StoragePaths` resolves each request's paths inside the signed-in account's folder only: whatever a path says, normalized and with symlinks refused, it can't leave that folder. So isolation doesn't depend on every query remembering a `WHERE owner = ?`; a path simply has nowhere else to go. Rows that are reached by id instead (versions, restores, share links) are checked against their owner, and another account's item is a `404`, as if it did not exist. Paths in the database are relative to the owner's folder and unique per owner, so two accounts can each have a `report.txt`, and the search index keys each item by its owner's id and path, so every search is confined to one account's files.
+
+The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. A folder per account also maps directly onto an S3 prefix per account later. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
+
+Sessions are checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
+
 ### Why a setup filter and a setup code?
 Rather than shipping hardcoded credentials, the app detects first-run state (no users in the database) and redirects every request to a setup page. This is a filter inside Spring Security's chain, ahead of form login, so setup is reachable without authentication. Reachable without authentication also means reachable by whoever finds the server first, so creating the account also needs a one-time code that the server prints to its log (the approach Jupyter takes): whoever installed the server can read it, someone who merely found the address cannot.
 
@@ -256,11 +276,20 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 - An audit log of every upload, delete, folder creation and restore, including failures, which are recorded even though the operation rolled back
 - On startup, leftovers from a crash (scratch files, orphaned versions) are cleaned up, with safeguards so starting against the wrong database can't delete version history
 
+**Accounts**
+- Each account has its own files, versions, history, share links, search and storage use; nobody else, admins included, can see them
+- Admins invite people with one-time links (valid for 7 days), choosing their role and quota, and can withdraw an invitation before it is used
+- Per-account quotas, previous versions included, shown in the sidebar as a meter; uploads and restores that would go over are refused with a clear message
+- Disabling an account signs it out everywhere and stops its share links; admins make one-time password reset links
+- Safeguards: admins can't disable themselves or change their own role, and there is always an admin who can sign in
+- Existing installs upgrade with their files, versions and share links intact under the first account
+
 **Security**
 - Spring Security form login with sessions, BCrypt passwords and cookie-based CSRF protection
+- `ADMIN` and `USER` roles; metrics and account management for admins only
 - Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy
 - Path safety, as above; paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one record
-- Optional caps on upload size, total storage (versions included) and share-link lifetime
+- Optional caps on upload size, the server's total storage (versions included) and share-link lifetime
 
 **Frontend**
 - React 19 single-page app with Redux Toolkit, Tailwind CSS and responsive layout
@@ -268,7 +297,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 **Operations**
 - One Docker image with the frontend bundled into the backend, plus Docker Compose with PostgreSQL
-- Health and usage metrics through Spring Boot Actuator, and an OpenAPI spec with Swagger UI in development
+- Health and usage metrics through Spring Boot Actuator (details and metrics for admins), and an OpenAPI spec with Swagger UI in development
 
 ## Tech stack
 
@@ -284,7 +313,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, and deletes. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc on an in-memory database. The ones where the database matters run on **PostgreSQL in Testcontainers**: concurrent replaces and deletes of one file, every Flyway migration, upgrading an install from before accounts had their own files, and the first-run setup. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
@@ -305,7 +334,7 @@ flowchart LR
 
 [javadropbox.mevcaus.dev](https://javadropbox.mevcaus.dev) is the same Docker image, deployed to [Fly.io](https://fly.io) with a [Neon](https://neon.tech) PostgreSQL database every time a merge to `main` passes CI. A `demo` Spring profile makes it safe to leave open to the public:
 
-- **No setup.** The shared account is created at startup, and the sign-in page offers to fill it in.
+- **No setup.** The shared account is created at startup, and the sign-in page offers to fill it in. It is an ordinary account, never an admin, so visitors can't invite anyone or see the server's metrics.
 - **A daily reset.** Every file, version, share link and history entry is deleted, and a few sample files are stored again, including one with versions to restore. Fly suspends the server while nobody is using it, and a scheduled job can't run during a suspend, so the reset runs on the first request after it falls due, before that request is handled.
 - **Small limits**, so it can't be used as free file hosting: 5 MB per file, 50 MB in total (previous versions included), and share links that last at most 15 minutes.
 
@@ -330,7 +359,7 @@ Then open `http://localhost:8080` and create the first account with the setup co
 - [x] **Live demo** deployed on every merge
 - [x] **Full-text search** across file contents and metadata on the server
 - [x] **Folder upload** of whole directory structures
-- [ ] **Multi-user support** with role-based access and per-user quotas
+- [x] **Multi-user support** with role-based access and per-user quotas
 - [ ] **S3-compatible storage backend**
 - [ ] **Desktop sync client** that keeps a local folder in sync
 
