@@ -58,7 +58,7 @@ npm test
 
 | Test Suite | What It Covers |
 |-----------|----------------|
-| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, previewing a file in the open folder by its full path, re-uploading the same file, keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting, share pages shown without a session |
+| `Dashboard.test.jsx`, `App.test.jsx` | Downloads through a link rather than into memory, previewing a file in the open folder by its full path, re-uploading the same file, uploading a folder (its subfolders kept below the open folder, dot-named files and folders left out and each named once, failures reported), keeping the table during refreshes, the open folder in the URL (reload and Back), dot-named uploads, unknown URLs redirecting, share pages shown without a session |
 | `Modal.test.jsx` | Escape, focus trap (including focus outside the panel or on a removed control) and focus restore with a fallback |
 | `CreateFolderModal.test.jsx` | Closing only once the folder exists, the pending state, inline server errors, the dot-name rule |
 | `ShareModal.test.jsx` | Expiry selection, errors, double-submit guard, clipboard fallback over plain http, ignoring a slow answer for the previous item, listing and revoking active links |
@@ -66,7 +66,7 @@ npm test
 | `Shared.test.jsx` | A share link's page: a file described and previewed (text, image, PDF) with nothing downloaded until the Download link, a note for files with no preview, a folder's contents browsed in place, dead links explained, other errors reported |
 | `VersionHistoryModal.test.jsx` | Listing versions, restoring in either mode, a restore for one file not affecting the next file's dialog |
 | `Login.test.jsx`, `Setup.test.jsx`, `Navbar.test.jsx` | Offering setup only while no account exists, errors announced as alerts, setup code and password checks, a failed logout keeping the user signed in |
-| `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, CSRF priming, 401 handling, readable error messages |
+| `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js` | Session handling (logout is a POST, no password in the console), only the newest file listing applied, refreshing after failed mutations, folder uploads sent a folder at a time, parents first, with bare file names, stopping at the first failure, CSRF priming, 401 handling, readable error messages |
 | `ToastContext.test.jsx` | Errors announced assertively, toasts held while hovered or focused |
 | `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | Default folders-before-files ordering; search asking the server about the open folder once typing pauses, results best first with path labels, the matching passage with its words marked and markup in it shown as text, results shown as the tree has them (so tracked files offer versions) or as the server sent them, counts, the best-of note, the still-indexing note, failures, answers to an older search dropped, searching again when the files change, sorting results by a column and back to relevance; sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, previews offered only for files the server marks previewable, visible keyboard focus, the breadcrumb landmark |
 
@@ -104,7 +104,7 @@ CI runs the suite in the `docker` job of `.github/workflows/gradle.yml` after th
 |-----------|----------------|
 | `account.setup.js` | First-run setup with the code from the server log, signing in, the session the other tests share |
 | `auth.spec.js` | Signed-out visitors sent to sign-in with no setup link, a wrong password refused, signing in, a session that survives a reload, signing out ending the session on the server |
-| `files.spec.js` | Creating a folder and opening it (kept across a reload), uploading a file and downloading the same bytes, downloading a folder as a zip, deleting a file and a folder for good |
+| `files.spec.js` | Creating a folder and opening it (kept across a reload), uploading a file and downloading the same bytes, uploading a folder with its subfolders (a `.DS_Store` left out), downloading a folder as a zip, deleting a file and a folder for good |
 | `preview.spec.js` | An image decoded in the preview, a PDF served inline and frameable, a text file shown as text with its markup unrendered, downloading from the preview |
 | `share.spec.js` | A link opened in a signed-out browser showing a page that previews the file and downloads it from there, a folder's page listing its contents and downloading a zip, a script fetching the link getting the file until it is revoked (a 404 straight after, and a page saying so), links listed again when the dialog is reopened |
 | `versions.spec.js` | Uploading over a file, restoring the earlier version in place (the replaced content kept as a version) and as a copy |
