@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Link2, Copy, Check, Loader2 } from 'lucide-react';
+import { Link2, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
 import { useDemoInfo } from '../hooks/useDemoInfo';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import Modal, { ModalActions } from './Modal';
+import CopyLinkField from './CopyLinkField';
 import { primaryButton, secondaryButton } from './modalStyles';
 
 const EXPIRATION_OPTIONS = [
@@ -32,20 +33,14 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [shareUrl, setShareUrl] = useState(null);
-    const [copied, setCopied] = useState(false);
-    const linkInputRef = useRef(null);
-    const copiedTimerRef = useRef(null);
     // Counts requests, so only the latest one's answer is shown.
     const requestRef = useRef(0);
-    const { addToast } = useToast();
     // The public demo only allows short links. Until its limits have loaded, all choices show.
     const options = expirationOptions(useDemoInfo()?.maxShareMinutes);
     // A choice the limit rules out (such as the default) falls back to the longest one allowed.
     const minutes = options.some((opt) => opt.minutes === expirationMinutes)
         ? expirationMinutes
         : options[options.length - 1].minutes;
-
-    useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 
     const handleGenerate = async () => {
         const request = ++requestRef.current;
@@ -67,18 +62,6 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
             if (isCurrent()) setError(readableError(err, 'Failed to create share link.'));
         } finally {
             if (isCurrent()) setLoading(false);
-        }
-    };
-
-    const handleCopy = async () => {
-        if (!shareUrl) return;
-        if (await copyToClipboard(shareUrl, linkInputRef.current)) {
-            setCopied(true);
-            addToast('Link copied to clipboard', 'success');
-            clearTimeout(copiedTimerRef.current);
-            copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-        } else {
-            addToast('Could not copy automatically. The link is selected: press Ctrl+C (or ⌘C) to copy it.', 'info');
         }
     };
 
@@ -123,25 +106,7 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
                 </div>
             ) : (
                 <div className="mt-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                        <input
-                            ref={linkInputRef}
-                            type="text"
-                            readOnly
-                            aria-label="Share link"
-                            value={shareUrl}
-                            className="block w-full rounded-md border-gray-300 shadow-sm bg-gray-50 text-sm py-2 px-3 border"
-                            onFocus={(e) => e.target.select()}
-                        />
-                        <button
-                            type="button"
-                            onClick={handleCopy}
-                            className="flex-shrink-0 inline-flex items-center justify-center p-2 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
-                            title="Copy link"
-                        >
-                            {copied ? <Check className="h-5 w-5 text-green-600" /> : <Copy className="h-5 w-5" />}
-                        </button>
-                    </div>
+                    <CopyLinkField url={shareUrl} label="Share link" />
                     <p className="text-sm text-gray-500">
                         This link expires in {options.find((o) => o.minutes === minutes)?.label || `${minutes} minutes`}.
                         Copy it now: it can't be shown again, though it can be revoked below.
@@ -235,27 +200,6 @@ const ActiveLinks = ({ path }) => {
             {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
         </div>
     );
-};
-
-// The Clipboard API only exists in secure contexts, and a self-hosted install is often opened over
-// plain http on a LAN address, where navigator.clipboard is undefined. Fall back to selecting the
-// link and the legacy copy command, and report whether anything worked.
-const copyToClipboard = async (text, input) => {
-    if (navigator.clipboard?.writeText) {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch {
-            // Permission denied or the document lost focus; try the fallback.
-        }
-    }
-    input?.focus();
-    input?.select();
-    try {
-        return document.execCommand?.('copy') ?? false;
-    } catch {
-        return false;
-    }
 };
 
 export default ShareModal;

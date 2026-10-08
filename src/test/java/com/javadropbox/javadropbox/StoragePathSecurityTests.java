@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,12 +60,20 @@ class StoragePathSecurityTests {
     TestDatabase.wipe(jdbc);
   }
 
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
   @BeforeEach
   void setUp() throws IOException {
-    if (userRepository.count() == 0) {
-      userRepository.save(new User("testuser", "unused", "ROLE_ADMIN"));
-    }
-    Files.writeString(servingDir.resolve("keep.txt"), "keep");
+    owner =
+        userRepository
+            .findByUsername("testuser")
+            .orElseGet(() -> userRepository.save(new User("testuser", "unused", "ROLE_ADMIN")));
+    home = storagePaths.home(owner).root();
+    Files.writeString(home.resolve("keep.txt"), "keep");
     Files.writeString(outsideDir.resolve("secret.txt"), "secret");
   }
 
@@ -77,12 +86,19 @@ class StoragePathSecurityTests {
         .andExpect(status().isBadRequest());
 
     assertThat(servingDir).isDirectory();
-    assertThat(servingDir.resolve("keep.txt")).exists();
+    assertThat(home.resolve("keep.txt")).exists();
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"../secret.txt", "a/../../secret.txt", "/etc/passwd"})
-  @DisplayName("paths outside the serving directory are refused")
+  @ValueSource(
+      strings = {
+        "../secret.txt",
+        "a/../../secret.txt",
+        "/etc/passwd",
+        "../../.versions/keep.txt.v1",
+        "../2/keep.txt"
+      })
+  @DisplayName("paths outside the account's folder are refused")
   void traversalIsRefused(String path) throws Exception {
     mockMvc
         .perform(get("/api/files/download").param("path", path))
@@ -99,7 +115,13 @@ class StoragePathSecurityTests {
         .perform(get("/api/files/download").param("path", ".versions/keep.txt.v1"))
         .andExpect(status().isBadRequest());
     mockMvc
+        .perform(get("/api/files/download").param("path", "../../.versions/keep.txt.v1"))
+        .andExpect(status().isBadRequest());
+    mockMvc
         .perform(delete("/api/files").param("path", ".versions").with(csrf()))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(delete("/api/files").param("path", "../../.versions").with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(post("/api/share").param("path", ".versions/keep.txt.v1").with(csrf()))
@@ -164,9 +186,9 @@ class StoragePathSecurityTests {
   }
 
   @Test
-  @DisplayName("a symlink cannot be used to reach files outside the serving directory")
+  @DisplayName("a symlink cannot be used to reach files outside the account's folder")
   void symlinkEscapeIsRefused() throws Exception {
-    Path link = servingDir.resolve("escape");
+    Path link = home.resolve("escape");
     Files.deleteIfExists(link);
     Files.createSymbolicLink(link, outsideDir);
 
@@ -180,16 +202,16 @@ class StoragePathSecurityTests {
   }
 
   @Test
-  @DisplayName("a symlink inside the serving directory cannot alias the root or a reserved folder")
+  @DisplayName("a symlink in the account's folder cannot alias its root or a reserved folder")
   void inRootSymlinkCannotAliasRootOrReservedFolder() throws Exception {
     Files.createDirectories(servingDir.resolve(".versions"));
     Files.writeString(servingDir.resolve(".versions/keep.txt.v1"), "old");
     Files.createDirectories(servingDir.resolve(".javadropbox"));
     Files.writeString(servingDir.resolve(".javadropbox/share-jwt.key"), "key");
-    Files.createDirectories(servingDir.resolve("a"));
-    Path self = Files.createSymbolicLink(servingDir.resolve("self"), Path.of("."));
-    Path versions = Files.createSymbolicLink(servingDir.resolve("v"), Path.of(".versions"));
-    Path up = Files.createSymbolicLink(servingDir.resolve("a/up"), Path.of(".."));
+    Files.createDirectories(home.resolve("a"));
+    Path self = Files.createSymbolicLink(home.resolve("self"), Path.of("."));
+    Path versions = Files.createSymbolicLink(home.resolve("v"), Path.of(".versions"));
+    Path up = Files.createSymbolicLink(home.resolve("a/up"), Path.of(".."));
     try {
       mockMvc
           .perform(post("/api/share").param("path", "self").with(csrf()))
@@ -214,7 +236,7 @@ class StoragePathSecurityTests {
           .andExpect(status().isBadRequest());
 
       assertThat(servingDir.resolve(".versions/keep.txt.v1")).hasContent("old");
-      assertThat(servingDir.resolve("keep.txt")).exists();
+      assertThat(home.resolve("keep.txt")).exists();
     } finally {
       Files.delete(self);
       Files.delete(versions);
@@ -225,15 +247,15 @@ class StoragePathSecurityTests {
   @Test
   @DisplayName("an upload through a symlink is refused rather than keyed by the link's name")
   void uploadThroughInRootSymlinkIsRefused() throws Exception {
-    Files.createDirectories(servingDir.resolve("sub"));
-    Path link = Files.createSymbolicLink(servingDir.resolve("link"), Path.of("sub"));
+    Files.createDirectories(home.resolve("sub"));
+    Path link = Files.createSymbolicLink(home.resolve("link"), Path.of("sub"));
     MockMultipartFile file = new MockMultipartFile("files", "x.txt", "text/plain", "x".getBytes());
     try {
       mockMvc
           .perform(multipart("/api/files").file(file).param("path", "link").with(csrf().asHeader()))
           .andExpect(status().isBadRequest());
 
-      assertThat(servingDir.resolve("sub/x.txt")).doesNotExist();
+      assertThat(home.resolve("sub/x.txt")).doesNotExist();
       assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_metadata", Long.class)).isZero();
     } finally {
       Files.delete(link);
@@ -243,7 +265,7 @@ class StoragePathSecurityTests {
   @Test
   @DisplayName("a symlink loop does not break the file tree")
   void symlinkLoopIsSkipped() throws Exception {
-    Path link = servingDir.resolve("loop");
+    Path link = home.resolve("loop");
     Files.deleteIfExists(link);
     Files.createSymbolicLink(link, servingDir);
 
@@ -260,7 +282,7 @@ class StoragePathSecurityTests {
         .perform(multipart("/api/files").file(file).param("path", "").with(csrf().asHeader()))
         .andExpect(status().isOk());
 
-    assertThat(servingDir.resolve("notes..v2.txt")).hasContent("hello");
+    assertThat(home.resolve("notes..v2.txt")).hasContent("hello");
   }
 
   @Test
@@ -281,9 +303,9 @@ class StoragePathSecurityTests {
         .perform(multipart("/api/files").file(file).param("path", ".cache").with(csrf().asHeader()))
         .andExpect(status().isBadRequest());
 
-    assertThat(servingDir.resolve(".env")).doesNotExist();
-    assertThat(servingDir.resolve(".config")).doesNotExist();
-    assertThat(servingDir.resolve(".cache")).doesNotExist();
+    assertThat(home.resolve(".env")).doesNotExist();
+    assertThat(home.resolve(".config")).doesNotExist();
+    assertThat(home.resolve(".cache")).doesNotExist();
   }
 
   @ParameterizedTest

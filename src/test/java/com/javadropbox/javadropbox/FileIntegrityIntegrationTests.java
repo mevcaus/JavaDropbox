@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -11,11 +12,14 @@ import static org.mockito.Mockito.doThrow;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.RestoreMode;
+import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileHistoryService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
 import com.javadropbox.javadropbox.service.StoragePaths;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import jakarta.persistence.EntityManagerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -38,6 +42,7 @@ import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,6 +52,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -67,6 +75,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
       "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=WARN"
     })
 @Testcontainers
+@WithMockUser(username = "owner")
 @DisplayName("File operations on PostgreSQL - concurrency and failures")
 class FileIntegrityIntegrationTests {
 
@@ -84,11 +93,22 @@ class FileIntegrityIntegrationTests {
 
   @Autowired private FileService fileService;
   @Autowired private FileMetadataRepository metadata;
+  @Autowired private UserRepository users;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private EntityManagerFactory entityManagerFactory;
   @MockitoSpyBean private FileVersionService versionService;
   @MockitoSpyBean private FileHistoryService historyService;
   @MockitoSpyBean private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
+  @BeforeEach
+  void setUp() {
+    owner = users.save(new User("owner", "unused", User.ROLE_ADMIN));
+    home = storagePaths.home(owner).root();
+  }
 
   @AfterEach
   void tearDown() throws IOException {
@@ -118,7 +138,7 @@ class FileIntegrityIntegrationTests {
     assertThat(errors).isEmpty();
     assertThat(versionContents(id).keySet()).containsExactly(1, 2, 3);
     assertThat(versionContents(id)).containsEntry(1, "one").containsEntry(2, "two");
-    assertThat(List.of(versionContents(id).get(3), Files.readString(servingDir.resolve("r.txt"))))
+    assertThat(List.of(versionContents(id).get(3), Files.readString(home.resolve("r.txt"))))
         .containsExactlyInAnyOrder("from A", "from B");
     assertThat(metadata.findById(id).orElseThrow().getCurrentVersion()).isEqualTo(4);
   }
@@ -139,7 +159,7 @@ class FileIntegrityIntegrationTests {
     assertThat(errors).isEmpty();
     assertThat(versionContents(id).keySet()).containsExactly(1, 2, 3);
     assertThat(versionContents(id)).containsEntry(1, "one").containsEntry(2, "two");
-    assertThat(List.of(versionContents(id).get(3), Files.readString(servingDir.resolve("p.txt"))))
+    assertThat(List.of(versionContents(id).get(3), Files.readString(home.resolve("p.txt"))))
         .containsExactlyInAnyOrder("from A", "one");
   }
 
@@ -170,26 +190,33 @@ class FileIntegrityIntegrationTests {
     CyclicBarrier bothPickedAName = new CyclicBarrier(2);
     doAnswer(
             invocation -> {
-              Object picked = invocation.callRealMethod();
-              if ("n_v1.txt".equals(invocation.getArgument(1))) {
-                try {
-                  bothPickedAName.await(2, TimeUnit.SECONDS);
-                } catch (TimeoutException | BrokenBarrierException e) {
-                  // The other request is waiting for this one to finish.
-                }
-              }
-              return picked;
+              Home spied = Mockito.spy((Home) invocation.callRealMethod());
+              doAnswer(
+                      picking -> {
+                        Object picked = picking.callRealMethod();
+                        if ("n_v1.txt".equals(picking.getArgument(1))) {
+                          try {
+                            bothPickedAName.await(2, TimeUnit.SECONDS);
+                          } catch (TimeoutException | BrokenBarrierException e) {
+                            // The other request is waiting for this one to finish.
+                          }
+                        }
+                        return picked;
+                      })
+                  .when(spied)
+                  .resolveChild(any(), anyString());
+              return spied;
             })
         .when(target(storagePaths))
-        .resolveChild(any(), anyString());
+        .home(anyLong());
     List<Throwable> errors =
         runTogether(
             () -> fileService.restoreVersion(id, 1, RestoreMode.COPY),
             () -> fileService.restoreVersion(id, 1, RestoreMode.COPY));
 
     assertThat(errors).isEmpty();
-    assertThat(servingDir.resolve("n_v1.txt")).hasContent("one");
-    assertThat(servingDir.resolve("n_v1 (2).txt")).hasContent("one");
+    assertThat(home.resolve("n_v1.txt")).hasContent("one");
+    assertThat(home.resolve("n_v1 (2).txt")).hasContent("one");
   }
 
   // --- failures after the disk has changed -------------------------------------
@@ -203,7 +230,7 @@ class FileIntegrityIntegrationTests {
     assertThatThrownBy(() -> upload("b.txt", "replacement"))
         .hasMessageContaining("simulated failure");
 
-    assertThat(servingDir.resolve("b.txt")).hasContent("precious");
+    assertThat(home.resolve("b.txt")).hasContent("precious");
     assertThat(storedVersionFiles()).isEmpty();
     assertThat(scratchFiles()).isEmpty();
   }
@@ -219,7 +246,7 @@ class FileIntegrityIntegrationTests {
     assertThatThrownBy(() -> fileService.restoreVersion(id, 1, RestoreMode.OVERWRITE))
         .hasMessageContaining("simulated failure");
 
-    assertThat(servingDir.resolve("c.txt")).hasContent("two");
+    assertThat(home.resolve("c.txt")).hasContent("two");
     assertThat(storedVersionFiles()).containsExactly(id + "/v1");
   }
 
@@ -234,7 +261,7 @@ class FileIntegrityIntegrationTests {
 
     assertThatThrownBy(() -> upload("a.txt", "new")).hasMessageContaining("simulated failure");
 
-    assertThat(servingDir.resolve("a.txt")).hasContent("old");
+    assertThat(home.resolve("a.txt")).hasContent("old");
     assertThat(storedVersionFiles()).isEmpty();
     assertThat(metadata.findById(id).orElseThrow().getCurrentVersion()).isEqualTo(1);
 
@@ -251,7 +278,7 @@ class FileIntegrityIntegrationTests {
 
     assertThatThrownBy(() -> upload("d.txt", "new")).isInstanceOf(RuntimeException.class);
 
-    assertThat(servingDir.resolve("d.txt")).hasContent("old");
+    assertThat(home.resolve("d.txt")).hasContent("old");
     assertThat(storedVersionFiles()).isEmpty();
   }
 
@@ -262,7 +289,7 @@ class FileIntegrityIntegrationTests {
 
     assertThatThrownBy(() -> upload("e.txt", "new")).isInstanceOf(RuntimeException.class);
 
-    assertThat(servingDir.resolve("e.txt")).doesNotExist();
+    assertThat(home.resolve("e.txt")).doesNotExist();
     assertThat(scratchFiles()).isEmpty();
   }
 
@@ -279,11 +306,10 @@ class FileIntegrityIntegrationTests {
     assertThatThrownBy(() -> fileService.restoreVersion(id, 1, RestoreMode.COPY))
         .hasMessageContaining("simulated failure");
 
-    try (Stream<Path> entries = Files.list(servingDir)) {
-      assertThat(entries.map(p -> p.getFileName().toString()))
-          .containsExactlyInAnyOrder("k.txt", ".versions");
+    try (Stream<Path> entries = Files.list(home)) {
+      assertThat(entries.map(p -> p.getFileName().toString())).containsExactly("k.txt");
     }
-    assertThat(metadata.findByPath("k_v1.txt")).isEmpty();
+    assertThat(metadata.findByPath(owner.getId(), "k_v1.txt")).isEmpty();
   }
 
   // --- deleting ----------------------------------------------------------------
@@ -347,7 +373,7 @@ class FileIntegrityIntegrationTests {
               return invocation.callRealMethod();
             })
         .when(target(versionService))
-        .discardAllAtOrBelow(any());
+        .discardAllAtOrBelow(any(), any());
   }
 
   private int successfulDeletionsOf(String path) {
@@ -444,14 +470,16 @@ class FileIntegrityIntegrationTests {
     void run() throws Exception;
   }
 
-  /** Runs both at once and returns what they threw. */
+  /** Runs both at once, signed in as the test is, and returns what they threw. */
   private List<Throwable> runTogether(Work a, Work b) throws InterruptedException {
     List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
     List<Thread> threads = new ArrayList<>();
+    SecurityContext signedIn = SecurityContextHolder.getContext();
     for (Work work : List.of(a, b)) {
       threads.add(
           new Thread(
               () -> {
+                SecurityContextHolder.setContext(signedIn);
                 try {
                   work.run();
                 } catch (Throwable e) {
@@ -498,7 +526,7 @@ class FileIntegrityIntegrationTests {
   }
 
   private long idOf(String path) {
-    return metadata.findByPath(path).orElseThrow().getId();
+    return metadata.findByPath(owner.getId(), path).orElseThrow().getId();
   }
 
   @SuppressWarnings("unchecked")

@@ -7,6 +7,7 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.javadropbox.javadropbox.FileSystemAssumptions;
 import com.javadropbox.javadropbox.exception.BadRequestException;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -23,15 +24,53 @@ class StoragePathsTests {
 
   @TempDir Path tmp;
 
+  private Path serving;
+  // The folder of the account the paths are resolved for.
   private Path root;
-  private StoragePaths paths;
+  private Home paths;
 
   @BeforeEach
   void setUp() throws IOException {
-    root = Files.createDirectory(tmp.resolve("root"));
-    Files.createDirectories(root.resolve(".versions/1"));
-    Files.createDirectories(root.resolve(".javadropbox"));
-    paths = new StoragePaths(root.toString());
+    serving = Files.createDirectory(tmp.resolve("root"));
+    Files.createDirectories(serving.resolve(".versions/1"));
+    Files.createDirectories(serving.resolve(".javadropbox"));
+    StoragePaths storagePaths = new StoragePaths(serving.toString());
+    Files.writeString(storagePaths.home(2).root().resolve("theirs.txt"), "another account's");
+    paths = storagePaths.home(1);
+    root = paths.root();
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "..",
+        "../2",
+        "../2/theirs.txt",
+        "../../.versions/1",
+        "../../.javadropbox",
+        "a/../../2/theirs.txt"
+      })
+  @DisplayName("a path out of the account's folder, into another's or the app's, is refused")
+  void pathOutOfTheAccountsFolderIsRefused(String path) {
+    assertThatThrownBy(() -> paths.resolve(path)).isInstanceOf(BadRequestException.class);
+  }
+
+  @Test
+  @DisplayName("an absolute path is refused, even one into another account's folder")
+  void absolutePathIsRefused() {
+    String theirs = serving.resolve(".users/2/theirs.txt").toAbsolutePath().toString();
+
+    assertThatThrownBy(() -> paths.resolve(theirs)).isInstanceOf(BadRequestException.class);
+    assertThatThrownBy(() -> paths.resolve("/etc/passwd")).isInstanceOf(BadRequestException.class);
+  }
+
+  @Test
+  @DisplayName("a symlink into another account's folder is refused")
+  void symlinkIntoAnotherAccountsFolderIsRefused() throws IOException {
+    Files.createSymbolicLink(root.resolve("theirs"), root.resolveSibling("2"));
+
+    assertThatThrownBy(() -> paths.resolve("theirs/theirs.txt"))
+        .isInstanceOf(BadRequestException.class);
   }
 
   @ParameterizedTest
@@ -46,7 +85,7 @@ class StoragePathsTests {
         "link",
         "link/new.txt"
       })
-  @DisplayName("a path through a symlink inside the serving directory is refused")
+  @DisplayName("a path through a symlink inside the account's folder is refused")
   void pathThroughInRootSymlinkIsRefused(String path) throws IOException {
     Files.createDirectories(root.resolve("a"));
     Files.createDirectories(root.resolve("sub"));
@@ -96,11 +135,12 @@ class StoragePathsTests {
   @DisplayName("keys use the on-disk spelling, checked on an in-memory case-insensitive filesystem")
   void keysUseTheOnDiskSpellingOnAnyPlatform() throws IOException {
     try (FileSystem macLike = Jimfs.newFileSystem(Configuration.osX())) {
-      Path macRoot = Files.createDirectories(macLike.getPath("/srv/files"));
+      Path macServing = Files.createDirectories(macLike.getPath("/srv/files"));
+      Home macPaths = new StoragePaths(macServing).home(1);
+      Path macRoot = macPaths.root();
       Files.createDirectories(macRoot.resolve("Docs"));
       Files.writeString(macRoot.resolve("Docs/Report.txt"), "report");
       Files.createDirectories(macRoot.resolve(".versions"));
-      StoragePaths macPaths = new StoragePaths(macRoot);
 
       assertThat(macPaths.resolve("DOCS/report.TXT").key()).isEqualTo("Docs/Report.txt");
       assertThat(macPaths.resolve("docs/new/file.txt").key()).isEqualTo("Docs/new/file.txt");

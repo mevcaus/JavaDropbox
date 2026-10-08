@@ -62,4 +62,44 @@ describe('App routing', () => {
         expect(window.location.pathname).toBe('/share/abc123');
         expect(api.get).toHaveBeenCalledWith('/share/abc123/info');
     });
+
+    it('opens an invitation\'s page without a session', async () => {
+        api.get.mockImplementation(async (url) => {
+            if (url === '/api/me') throw { response: { status: 401, data: '' } };
+            return { data: { username: 'carol', expiresAt: '2026-01-02T00:00:00Z' } };
+        });
+
+        renderAppAt('/invite/tok-1');
+
+        expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
+        expect(window.location.pathname).toBe('/invite/tok-1');
+        expect(api.get).toHaveBeenCalledWith('/invite/tok-1/info');
+    });
+
+    it('shows admins the accounts page', async () => {
+        api.get.mockImplementation(async (url) => {
+            if (url === '/api/me') return { data: { username: 'ada', role: 'ADMIN' } };
+            if (url === '/api/admin/users') return { data: [] };
+            if (url === '/api/storage') return { data: { usedBytes: 0, quotaBytes: null } };
+            return { data: [] };
+        });
+
+        renderAppAt('/admin');
+
+        expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+        expect(window.location.pathname).toBe('/admin');
+    });
+
+    it('sends anyone who is no admin from the accounts page to their files', async () => {
+        api.get.mockImplementation(async (url) => {
+            if (url === '/api/me') return { data: { username: 'bob', role: 'USER' } };
+            if (url === '/api/storage') return { data: { usedBytes: 0, quotaBytes: null } };
+            return { data: [] };
+        });
+
+        renderAppAt('/admin');
+
+        await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+        expect(api.get).not.toHaveBeenCalledWith('/api/admin/users');
+    });
 });

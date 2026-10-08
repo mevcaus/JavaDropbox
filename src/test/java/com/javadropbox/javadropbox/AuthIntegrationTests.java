@@ -44,6 +44,7 @@ class AuthIntegrationTests {
   void setUp() {
     if (userRepository.count() == 0) {
       userRepository.save(new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN"));
+      userRepository.save(new User("testuser", "unused", "ROLE_USER"));
     }
   }
 
@@ -69,7 +70,8 @@ class AuthIntegrationTests {
     mockMvc
         .perform(get("/api/me"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.username", is("testuser")));
+        .andExpect(jsonPath("$.username", is("testuser")))
+        .andExpect(jsonPath("$.role", is("USER")));
   }
 
   @Test

@@ -34,8 +34,10 @@ class FlywayFileVersionMigrationTests {
   static void migrateDatabaseWithDuplicateVersions() throws SQLException {
     flyway("3").migrate();
     execute(
-        "INSERT INTO file_metadata (id, path, filename, is_directory) VALUES"
-            + " (1, 'r.txt', 'r.txt', false), (2, 's.txt', 's.txt', false)");
+        "INSERT INTO users (id, username, password, role) VALUES (1, 'ada', 'h', 'ROLE_ADMIN')");
+    execute(
+        "INSERT INTO file_metadata (id, path, filename, is_directory, user_id) VALUES"
+            + " (1, 'r.txt', 'r.txt', false, 1), (2, 's.txt', 's.txt', false, 1)");
     // Two concurrent replaces of r.txt both archived as version 3.
     execute(
         "INSERT INTO file_versions (id, file_id, version, stored_filename) VALUES"

@@ -23,8 +23,9 @@ public class SearchController {
   @Operation(
       summary = "Search files",
       description =
-          "Items below the folder at path (the root when empty) with every word of q in their"
-              + " name or their text, best match first, with the passage of text that matched."
+          "Items below the folder at path in the signed-in user's files (all of them when empty)"
+              + " with every word of q in their name or their text, best match first, with the"
+              + " passage of text that matched."
               + " Case and accents are ignored, and the last word also matches the start of a"
               + " longer one. The text of text and source files, PDFs and Word documents is"
               + " searched. indexing is true until the index has caught up after a restart.")

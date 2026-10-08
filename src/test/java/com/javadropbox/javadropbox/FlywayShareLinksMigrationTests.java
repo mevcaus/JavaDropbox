@@ -28,20 +28,22 @@ class FlywayShareLinksMigrationTests {
       new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
 
   @BeforeAll
-  static void migrate() {
+  static void migrate() throws SQLException {
     Flyway.configure()
         .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
         .locations("classpath:db/migration")
         .load()
         .migrate();
+    execute(
+        "INSERT INTO users (id, username, password, role) VALUES (1, 'ada', 'h', 'ROLE_ADMIN')");
   }
 
   @Test
   @DisplayName("deleting a file's row deletes its links")
   void linksGoWithTheirFile() throws SQLException {
     execute(
-        "INSERT INTO file_metadata (id, path, filename, is_directory) VALUES (1, 'a.txt', 'a.txt',"
-            + " false)");
+        "INSERT INTO file_metadata (id, path, filename, is_directory, user_id) VALUES"
+            + " (1, 'a.txt', 'a.txt', false, 1)");
     execute(insertLink(1, "hash-1", 1));
 
     execute("DELETE FROM file_metadata WHERE id = 1");
@@ -53,8 +55,8 @@ class FlywayShareLinksMigrationTests {
   @DisplayName("two links cannot share a token hash")
   void tokenHashesAreUnique() throws SQLException {
     execute(
-        "INSERT INTO file_metadata (id, path, filename, is_directory) VALUES (2, 'b.txt', 'b.txt',"
-            + " false)");
+        "INSERT INTO file_metadata (id, path, filename, is_directory, user_id) VALUES"
+            + " (2, 'b.txt', 'b.txt', false, 1)");
     execute(insertLink(2, "hash-2", 2));
 
     assertThatThrownBy(() -> execute(insertLink(3, "hash-2", 2)))

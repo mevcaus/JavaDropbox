@@ -62,7 +62,10 @@ JavaDropbox/
 │   │   │   ├── Modal.jsx           #   Shared dialog shell: Escape, focus trap, focus restore
 │   │   │   ├── CreateFolderModal.jsx
 │   │   │   ├── DeleteConfirmationModal.jsx
-│   │   │   ├── ShareModal.jsx      #   Share-link creation, clipboard fallback for plain http
+│   │   │   ├── ShareModal.jsx      #   Share-link creation and the active links
+│   │   │   ├── CopyLinkField.jsx   #   A link shown once, with copying that works over plain http
+│   │   │   ├── InviteModal.jsx     #   Admins: invite someone, with a role and a quota
+│   │   │   ├── QuotaModal.jsx      #   Admins: change an account's quota (QuotaFields: amount + unit)
 │   │   │   ├── VersionHistoryModal.jsx  # List and restore previous versions
 │   │   │   ├── PreviewModal.jsx    #   The preview dialog on the dashboard
 │   │   │   ├── FilePreview.jsx     #   Image, PDF and text previews, for the dialog and share pages
@@ -70,17 +73,18 @@ JavaDropbox/
 │   │   │   ├── FileTable.jsx       #   File listing with search results, sorting, row actions
 │   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
 │   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
-│   │   │   ├── Sidebar.jsx         #   Navigation and storage used
+│   │   │   ├── Sidebar.jsx         #   Navigation, and storage used against the quota
 │   │   │   ├── DemoBanner.jsx      #   The live demo's limits and next reset
 │   │   │   └── Logo.jsx, AnimatedLogo.jsx
 │   │   ├── features/               # Redux slices
-│   │   │   ├── authSlice.js        #   Login/logout/session thunks + state
+│   │   │   ├── authSlice.js        #   Login/logout/session thunks + state, the role
 │   │   │   └── filesSlice.js       #   File thunks, tree selectors, endpoint paths
 │   │   ├── hooks/                  # useFileSearch (search as you type), useToast, useDemoInfo
 │   │   ├── layouts/MainLayout.jsx  # Auth-guarded layout wrapper
-│   │   ├── pages/                  # Dashboard, Login, Setup, Shared (a share link's public page)
+│   │   ├── pages/                  # Dashboard, Login, Setup, Admin (accounts), Shared (a share
+│   │   │                           #   link's public page), AccountLink (invitation and reset pages)
 │   │   ├── services/api.js         # Axios instance: CSRF priming, 401 handler hook
-│   │   ├── utils/                  # date, errors (readableError), format (formatSize)
+│   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard
 │   │   ├── App.jsx                 # Route definitions
 │   │   └── main.jsx                # Entry point; registers the 401 handler
 │   ├── vite.config.js              # Dev proxy to Spring Boot backend
@@ -91,6 +95,7 @@ JavaDropbox/
 │   │   ├── config/
 │   │   │   ├── SecurityConfig.java      # Filter chain, CORS, form login, SPA routes
 │   │   │   ├── SetupFilter.java         # First-run redirect filter
+│   │   │   ├── AccountSessionFilter.java  # Ends sessions of disabled or changed accounts
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
@@ -99,23 +104,26 @@ JavaDropbox/
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
 │   │   │   └── PasswordConfig.java      # BCrypt encoder bean
 │   │   ├── controller/
-│   │   │   ├── FileController.java      # Tree, upload, download, preview, delete, folders, storage info
+│   │   │   ├── FileController.java      # Tree, upload, download, preview, delete, folders, storage use
 │   │   │   ├── FileVersionController.java  # Version listing + restore
 │   │   │   ├── HistoryController.java   # Paged audit log
 │   │   │   ├── ShareController.java     # Share-link creation, listing, revoking + the public page's routes
 │   │   │   ├── SearchController.java    # Search by name and file contents
 │   │   │   ├── SetupController.java     # First-run account creation
-│   │   │   ├── AuthController.java      # Current user
+│   │   │   ├── AdminController.java     # Accounts, invitations, quotas, password resets (admins)
+│   │   │   ├── AccountLinkController.java  # The public side of invitations and password resets
+│   │   │   ├── AuthController.java      # Current user and role
 │   │   │   ├── DemoController.java      # Live demo: the shared account and limits
 │   │   │   ├── SpaController.java       # Serves the built app for client-side routes
 │   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
-│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet
+│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet, AccountDto, InviteDto, AccountLinkInfo
 │   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
-│   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink; PreviewType
+│   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink, AccountLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
 │   │   └── service/
-│   │       ├── StoragePaths.java        # The one place client paths become filesystem paths
+│   │       ├── StoragePaths.java        # The one place client paths become filesystem paths, in an account's folder
+│   │       ├── LooseFileAdoption.java   # Gives an upgraded install's files to the first account
 │   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree
 │   │       ├── SearchIndex.java         # Lucene index of names and text, kept in step with the disk
@@ -125,14 +133,17 @@ JavaDropbox/
 │   │       ├── FileHistoryService.java  # Audit log, including failures
 │   │       ├── FolderArchive.java       # Streams a folder as a zip
 │   │       ├── SetupService.java        # Setup code + first account
+│   │       ├── AccountService.java      # Admins: list, disable, roles, quotas
+│   │       ├── AccountLinkService.java  # Invitations and password resets: one-time links
 │   │       ├── ShareLinkService.java    # Share links: random tokens, stored hashed, bound to their item
-│   │       ├── StorageQuota.java        # Optional cap on everything stored
+│   │       ├── StorageQuota.java        # Account quotas, and an optional cap on everything stored
 │   │       ├── DemoService.java         # Live demo: shared account, daily reset, sample files
+│   │       ├── Credentials.java, Roles.java, Tokens.java  # Username and password rules, role names, link tokens
 │   │       └── AuthService.java         # Current user, setup state
 │   └── db/migration/
 │       └── V3__timestamps_with_time_zone.java  # Java migration (needs the JVM's zone)
 ├── src/main/resources/
-│   ├── db/migration/               # Flyway SQL migrations (V1 to V6)
+│   ├── db/migration/               # Flyway SQL migrations (V1 to V7)
 │   ├── demo/                       # The live demo's sample files
 │   ├── application.properties      # Production defaults
 │   ├── application-dev.properties  # Local development (bootRun)
@@ -163,7 +174,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 **Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
 
-**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`).
+**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`). `V7` gives each account its own files: everything stored so far goes to the first account (made an admin), paths become unique per account, `users` gains `enabled`, `quota_bytes` and `session_version`, and `account_links` holds invitations and password resets.
 
 **Tests.** The H2 integration tests keep `ddl-auto=create-drop` with Flyway disabled, because the migrations are PostgreSQL SQL. Tests that need the real schema run against Testcontainers PostgreSQL through `PostgresTestSupport`, which applies the production Flyway and `ddl-auto` settings unchanged.
 

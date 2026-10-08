@@ -111,14 +111,14 @@ class FlywayIntegrityMigrationTests {
     assertThatThrownBy(
             () ->
                 execute(
-                    "INSERT INTO file_metadata (id, path, filename, is_directory) VALUES"
-                        + " (98, 'a', 'a', true)"))
+                    "INSERT INTO file_metadata (id, path, filename, is_directory, user_id) VALUES"
+                        + " (98, 'a', 'a', true, 1)"))
         .isInstanceOf(SQLException.class)
-        .hasMessageContaining("uk_file_metadata_path");
+        .hasMessageContaining("uk_file_metadata_owner_path");
     assertThatThrownBy(
             () ->
                 execute(
-                    "INSERT INTO users (id, username, password, role) VALUES (99, 'bob', 'h', 'r')"))
+                    "INSERT INTO users (id, username, password, role) VALUES (99, 'bob', 'h', 'ROLE_USER')"))
         .isInstanceOf(SQLException.class)
         .hasMessageContaining("uk_users_username");
   }
@@ -127,7 +127,8 @@ class FlywayIntegrityMigrationTests {
   @DisplayName("deleting a file row removes its versions and detaches its history")
   void deleteCascades() throws SQLException {
     execute(
-        "INSERT INTO file_metadata (id, path, filename, is_directory) VALUES (50, 'z', 'z', false)");
+        "INSERT INTO file_metadata (id, path, filename, is_directory, user_id) VALUES"
+            + " (50, 'z', 'z', false, 1)");
     execute(
         "INSERT INTO file_versions (file_id, version, stored_filename) VALUES (50, 1, '50/v1')");
     execute(

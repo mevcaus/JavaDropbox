@@ -12,13 +12,19 @@ export const loginUser = createAsyncThunk(
             params.append('username', username);
             params.append('password', password);
 
-            await api.post('/login', params, {
+            const response = await api.post('/login', params, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
             });
-            // The backend answers a successful login with an empty 200.
-            return { username };
+            // The backend answers a successful login as it answers /api/me: {username, role}. Its
+            // username is the account's: the one typed may differ, e.g. by a trailing space that
+            // sign-in trims, and pages such as the accounts list compare against it.
+            const data = response?.data;
+            return {
+                username: typeof data?.username === 'string' ? data.username : username,
+                role: data?.role ?? null,
+            };
         } catch (error) {
             // Nothing is logged here: the error carries the request config, and with it the
             // form body holding the password. The form shows the readable message instead.
@@ -87,6 +93,9 @@ const authSlice = createSlice({
     name: 'auth',
     initialState: {
         user: localStorage.getItem('user') || null,
+        // ADMIN or USER, from the server; not kept across reloads, since the session check at
+        // startup learns it again.
+        role: null,
         isAuthenticated: !!localStorage.getItem('user'),
         isInitialized: false,
         loading: false,
@@ -98,6 +107,7 @@ const authSlice = createSlice({
     reducers: {
         clearUser: (state) => {
             state.user = null;
+            state.role = null;
             state.isAuthenticated = false;
             localStorage.removeItem('user');
         },
@@ -115,6 +125,7 @@ const authSlice = createSlice({
                 state.loading = false;
                 state.isAuthenticated = true;
                 state.user = action.payload.username;
+                state.role = action.payload.role ?? null;
                 localStorage.setItem('user', action.payload.username);
             })
             .addCase(loginUser.rejected, (state, action) => {
@@ -123,11 +134,13 @@ const authSlice = createSlice({
                 // Whoever just failed to sign in is not the previous user, so do not keep showing
                 // that user's session.
                 state.user = null;
+                state.role = null;
                 state.isAuthenticated = false;
                 localStorage.removeItem('user');
             })
             .addCase(logoutUser.fulfilled, (state) => {
                 state.user = null;
+                state.role = null;
                 state.isAuthenticated = false;
                 localStorage.removeItem('user');
             })
@@ -135,6 +148,7 @@ const authSlice = createSlice({
                 state.isInitialized = true;
                 state.isAuthenticated = true;
                 state.user = action.payload.username;
+                state.role = action.payload.role ?? null;
                 localStorage.setItem('user', action.payload.username);
             })
             .addCase(fetchCurrentUser.rejected, (state, action) => {
@@ -142,10 +156,14 @@ const authSlice = createSlice({
                 state.setupRequired = action.payload === SETUP_REQUIRED;
                 state.isAuthenticated = false;
                 state.user = null;
+                state.role = null;
                 localStorage.removeItem('user');
             });
     },
 });
+
+/** Whether the signed-in user manages the accounts. */
+export const selectIsAdmin = (state) => state.auth?.role === 'ADMIN';
 
 export const { clearUser, setupCompleted } = authSlice.actions;
 export default authSlice.reducer;

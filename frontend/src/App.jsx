@@ -6,6 +6,8 @@ import Login from './pages/Login';
 import Setup from './pages/Setup';
 import Dashboard from './pages/Dashboard';
 import Shared from './pages/Shared';
+import Admin from './pages/Admin';
+import AccountLink from './pages/AccountLink';
 import { ToastProvider } from './contexts/ToastContext';
 import { fetchCurrentUser } from './features/authSlice';
 import { Loader2 } from 'lucide-react';
@@ -34,10 +36,14 @@ function App() {
           <Route path="/setup" element={<Setup />} />
           {/* Public: what a share link opens, before anything is downloaded. */}
           <Route path="/share/:token" element={<Shared />} />
+          {/* Public: the links admins send, to create an account or set a new password. */}
+          <Route path="/invite/:token" element={<AccountLink purpose="invite" />} />
+          <Route path="/reset-password/:token" element={<AccountLink purpose="reset" />} />
 
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="admin" element={<Admin />} />
           </Route>
 
           {/* Anything else would render an empty page; MainLayout sends it on to sign-in if needed. */}

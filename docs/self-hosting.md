@@ -22,9 +22,27 @@ The container runs as uid and gid `10001`. To keep the files in a host directory
 
 While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
 
+The first account is an **admin**, and anything already in the serving directory becomes its files.
+
+## Accounts
+
+Every account has files of its own, which nobody else can see: not other users, and not admins either. Each has its own file tree, versions, history, share links and search. Admins manage the accounts from **Users** in the sidebar:
+
+- **Invite someone.** Choose a username, a role and a quota, and the app makes a one-time link to send them however you like (it is shown once). Whoever opens it chooses the password, and the account exists from then on. A link works for 7 days; making a new one for the same username replaces it, and an unused one can be withdrawn.
+- **Roles.** An *admin* manages the accounts and sees the server's metrics, as well as having files. A *user* only has files. Changing someone's role signs them out, so they sign back in with the new one.
+- **Quotas.** The most an account may store, previous versions included, such as `5 GB`; empty means no limit. An upload or restore that would take the account over its quota is refused with `507` and leaves nothing behind. A quota below what the account already stores is allowed: nothing more fits until enough is deleted.
+- **Disable and enable.** A disabled account can't sign in, is signed out at once wherever it is signed in, and its share links stop opening. Enabling it brings all of that back; its files are untouched either way. Invitations and password reset links a disabled admin made are withdrawn for good, though: whoever has the account shouldn't be able to use them to get back in. Accounts are never deleted.
+- **Reset a password.** A one-time link, valid for a day, at which the account's owner chooses a new password; using it signs them out everywhere. Their old password keeps working until then.
+
+An admin can't disable their own account or change their own role, and the app always keeps at least one admin who can sign in, so nobody can lock everyone out.
+
+**On disk**, each account's files are in `.users/<id>/` inside the serving directory, where `<id>` is the account's number (`SELECT id, username FROM users` lists them). Files copied in there by hand show up for that account, and search finds them within ten minutes. Previous versions stay in the shared `.versions/`, named by file.
+
+**Upgrading** from a version without accounts of their own: at the first start, the database migration gives every file, version, share link and history entry to the first account (the one setup created), makes that account an admin, and the app moves everything at the top of the serving directory into its folder. Paths, versions and share links keep working. Other accounts start with nothing. Anything put at the top of the serving directory later is moved into the first account's folder at the next start, unless that folder already has something by the same name.
+
 ## Forgot your password?
 
-Store a new bcrypt hash on your account. `htpasswd` makes one (run it from the `httpd` image as here, or use a local `htpasswd`, which can prompt for the password if you leave out `-b` and the password); replace `admin` with your username:
+An admin can make you a reset link (see [Accounts](#accounts)). If you are the only admin, store a new bcrypt hash on your account. `htpasswd` makes one (run it from the `httpd` image as here, or use a local `htpasswd`, which can prompt for the password if you leave out `-b` and the password); replace `admin` with your username:
 
 ```bash
 HASH=$(docker run --rm httpd:2.4-alpine htpasswd -nbBC 10 "" 'my-new-password' | tr -d ':\n')
@@ -32,7 +50,7 @@ docker compose exec postgres psql -U postgres -d javadropbox \
   -c "UPDATE users SET password = '$HASH' WHERE username = 'admin'"
 ```
 
-`UPDATE 1` means it worked; the new password applies from the next sign-in, without a restart, and your files are untouched. `SELECT username FROM users` lists the accounts if you've forgotten the name too.
+`UPDATE 1` means it worked; the new password applies from the next sign-in, without a restart, and your files are untouched. `SELECT username FROM users` lists the accounts if you've forgotten the name too. A disabled admin can be enabled again the same way, with `UPDATE users SET enabled = true WHERE username = 'admin'`.
 
 ## Behind a reverse proxy
 
@@ -45,9 +63,9 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | Property | Default | Purpose |
 |----------|---------|---------|
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
-| `javadropbox.serving.directory` | `./JDB` | Where files are stored; also `--directory=/path` or a bare path as the first argument |
+| `javadropbox.serving.directory` | `./JDB` | Where files are stored, each account's in `.users/<id>/`; also `--directory=/path` or a bare path as the first argument |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
-| `javadropbox.storage.max-total-size` | none | Cap on everything stored, previous versions included (e.g. `50MB`); an upload or restore that would go over it is refused with `507` |
+| `javadropbox.storage.max-total-size` | none | Cap on everything the server stores, every account's files and previous versions together (e.g. `50MB`); an upload or restore that would go over it is refused with `507`. Each account's own quota is set in the app (see [Accounts](#accounts)) |
 | `javadropbox.share.max-expiration` | `7d` | Longest lifetime a share link can be given |
 | `javadropbox.search.max-file-size` | `50MB` | Files larger than this are found by name only, without their text being read; `0` searches names alone |
 | `javadropbox.search.index-directory` | `.javadropbox/search-index` in the serving directory | Where the search index is kept |
@@ -61,7 +79,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 
 ## Search
 
-The search box looks through every file's and folder's name, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files. It does not count toward `javadropbox.storage.max-total-size`.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files. It does not count toward `javadropbox.storage.max-total-size`.
 
 The files on disk are the source of truth, and the index only mirrors them:
 
@@ -78,10 +96,10 @@ A PDF or Word document that cannot be read, such as a damaged or password-protec
 
 | Endpoint | Access | What it reports |
 |----------|--------|-----------------|
-| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable or the disk the files are stored on is nearly full. Signed in, it also shows each check (`db`, `diskSpace` for the serving directory, `ping`) |
-| `GET /actuator/metrics` | Signed in | The names of all meters; `/actuator/metrics/<name>` gives one meter's values, filtered with `?tag=key:value` |
+| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable or the disk the files are stored on is nearly full. To an admin, it also shows each check (`db`, `diskSpace` for the serving directory, `ping`) |
+| `GET /actuator/metrics` | Admins | The names of all meters; `/actuator/metrics/<name>` gives one meter's values, filtered with `?tag=key:value` |
 
-Health is public because load balancers and the Docker `HEALTHCHECK` call it without a session, and an anonymous caller learns only `UP` or `DOWN`. Metrics need a session. Every account is the owner today, and installs from before the setup code have a `ROLE_USER` owner, so this is a sign-in rule rather than an `ADMIN` one until there are accounts that aren't the owner's.
+Health is public because load balancers and the Docker `HEALTHCHECK` call it without a session, and an anonymous caller learns only `UP` or `DOWN`. The details and the metrics describe the whole server, so they are for admins: anyone else gets `UP` or `DOWN`, and a `403` for metrics.
 
 Beside the JVM, HTTP, Tomcat and connection-pool meters Spring Boot records, the app records what it is used for:
 
@@ -92,7 +110,7 @@ Beside the JVM, HTTP, Tomcat and connection-pool meters Spring Boot records, the
 | `javadropbox.share.links.created` | Counter | Share links created |
 
 ```bash
-# Signed-in session cookie from the browser's dev tools
+# An admin's session cookie from the browser's dev tools
 curl -b JSESSIONID=... 'http://localhost:8080/actuator/metrics/javadropbox.files.served?tag=route:share-link'
 ```
 

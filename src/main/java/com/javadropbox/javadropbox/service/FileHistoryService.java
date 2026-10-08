@@ -25,7 +25,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Writes the audit log of file operations. */
+/** Writes the audit log of file operations. Each account sees its own. */
 @Service
 public class FileHistoryService {
 
@@ -43,9 +43,12 @@ public class FileHistoryService {
     separateTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
-  /** A page of the history, newest first; the table grows forever, so it is never sent whole. */
+  /**
+   * A page of an account's history, newest first; the table grows forever, so it is never sent
+   * whole.
+   */
   @Transactional(readOnly = true)
-  public HistoryPage page(int page, int size) {
+  public HistoryPage page(User user, int page, int size) {
     if (page < 0 || size < 1) {
       throw new BadRequestException("page must be 0 or more and size at least 1");
     }
@@ -57,7 +60,7 @@ public class FileHistoryService {
     PageRequest request =
         PageRequest.of(
             page, pageSize, Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id")));
-    Page<FileHistory> result = repository.findAll(request);
+    Page<FileHistory> result = repository.findByUser(user.getId(), request);
     return new HistoryPage(
         result.getContent().stream().map(FileHistoryDto::fromEntity).toList(),
         result.getNumber(),

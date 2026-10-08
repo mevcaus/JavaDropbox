@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.await;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.ShareLinkService;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
@@ -16,7 +17,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Random;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,6 +28,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -40,6 +41,8 @@ import org.springframework.test.context.DynamicPropertySource;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "logging.level.com.javadropbox.javadropbox.controller.ApiExceptionHandler=DEBUG")
 @ExtendWith(OutputCaptureExtension.class)
+// Signed in as the owner, who makes the share links the downloads go through.
+@WithMockUser(username = "owner")
 @DisplayName("Cancelled downloads")
 class ClientAbortIntegrationTests {
 
@@ -57,26 +60,20 @@ class ClientAbortIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private ShareLinkService shareLinks;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private StoragePaths storagePaths;
 
-  @BeforeAll
-  static void createFiles() throws IOException {
+  @BeforeEach
+  void setUp() throws IOException {
+    Path home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
     // Sparse, so it costs no disk, but far more than the socket buffers can absorb.
-    try (RandomAccessFile big =
-        new RandomAccessFile(servingDir.resolve("big.bin").toFile(), "rw")) {
+    try (RandomAccessFile big = new RandomAccessFile(home.resolve("big.bin").toFile(), "rw")) {
       big.setLength(256L * 1024 * 1024);
     }
     // Random, so the zip cannot compress it into something the buffers could absorb.
     byte[] noise = new byte[16 * 1024 * 1024];
     new Random(1).nextBytes(noise);
-    Files.createDirectories(servingDir.resolve("folder"));
-    Files.write(servingDir.resolve("folder/noise.bin"), noise);
-  }
-
-  @BeforeEach
-  void setUp() {
-    if (users.count() == 0) {
-      users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    }
+    Files.createDirectories(home.resolve("folder"));
+    Files.write(home.resolve("folder/noise.bin"), noise);
   }
 
   @AfterEach

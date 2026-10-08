@@ -1,7 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.config.LoginAttemptLimiter;
-import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.TooManyRequestsException;
@@ -21,18 +20,13 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
- * Creates the first account. Until one exists, anyone who can reach the server could claim it, so
- * setup also needs a one-time code that is only printed to the server's log: whoever installed the
- * server can read it, someone who merely found the address cannot.
+ * Creates the first account, an admin, who invites everyone else. Until it exists, anyone who can
+ * reach the server could claim it, so setup also needs a one-time code that is only printed to the
+ * server's log: whoever installed the server can read it, someone who merely found the address
+ * cannot.
  */
 @Service
 public class SetupService {
-
-  public static final int MIN_PASSWORD_LENGTH = 8;
-
-  // BCrypt only looks at the first 72 bytes, and Spring Security refuses anything longer.
-  private static final int MAX_PASSWORD_BYTES = 72;
-  private static final int MAX_USERNAME_LENGTH = 255;
 
   private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   private static final int CODE_LENGTH = 10;
@@ -44,6 +38,7 @@ public class SetupService {
   private final UserRepository users;
   private final PasswordEncoder passwordEncoder;
   private final AuthService authService;
+  private final LooseFileAdoption adoption;
   private final String configuredCode;
   private final SecureRandom random = new SecureRandom();
 
@@ -56,10 +51,12 @@ public class SetupService {
       UserRepository users,
       PasswordEncoder passwordEncoder,
       AuthService authService,
+      LooseFileAdoption adoption,
       @Value("${app.setup.code:}") String configuredCode) {
     this.users = users;
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
+    this.adoption = adoption;
     this.configuredCode = configuredCode.trim();
     if (!this.configuredCode.isEmpty()
         && normalize(this.configuredCode).length() < MIN_CONFIGURED_CODE_LENGTH) {
@@ -80,8 +77,9 @@ public class SetupService {
   }
 
   /**
-   * Creates the first account. Synchronized, and the check and insert both commit before it
-   * returns, so two simultaneous submissions cannot both create an account.
+   * Creates the first account, which is given whatever is already in the serving directory.
+   * Synchronized, and the check and insert both commit before it returns, so two simultaneous
+   * submissions cannot both create an account.
    *
    * @param client the caller's address, which wrong setup codes are throttled by
    */
@@ -92,23 +90,12 @@ public class SetupService {
     }
     checkCode(client, setupCode);
 
-    String name = username == null ? "" : username.trim();
-    if (name.isEmpty()) {
-      throw new BadRequestException("Username required");
-    }
-    if (name.length() > MAX_USERNAME_LENGTH) {
-      throw new BadRequestException("Username is too long");
-    }
-    if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
-      throw new BadRequestException(
-          "Password must be at least " + MIN_PASSWORD_LENGTH + " characters");
-    }
-    if (password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
-      throw new BadRequestException("Password is too long");
-    }
+    String name = Credentials.username(username);
+    Credentials.checkPassword(password);
 
-    users.save(new User(name, passwordEncoder.encode(password), "ROLE_ADMIN"));
+    User user = users.save(new User(name, passwordEncoder.encode(password), User.ROLE_ADMIN));
     log.info("Setup complete: created the account \"{}\"", name);
+    adoption.adopt(user);
   }
 
   private void checkCode(String client, String submitted) {

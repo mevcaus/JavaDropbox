@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,12 +47,23 @@ class FileDatesIntegrationTests {
 
   @Autowired private PasswordEncoder passwordEncoder;
 
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
   @BeforeEach
   void setUp() throws IOException {
-    if (userRepository.count() == 0) {
-      userRepository.save(new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN"));
-    }
-    Files.writeString(servingDir.resolve("testfile.txt"), "hello world");
+    owner =
+        userRepository
+            .findByUsername("testadmin")
+            .orElseGet(
+                () ->
+                    userRepository.save(
+                        new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN")));
+    home = storagePaths.home(owner).root();
+    Files.writeString(home.resolve("testfile.txt"), "hello world");
   }
 
   @Autowired private JdbcTemplate jdbc;
@@ -64,8 +76,8 @@ class FileDatesIntegrationTests {
   @Test
   @DisplayName("Files API returns ISO-8601 timestamps")
   @WithMockUser(
-      username = "testuser",
-      roles = {"USER"})
+      username = "testadmin",
+      roles = {"ADMIN"})
   void filesApiReturnsIso8601Timestamps() throws Exception {
     mockMvc
         .perform(get("/api/files"))

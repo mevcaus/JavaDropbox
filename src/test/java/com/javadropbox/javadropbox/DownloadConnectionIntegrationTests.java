@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.ShareLinkService;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -40,6 +42,8 @@ import org.springframework.test.context.DynamicPropertySource;
       "spring.datasource.hikari.maximum-pool-size=1",
       "spring.datasource.hikari.connection-timeout=1500"
     })
+// Signed in as the owner, who makes the share links the downloads go through.
+@WithMockUser(username = "owner")
 @DisplayName("Database connections during downloads")
 class DownloadConnectionIntegrationTests {
 
@@ -56,18 +60,16 @@ class DownloadConnectionIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private ShareLinkService shareLinks;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private StoragePaths storagePaths;
 
   @BeforeEach
   void setUp() throws IOException {
-    if (users.count() == 0) {
-      users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    }
+    Path home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
     // Sparse, so it costs no disk, but far more than the socket buffers can absorb.
-    try (RandomAccessFile big =
-        new RandomAccessFile(servingDir.resolve("big.bin").toFile(), "rw")) {
+    try (RandomAccessFile big = new RandomAccessFile(home.resolve("big.bin").toFile(), "rw")) {
       big.setLength(512L * 1024 * 1024);
     }
-    Files.writeString(servingDir.resolve("small.txt"), "small");
+    Files.writeString(home.resolve("small.txt"), "small");
   }
 
   @AfterEach

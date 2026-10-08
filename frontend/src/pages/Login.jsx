@@ -16,6 +16,8 @@ const Login = () => {
     const demo = useDemoInfo();
 
     const from = location.state?.from?.pathname || '/dashboard';
+    // Set by the page that sent the user here, such as one that has just created their account.
+    const notice = location.state?.notice;
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -35,6 +37,11 @@ const Login = () => {
                     <AnimatedLogo />
                     <h2 className="mt-8 text-3xl font-extrabold text-gray-900">Sign in to your account</h2>
                 </div>
+                {notice && !error && (
+                    <div role="status" className="rounded-md bg-green-50 border border-green-200 p-4 text-sm text-green-900">
+                        {notice}
+                    </div>
+                )}
                 {demo && (
                     <div className="rounded-md bg-blue-50 border border-blue-200 p-4 text-sm text-blue-900">
                         <p className="font-medium">This is a public demo, reset every day.</p>

@@ -12,18 +12,24 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 
-/** What the app knows about one file or folder, keyed by its path relative to the storage root. */
+/**
+ * What the app knows about one file or folder, keyed by its owner and its path relative to the
+ * owner's folder.
+ */
 @Entity
 @Table(
     name = "file_metadata",
-    uniqueConstraints = @UniqueConstraint(name = "uk_file_metadata_path", columnNames = "path"))
+    uniqueConstraints =
+        @UniqueConstraint(
+            name = "uk_file_metadata_owner_path",
+            columnNames = {"user_id", "path"}))
 public class FileMetadata {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  /** Relative to the storage root, with forward slashes. Unique: one row per location. */
+  /** Relative to the owner's folder, with forward slashes. One row per location per owner. */
   @Column(nullable = false, length = 4096)
   private String path;
 
@@ -38,8 +44,9 @@ public class FileMetadata {
   /** The number the live file will get when it is next archived as a previous version. */
   private Integer currentVersion = 1;
 
+  /** The account whose folder the item is in. */
   @ManyToOne(fetch = FetchType.LAZY)
-  @JoinColumn(name = "user_id")
+  @JoinColumn(name = "user_id", nullable = false)
   private User owner;
 
   private Instant createdAt;
@@ -51,19 +58,19 @@ public class FileMetadata {
   public FileMetadata(String path, String filename, Long size, Boolean isDirectory, User owner) {
     this.path = path;
     this.filename = filename;
-    startOver(size, isDirectory, owner);
+    this.owner = owner;
+    startOver(size, isDirectory);
   }
 
   /**
    * Resets the row to describe a brand-new item at the same path. Used when a row outlived its
    * file, e.g. because the file was removed outside the app, so the new item does not inherit the
-   * old one's owner, dates or version numbering.
+   * old one's dates or version numbering.
    */
-  public void startOver(Long size, Boolean isDirectory, User owner) {
+  public void startOver(Long size, Boolean isDirectory) {
     Instant now = Instant.now();
     this.size = size;
     this.isDirectory = isDirectory;
-    this.owner = owner;
     this.currentVersion = 1;
     this.createdAt = now;
     this.updatedAt = now;

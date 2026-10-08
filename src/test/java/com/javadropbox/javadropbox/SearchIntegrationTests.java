@@ -14,6 +14,7 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.SearchIndex;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,9 +67,16 @@ class SearchIntegrationTests {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;
 
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
   @BeforeEach
   void setUp() {
-    users.save(new User("owner", "unused", "ROLE_ADMIN"));
+    owner = users.save(new User("owner", "unused", "ROLE_ADMIN"));
+    home = storagePaths.home(owner).root();
   }
 
   // Everything goes, the index with it, so each test starts from nothing.
@@ -84,7 +92,7 @@ class SearchIntegrationTests {
         }
       }
     }
-    searchIndex.changed("");
+    searchIndex.reconcile();
     searchIndex.awaitIdle(INDEXING);
   }
 
@@ -102,8 +110,7 @@ class SearchIntegrationTests {
     assertThat(result.path("relativePath").asText()).isEqualTo("notes/plan.txt");
     assertThat(result.path("name").asText()).isEqualTo("plan.txt");
     assertThat(result.path("isDirectory").asBoolean()).isFalse();
-    assertThat(result.path("size").asLong())
-        .isEqualTo(Files.size(servingDir.resolve("notes/plan.txt")));
+    assertThat(result.path("size").asLong()).isEqualTo(Files.size(home.resolve("notes/plan.txt")));
     assertThat(result.path("previewType").asText()).isEqualTo("text");
     // All of it fits, so nothing is marked as cut.
     assertThat(result.path("snippet").path("text").asText())
@@ -213,7 +220,7 @@ class SearchIntegrationTests {
     assertThat(paths(search("draft"))).isEmpty();
     assertThat(paths(search("final"))).containsExactly("docs/report.txt");
 
-    long id = metadata.findByPath("docs/report.txt").orElseThrow().getId();
+    long id = metadata.findByPath(owner.getId(), "docs/report.txt").orElseThrow().getId();
     restore(id, 1, "COPY");
     assertThat(paths(search("draft"))).containsExactly("docs/report_v1.txt");
     restore(id, 1, "OVERWRITE");
@@ -240,8 +247,8 @@ class SearchIntegrationTests {
   @Test
   @DisplayName("picks up files added, changed or removed outside the app when it reconciles")
   void reconcilesWithTheDisk() throws Exception {
-    Files.createDirectories(servingDir.resolve("copied"));
-    Path file = servingDir.resolve("copied/readme.md");
+    Files.createDirectories(home.resolve("copied"));
+    Path file = home.resolve("copied/readme.md");
     Files.writeString(file, "copied in by hand");
     reconcile();
     assertThat(paths(search("hand"))).containsExactly("copied/readme.md");
@@ -264,7 +271,7 @@ class SearchIntegrationTests {
   void leavesOutWhatHasGone() throws Exception {
     upload("", "gone.txt", "vanishing act");
     upload("", "kept.txt", "vanishing too");
-    Files.delete(servingDir.resolve("gone.txt"));
+    Files.delete(home.resolve("gone.txt"));
 
     assertThat(paths(search("vanishing"))).containsExactly("kept.txt");
     searchIndex.awaitIdle(INDEXING);
@@ -274,12 +281,12 @@ class SearchIntegrationTests {
   @Test
   @DisplayName("leaves out hidden files, the app's own folders and anything behind a symlink")
   void leavesOutWhatTheTreeHides() throws Exception {
-    Files.writeString(servingDir.resolve(".hidden.txt"), "secret");
-    Files.createDirectories(servingDir.resolve(".private"));
-    Files.writeString(servingDir.resolve(".private/notes.txt"), "secret");
+    Files.writeString(home.resolve(".hidden.txt"), "secret");
+    Files.createDirectories(home.resolve(".private"));
+    Files.writeString(home.resolve(".private/notes.txt"), "secret");
     Files.writeString(outsideDir.resolve("outside.txt"), "secret");
-    Files.createSymbolicLink(servingDir.resolve("link.txt"), outsideDir.resolve("outside.txt"));
-    Files.createSymbolicLink(servingDir.resolve("linked"), outsideDir);
+    Files.createSymbolicLink(home.resolve("link.txt"), outsideDir.resolve("outside.txt"));
+    Files.createSymbolicLink(home.resolve("linked"), outsideDir);
     reconcile();
 
     assertThat(paths(search("secret"))).isEmpty();

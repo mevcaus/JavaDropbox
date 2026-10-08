@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -64,11 +65,19 @@ class MultipartCsrfIntegrationTests {
 
   @Autowired private JdbcTemplate jdbc;
 
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
+
   @BeforeEach
   void setUp() {
-    if (userRepository.count() == 0) {
-      userRepository.save(new User("owner", "unused", "ROLE_ADMIN"));
-    }
+    owner =
+        userRepository
+            .findByUsername("owner")
+            .orElseGet(() -> userRepository.save(new User("owner", "unused", "ROLE_ADMIN")));
+    home = storagePaths.home(owner).root();
   }
 
   @AfterEach

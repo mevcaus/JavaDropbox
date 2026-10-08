@@ -22,6 +22,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileService;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StorageSweeper;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -49,6 +50,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.test.context.TestSecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -75,10 +78,16 @@ class FileOperationsIntegrationTests {
   @Autowired private FileVersionRepository versions;
   @Autowired private FileHistoryRepository history;
   @Autowired private StorageSweeper sweeper;
+  @Autowired private StoragePaths storagePaths;
+
+  private User owner;
+  // The signed-in account's folder, where its files are.
+  private Path home;
 
   @BeforeEach
   void setUp() {
-    users.save(new User("owner", "unused", "ROLE_ADMIN"));
+    owner = users.save(new User("owner", "unused", "ROLE_ADMIN"));
+    home = storagePaths.home(owner).root();
   }
 
   @Autowired private JdbcTemplate jdbc;
@@ -107,7 +116,7 @@ class FileOperationsIntegrationTests {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.message").value("Uploaded 1 file"));
 
-    assertThat(servingDir.resolve("empty.txt")).isEmptyFile();
+    assertThat(home.resolve("empty.txt")).isEmptyFile();
     mockMvc
         .perform(get("/api/files"))
         .andExpect(jsonPath("$[?(@.name == 'empty.txt')].size").value(0))
@@ -155,7 +164,7 @@ class FileOperationsIntegrationTests {
         .containsExactly(
             Tuple.tuple(ChangeType.UPLOAD, "a.txt/b.txt"),
             Tuple.tuple(ChangeType.UPLOAD, "a.txt/sub/b.txt"));
-    assertThat(servingDir.resolve("a.txt")).hasContent("x");
+    assertThat(home.resolve("a.txt")).hasContent("x");
   }
 
   // --- deleting --------------------------------------------------------------
@@ -180,7 +189,7 @@ class FileOperationsIntegrationTests {
 
     deletePath("report.txt");
 
-    assertThat(metadata.findByPath("report.txt")).isEmpty();
+    assertThat(metadata.findByPath(owner.getId(), "report.txt")).isEmpty();
     assertThat(versions.findAll()).isEmpty();
     assertThat(versionFiles()).isEmpty();
     assertThat(history.findAll())
@@ -230,9 +239,9 @@ class FileOperationsIntegrationTests {
     restore(id, 1, "COPY");
     restore(id, 1, "COPY");
 
-    assertThat(servingDir.resolve("notes_v1.txt")).hasContent("first");
-    assertThat(servingDir.resolve("notes_v1 (2).txt")).hasContent("first");
-    assertThat(servingDir.resolve("notes.txt")).hasContent("second");
+    assertThat(home.resolve("notes_v1.txt")).hasContent("first");
+    assertThat(home.resolve("notes_v1 (2).txt")).hasContent("first");
+    assertThat(home.resolve("notes.txt")).hasContent("second");
     mockMvc.perform(get("/api/files")).andExpect(status().isOk());
   }
 
@@ -245,9 +254,9 @@ class FileOperationsIntegrationTests {
 
     restore(id, 1, "OVERWRITE");
 
-    assertThat(servingDir.resolve("plan.txt")).hasContent("draft");
+    assertThat(home.resolve("plan.txt")).hasContent("draft");
     restore(id, 2, "OVERWRITE");
-    assertThat(servingDir.resolve("plan.txt")).hasContent("final");
+    assertThat(home.resolve("plan.txt")).hasContent("final");
     assertThat(history.findAll())
         .filteredOn(h -> h.getChangeType() == ChangeType.RESTORE)
         .extracting(FileHistory::getDetails, FileHistory::getErrorMessage)
@@ -267,8 +276,8 @@ class FileOperationsIntegrationTests {
     restore(idOf("a/report.txt"), 1, "OVERWRITE");
     restore(idOf("b/report.txt"), 1, "OVERWRITE");
 
-    assertThat(servingDir.resolve("a/report.txt")).hasContent("a1");
-    assertThat(servingDir.resolve("b/report.txt")).hasContent("b1");
+    assertThat(home.resolve("a/report.txt")).hasContent("a1");
+    assertThat(home.resolve("b/report.txt")).hasContent("b1");
   }
 
   @Test
@@ -276,16 +285,15 @@ class FileOperationsIntegrationTests {
   void uploadedAndRestoredFilesHaveDefaultPermissions() throws Exception {
     assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
     Set<PosixFilePermission> ordinary =
-        Files.getPosixFilePermissions(Files.createFile(servingDir.resolve("ordinary.txt")));
+        Files.getPosixFilePermissions(Files.createFile(home.resolve("ordinary.txt")));
 
     upload("", "report.txt", "one");
     upload("", "report.txt", "two");
-    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report.txt"))).isEqualTo(ordinary);
+    assertThat(Files.getPosixFilePermissions(home.resolve("report.txt"))).isEqualTo(ordinary);
     restore(idOf("report.txt"), 1, "OVERWRITE");
-    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report.txt"))).isEqualTo(ordinary);
+    assertThat(Files.getPosixFilePermissions(home.resolve("report.txt"))).isEqualTo(ordinary);
     restore(idOf("report.txt"), 1, "COPY");
-    assertThat(Files.getPosixFilePermissions(servingDir.resolve("report_v1.txt")))
-        .isEqualTo(ordinary);
+    assertThat(Files.getPosixFilePermissions(home.resolve("report_v1.txt"))).isEqualTo(ordinary);
   }
 
   @Test
@@ -319,12 +327,12 @@ class FileOperationsIntegrationTests {
   @Test
   @DisplayName("replacing a file that was copied in by hand keeps its content as a version")
   void untrackedFileIsVersionedBeforeReplace() throws Exception {
-    Files.writeString(servingDir.resolve("manual.txt"), "by hand");
+    Files.writeString(home.resolve("manual.txt"), "by hand");
 
     upload("", "manual.txt", "uploaded");
     restore(idOf("manual.txt"), 1, "COPY");
 
-    assertThat(servingDir.resolve("manual_v1.txt")).hasContent("by hand");
+    assertThat(home.resolve("manual_v1.txt")).hasContent("by hand");
   }
 
   @Test
@@ -332,7 +340,7 @@ class FileOperationsIntegrationTests {
   void leftoverRowIsReset() throws Exception {
     upload("", "ghost.txt", "old one");
     upload("", "ghost.txt", "old two");
-    Files.delete(servingDir.resolve("ghost.txt"));
+    Files.delete(home.resolve("ghost.txt"));
 
     upload("", "ghost.txt", "new");
 
@@ -347,7 +355,7 @@ class FileOperationsIntegrationTests {
     upload("", "ghost.txt", "old two");
     Path folder = servingDir.resolve(".versions/" + idOf("ghost.txt"));
     Files.writeString(folder.resolve("stray"), "left over");
-    Files.delete(servingDir.resolve("ghost.txt"));
+    Files.delete(home.resolve("ghost.txt"));
 
     upload("", "ghost.txt", "new");
 
@@ -363,8 +371,8 @@ class FileOperationsIntegrationTests {
     upload("", "kept.txt", "one");
     upload("", "kept.txt", "two");
     Path versionFolder = servingDir.resolve(".versions/" + idOf("kept.txt"));
-    Path staleScratch = old(Files.writeString(servingDir.resolve("docs/.upload-1.tmp"), "x"));
-    Path freshScratch = Files.writeString(servingDir.resolve(".upload-2.tmp"), "x");
+    Path staleScratch = old(Files.writeString(home.resolve("docs/.upload-1.tmp"), "x"));
+    Path freshScratch = Files.writeString(home.resolve(".upload-2.tmp"), "x");
     Path referenced = old(versionFolder.resolve("v1"));
     Path unreferenced = old(Files.writeString(versionFolder.resolve("v7"), "x"));
     Path freshUnreferenced = Files.writeString(versionFolder.resolve("v8"), "x");
@@ -422,21 +430,23 @@ class FileOperationsIntegrationTests {
     upload("", "stale.txt", "two");
 
     assertThat(leftover).hasContent("one");
-    assertThat(servingDir.resolve("stale.txt")).hasContent("two");
+    assertThat(home.resolve("stale.txt")).hasContent("two");
   }
 
   // --- attribution ---------------------------------------------------------------
 
   @Test
-  @DisplayName("changes are attributed to the signed-in user, not the first account")
+  @DisplayName("changes are stored in and attributed to the signed-in user, not the first account")
   void changesAreAttributedToTheSignedInUser() throws Exception {
     users.deleteAllInBatch();
-    users.save(new User("first", "unused", "ROLE_ADMIN"));
+    User first = users.save(new User("first", "unused", "ROLE_ADMIN"));
     User owner = users.save(new User("owner", "unused", "ROLE_USER"));
 
     upload("", "mine.txt", "x");
 
-    assertThat(metadata.findByPath("mine.txt").orElseThrow().getOwner().getId())
+    assertThat(storagePaths.home(owner).root().resolve("mine.txt")).hasContent("x");
+    assertThat(storagePaths.home(first).root().resolve("mine.txt")).doesNotExist();
+    assertThat(metadata.findByPath(owner.getId(), "mine.txt").orElseThrow().getOwner().getId())
         .isEqualTo(owner.getId());
     assertThat(history.findAll())
         .extracting(h -> h.getUser().getId())
@@ -488,12 +498,14 @@ class FileOperationsIntegrationTests {
     upload("", "precious.txt", "original");
 
     MultipartFile broken = new BrokenUpload("precious.txt");
+    // MockMvc cleared the security context when its request ended; sign in again to call directly.
+    SecurityContextHolder.setContext(TestSecurityContextHolder.getContext());
     assertThatThrownBy(() -> fileService.upload(new MultipartFile[] {broken}, ""))
         .isInstanceOf(IOException.class);
 
-    assertThat(servingDir.resolve("precious.txt")).hasContent("original");
+    assertThat(home.resolve("precious.txt")).hasContent("original");
     assertThat(versions.findAll()).isEmpty();
-    try (Stream<Path> leftovers = Files.list(servingDir)) {
+    try (Stream<Path> leftovers = Files.list(home)) {
       assertThat(leftovers.map(p -> p.getFileName().toString())).containsExactly("precious.txt");
     }
   }
@@ -519,7 +531,7 @@ class FileOperationsIntegrationTests {
   @DisplayName("a failure recorded in the history never reveals server paths or exception types")
   void recordedFailureHidesServerDetails() throws Exception {
     createFolder("", "locked");
-    Path locked = servingDir.resolve("locked");
+    Path locked = home.resolve("locked");
     assertThat(locked.toFile().setWritable(false)).isTrue();
     try {
       assumeFalse(Files.isWritable(locked), "running as root, which can write anyway");
@@ -550,7 +562,7 @@ class FileOperationsIntegrationTests {
         .perform(post("/api/folders").param("path", "").param("name", name).with(csrf()))
         .andExpect(status().isBadRequest());
 
-    assertThat(servingDir.resolve("x".repeat(255))).doesNotExist();
+    assertThat(home.resolve("x".repeat(255))).doesNotExist();
     assertThat(history.findAll()).filteredOn(h -> !h.isSuccess()).hasSize(1);
   }
 
@@ -593,7 +605,7 @@ class FileOperationsIntegrationTests {
 
     assertThat(metadata.findAll()).extracting(FileMetadata::getPath).containsExactly("report.txt");
     assertThat(versions.findAll()).hasSize(2);
-    assertThat(servingDir.resolve("report.txt")).hasContent("three");
+    assertThat(home.resolve("report.txt")).hasContent("three");
   }
 
   @Test
@@ -605,7 +617,7 @@ class FileOperationsIntegrationTests {
 
     deletePath("NOTES.TXT");
 
-    assertThat(servingDir.resolve("notes.txt")).doesNotExist();
+    assertThat(home.resolve("notes.txt")).doesNotExist();
     assertThat(metadata.findAll()).isEmpty();
     assertThat(versions.findAll()).isEmpty();
   }
@@ -649,7 +661,7 @@ class FileOperationsIntegrationTests {
   }
 
   private long idOf(String path) {
-    return metadata.findByPath(path).orElseThrow().getId();
+    return metadata.findByPath(owner.getId(), path).orElseThrow().getId();
   }
 
   private List<Path> versionFiles() throws IOException {

@@ -1,6 +1,8 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.Snippet;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
+import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -90,8 +92,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * A Lucene index of every file's and folder's name, and of the text in files' contents (see {@link
- * TextExtractor}). The disk stays the source of truth: the index only mirrors it, and can be
- * deleted at any time to be rebuilt from what is stored.
+ * TextExtractor}), in every account's folder. Each item is indexed under its account's id followed
+ * by its path, and every search is confined to one account's. The disk stays the source of truth:
+ * the index only mirrors it, and can be deleted at any time to be rebuilt from what is stored.
  *
  * <p>All writing happens on one background thread, so an upload never waits for a PDF to be read.
  * The index catches up with the disk
@@ -111,7 +114,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 public class SearchIndex {
 
-  /** An item a search found: its path, and the passage of its text that matched, if any did. */
+  /**
+   * An item a search found: its path in the account's folder, and the passage of its text that
+   * matched, if any did.
+   */
   public record Hit(String path, Snippet snippet) {}
 
   /**
@@ -121,8 +127,9 @@ public class SearchIndex {
   public record Hits(List<Hit> hits, long total, boolean complete) {}
 
   // Recorded with every commit. Changing what is indexed, or how, means bumping it, so that an
-  // index an earlier version wrote is rebuilt rather than searched as if it were current.
-  private static final String FORMAT = "1";
+  // index an earlier version wrote is rebuilt rather than searched as if it were current. 2: keys
+  // start with the account's id.
+  private static final String FORMAT = "2";
   private static final String FORMAT_KEY = "javadropbox.search.format";
 
   static final Duration RECONCILE_INTERVAL = Duration.ofMinutes(10);
@@ -215,8 +222,8 @@ public class SearchIndex {
       TextExtractor extractor,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
-    // The real root, which keys are relative to.
-    this.root = storagePaths.versionsDir().getParent();
+    // The accounts' folders, on the real root: keys start with the account's id.
+    this.root = storagePaths.homesDir();
     this.extractor = extractor;
     this.location =
         indexDirectory.isBlank()
@@ -276,13 +283,23 @@ public class SearchIndex {
     worker.scheduleWithFixedDelay(this::reconcile, interval, interval, TimeUnit.MILLISECONDS);
   }
 
+  /** Like {@link #changed(Home, String)}, for a resolved item. */
+  public void changed(StoragePath item) {
+    changed(item.home(), item.key());
+  }
+
   /**
-   * Reads the item at {@code key}, and everything below it, from disk again: what is there now is
-   * indexed afresh and what is gone is dropped. Called inside a transaction, this waits for the
-   * transaction to finish, whichever way it does: a rollback puts the disk back, and the index then
-   * matches that.
+   * Reads the item at {@code key} in an account's folder, and everything below it, from disk again:
+   * what is there now is indexed afresh and what is gone is dropped. Called inside a transaction,
+   * this waits for the transaction to finish, whichever way it does: a rollback puts the disk back,
+   * and the index then matches that.
    */
-  public void changed(String key) {
+  public void changed(Home home, String key) {
+    changed(home.indexKey(key));
+  }
+
+  // The empty key is every account's folder.
+  void changed(String key) {
     if (TransactionSynchronizationManager.isSynchronizationActive()) {
       TransactionSynchronizationManager.registerSynchronization(
           new TransactionSynchronization() {
@@ -562,6 +579,10 @@ public class SearchIndex {
             if (isHidden(dir)) {
               return FileVisitResult.SKIP_SUBTREE;
             }
+            // An account's folder is not an item in it, and a folder beside them is nobody's.
+            if (dir.getParent().equals(root)) {
+              return isHome(dir) ? FileVisitResult.CONTINUE : FileVisitResult.SKIP_SUBTREE;
+            }
             visitor.visit(keyOf(dir), dir, attributes);
             return FileVisitResult.CONTINUE;
           }
@@ -572,7 +593,7 @@ public class SearchIndex {
             if (closing) {
               return FileVisitResult.TERMINATE;
             }
-            if (attributes.isRegularFile() && !isHidden(file)) {
+            if (attributes.isRegularFile() && !isHidden(file) && !file.getParent().equals(root)) {
               visitor.visit(keyOf(file), file, attributes);
             }
             return FileVisitResult.CONTINUE;
@@ -588,6 +609,12 @@ public class SearchIndex {
 
   private static boolean isHidden(Path path) {
     return path.getFileName().toString().startsWith(".");
+  }
+
+  // Accounts' folders are named after their ids.
+  private static boolean isHome(Path dir) {
+    String name = dir.getFileName().toString();
+    return !name.isEmpty() && name.chars().allMatch(c -> c >= '0' && c <= '9');
   }
 
   private String keyOf(Path path) {
@@ -626,10 +653,11 @@ public class SearchIndex {
   }
 
   /**
-   * The items below the folder at {@code folderKey} (the root when empty) that match {@code text},
-   * best first. Every word in it has to be in the item's name or in its text.
+   * The items below the folder at {@code folderKey} in an account's folder (the account's whole
+   * folder when empty) that match {@code text}, best first. Every word in it has to be in the
+   * item's name or in its text.
    */
-  public Hits search(String folderKey, String text, int limit) throws IOException {
+  public Hits search(Home home, String folderKey, String text, int limit) throws IOException {
     SearcherManager manager = searchers;
     IndexSearcher searcher;
     try {
@@ -642,7 +670,8 @@ public class SearchIndex {
       return new Hits(List.of(), 0, false);
     }
     try {
-      Query query = query(folderKey, text);
+      String homeKey = home.indexKey("");
+      Query query = query(home.indexKey(folderKey), text);
       TopDocs top =
           searcher.search(query, new TopScoreDocCollectorManager(limit, Integer.MAX_VALUE));
       int[] docIds = Arrays.stream(top.scoreDocs).mapToInt(scoreDoc -> scoreDoc.doc).toArray();
@@ -654,7 +683,7 @@ public class SearchIndex {
       List<Hit> hits = new ArrayList<>(docIds.length);
       for (int i = 0; i < docIds.length; i++) {
         String path = fields.document(docIds[i], Set.of(PATH)).get(PATH);
-        hits.add(new Hit(path, (Snippet) snippets[i]));
+        hits.add(new Hit(path.substring(homeKey.length() + 1), (Snippet) snippets[i]));
       }
       return new Hits(hits, top.totalHits.value(), caughtUp);
     } finally {

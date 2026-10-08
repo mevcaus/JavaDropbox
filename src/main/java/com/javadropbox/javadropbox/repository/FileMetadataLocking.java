@@ -17,6 +17,6 @@ public interface FileMetadataLocking {
    */
   Optional<FileMetadata> lockById(Long id);
 
-  /** Like {@link #lockById}, for the row at a path. */
-  Optional<FileMetadata> lockByPath(String path);
+  /** Like {@link #lockById}, for the row at a path in an account's folder. */
+  Optional<FileMetadata> lockByPath(Long ownerId, String path);
 }

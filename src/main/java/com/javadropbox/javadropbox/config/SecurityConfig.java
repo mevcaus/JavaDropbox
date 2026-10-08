@@ -1,6 +1,9 @@
 package com.javadropbox.javadropbox.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.javadropbox.javadropbox.controller.AuthController;
 import com.javadropbox.javadropbox.controller.SpaController;
+import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
@@ -12,13 +15,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -33,8 +37,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-
-  private static final String DEFAULT_ROLE = "ROLE_USER";
 
   private static final String X_FRAME_OPTIONS = "X-Frame-Options";
 
@@ -59,17 +61,14 @@ public class SecurityConfig {
     return new LoginAttemptLimiter(Clock.systemUTC());
   }
 
+  // A disabled account is refused like a wrong password: the sign-in page cannot tell the two
+  // apart, so it reveals nothing about which accounts exist.
   @Bean
   public UserDetailsService userDetailsService() {
     return username ->
         userRepository
             .findByUsername(username)
-            .map(
-                u ->
-                    User.withUsername(u.getUsername())
-                        .password(u.getPassword())
-                        .authorities(u.getRole() != null ? u.getRole() : DEFAULT_ROLE)
-                        .build())
+            .map(AccountDetails::new)
             .orElseThrow(() -> new UsernameNotFoundException("User not found"));
   }
 
@@ -83,17 +82,19 @@ public class SecurityConfig {
   }
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity http, LoginAttemptLimiter limiter)
-      throws Exception {
+  public SecurityFilterChain securityFilterChain(
+      HttpSecurity http, LoginAttemptLimiter limiter, ObjectMapper json) throws Exception {
     // One matcher decides both which requests form login authenticates and which the throttle
     // checks, so the two cannot disagree about a URL such as /logi%6E.
     RequestMatcher loginRequest =
         PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/login");
 
     LoginThrottleFilter throttle = new LoginThrottleFilter(limiter, loginRequest);
+    AccountSessionFilter accountSessions = new AccountSessionFilter(userRepository);
 
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(throttle, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(accountSessions, AnonymousAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
@@ -106,6 +107,9 @@ public class SecurityConfig {
                         "/login",
                         "/error",
                         "/share/**",
+                        // Invitations and password resets, used by someone without a session.
+                        "/invite/**",
+                        "/reset-password/**",
                         // Only exists in the demo profile, for the sign-in page.
                         "/api/demo",
                         "/swagger-ui.html",
@@ -115,11 +119,11 @@ public class SecurityConfig {
                     .permitAll()
                     // Health checks come from load balancers and Docker, which have no session.
                     // Anonymous callers only see UP or DOWN (management.endpoint.health.show-
-                    // details). Metrics fall to the rule below: every account is the owner today,
-                    // and installs from before the setup code have a ROLE_USER owner, so this
-                    // becomes an ADMIN rule only once there are accounts that are not the owner's.
+                    // details). Metrics, and managing the accounts, are for admins.
                     .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
                     .permitAll()
+                    .requestMatchers("/actuator/**", "/api/admin/**")
+                    .hasAuthority(User.ROLE_ADMIN)
                     // A browser opening any other page gets the app shell, which sends it on to
                     // sign-in itself. SpaFallbackFilter answers every request this lets through
                     // with the shell, so nothing else is reached without a session this way.
@@ -142,10 +146,14 @@ public class SecurityConfig {
                             return filter;
                           }
                         })
+                    // Answered like /api/me, so the app knows the role without asking again.
                     .successHandler(
                         (req, res, auth) -> {
                           throttle.recordSuccess(req);
+                          accountSessions.signedIn(req, auth);
                           res.setStatus(200);
+                          res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                          json.writeValue(res.getWriter(), AuthController.describe(auth));
                         })
                     .failureHandler(
                         (req, res, exc) -> {

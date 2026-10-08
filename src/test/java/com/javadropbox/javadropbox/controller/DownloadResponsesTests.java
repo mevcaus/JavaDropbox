@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.javadropbox.javadropbox.dto.Download.FileDownload;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.service.StoragePaths;
+import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,12 +23,13 @@ class DownloadResponsesTests {
   @Test
   @DisplayName("a folder swapped for a symlink after the path check is not followed")
   void swappedSymlinkIsNotFollowed() throws IOException {
-    Path root = Files.createDirectory(tmp.resolve("root"));
+    Home home = new StoragePaths(Files.createDirectory(tmp.resolve("root")).toString()).home(1);
+    Path root = home.root();
     Path outside = Files.createDirectory(tmp.resolve("outside"));
     Files.writeString(outside.resolve("secret.txt"), "outside secret");
     Files.createDirectory(root.resolve("dir"));
     Files.writeString(root.resolve("dir/secret.txt"), "inside");
-    StoragePath checked = new StoragePaths(root.toString()).resolveItem("dir/secret.txt");
+    StoragePath checked = home.resolveItem("dir/secret.txt");
 
     Files.delete(root.resolve("dir/secret.txt"));
     Files.delete(root.resolve("dir"));

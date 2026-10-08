@@ -64,6 +64,20 @@ describe('Login', () => {
         expect(screen.queryByRole('link', { name: /set ?up/i })).not.toBeInTheDocument();
     });
 
+    it('shows what the page that sent the user here had to say', () => {
+        const store = configureStore({ reducer: { auth: authReducer } });
+        store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, 'Not authenticated'));
+        render(
+            <Provider store={store}>
+                <MemoryRouter initialEntries={[{ pathname: '/login', state: { notice: 'Your account is ready.' } }]}>
+                    <Login />
+                </MemoryRouter>
+            </Provider>,
+        );
+
+        expect(screen.getByRole('status')).toHaveTextContent('Your account is ready.');
+    });
+
     it('announces a failed sign-in to screen readers', () => {
         renderAfterSessionCheck(
             'Not authenticated',

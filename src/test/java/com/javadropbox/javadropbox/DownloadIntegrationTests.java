@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,10 @@ class DownloadIntegrationTests {
   @Autowired private ObjectMapper json;
 
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private StoragePaths storagePaths;
+
+  // The signed-in account's folder, where its files are.
+  private Path home;
 
   @AfterEach
   void tearDown() {
@@ -66,14 +71,12 @@ class DownloadIntegrationTests {
 
   @BeforeEach
   void setUp() throws IOException {
-    if (users.count() == 0) {
-      users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    }
-    Files.createDirectories(servingDir.resolve("docs/nested"));
-    Files.writeString(servingDir.resolve("docs/top.txt"), "top");
-    Files.writeString(servingDir.resolve("docs/nested/deep.txt"), "deep");
+    home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
+    Files.createDirectories(home.resolve("docs/nested"));
+    Files.writeString(home.resolve("docs/top.txt"), "top");
+    Files.writeString(home.resolve("docs/nested/deep.txt"), "deep");
     Files.writeString(outsideDir.resolve("secret.txt"), "secret");
-    Path link = servingDir.resolve("docs/escape");
+    Path link = home.resolve("docs/escape");
     if (!Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
       Files.createSymbolicLink(link, outsideDir);
     }
@@ -116,7 +119,7 @@ class DownloadIntegrationTests {
   @DisplayName("filenames with quotes and non-ASCII characters survive the header intact")
   void awkwardFilenameIsEncoded() throws Exception {
     String name = "we\"ird; name ü.txt";
-    Files.writeString(servingDir.resolve(name), "x");
+    Files.writeString(home.resolve(name), "x");
 
     MockHttpServletResponse response =
         mockMvc
@@ -143,9 +146,9 @@ class DownloadIntegrationTests {
   @WithMockUser(username = "owner")
   @DisplayName("file and folder downloads are sandboxed, so active content cannot run as the app")
   void downloadsAreSandboxed() throws Exception {
-    Files.writeString(servingDir.resolve("page.html"), "<script>alert(1)</script>");
+    Files.writeString(home.resolve("page.html"), "<script>alert(1)</script>");
     Files.writeString(
-        servingDir.resolve("image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
+        home.resolve("image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
 
     for (String path : new String[] {"page.html", "image.svg", "docs"}) {
       for (var request :
@@ -164,9 +167,9 @@ class DownloadIntegrationTests {
   @Test
   @DisplayName("a share link to something since deleted is a 404")
   void sharedMissingFileIsNotFound() throws Exception {
-    Files.writeString(servingDir.resolve("gone.txt"), "soon gone");
+    Files.writeString(home.resolve("gone.txt"), "soon gone");
     String url = share("gone.txt");
-    Files.delete(servingDir.resolve("gone.txt"));
+    Files.delete(home.resolve("gone.txt"));
 
     mockMvc
         .perform(get(url))

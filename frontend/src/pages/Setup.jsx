@@ -4,11 +4,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { setupCompleted } from '../features/authSlice';
 import { readableError } from '../utils/errors';
+import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
 import { Loader2 } from 'lucide-react';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
-
-// Kept in step with SetupService.MIN_PASSWORD_LENGTH on the backend, which enforces it too.
-export const MIN_PASSWORD_LENGTH = 8;
 
 const Setup = () => {
     const [code, setCode] = useState('');
