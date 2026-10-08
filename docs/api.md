@@ -12,10 +12,10 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded): `{username, role}`. A disabled account is refused like a wrong password (`401`) |
 | `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user: `{username, role}`, where `role` is `ADMIN` or `USER` |
-| `GET` | `/invite/{token}/info` | ❌ | What an invitation is for: `{username, expiresAt}`; `404` once used, withdrawn or expired |
-| `POST` | `/invite/{token}` | ❌ | Accept an invitation: creates the account with `password` (at least 8 characters); the link is then used up |
-| `GET` | `/reset-password/{token}/info` | ❌ | Whose password a reset link sets: `{username, expiresAt}`; `404` once used or expired |
-| `POST` | `/reset-password/{token}` | ❌ | Set the account's new `password` and sign it out everywhere; the link is then used up |
+| `GET` | `/api/invite/{token}` | ❌ | What an invitation is for: `{username, expiresAt}`; `404` once used, withdrawn or expired |
+| `POST` | `/api/invite/{token}` | ❌ | Accept an invitation: creates the account with `password` (at least 8 characters); the link is then used up |
+| `GET` | `/api/reset-password/{token}` | ❌ | Whose password a reset link sets: `{username, expiresAt}`; `404` once used or expired |
+| `POST` | `/api/reset-password/{token}` | ❌ | Set the account's new `password` and sign it out everywhere; the link is then used up |
 
 A session ends on its next request once its account is disabled, or its role or password changes.
 | `GET` | `/api/demo` | ❌ | Only in the `demo` profile: the shared account and the limits, for the sign-in page (`404` elsewhere) |

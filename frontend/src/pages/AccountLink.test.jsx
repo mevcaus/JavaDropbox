@@ -54,12 +54,12 @@ describe('AccountLink', () => {
 
         expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
         expect(screen.getByText('carol')).toBeInTheDocument();
-        expect(api.get).toHaveBeenCalledWith('/invite/tok-1/info');
+        expect(api.get).toHaveBeenCalledWith('/api/invite/tok-1');
 
         await choose(user, 'long enough');
         await user.click(screen.getByRole('button', { name: 'Create account' }));
 
-        expect(api.post.mock.calls[0][0]).toBe('/invite/tok-1');
+        expect(api.post.mock.calls[0][0]).toBe('/api/invite/tok-1');
         expect(Object.fromEntries(api.post.mock.calls[0][1])).toEqual({ password: 'long enough' });
         expect(await screen.findByText(/Sign-in page: Your account is ready/)).toBeInTheDocument();
     });
@@ -74,8 +74,8 @@ describe('AccountLink', () => {
         await choose(user, 'a new password');
         await user.click(screen.getByRole('button', { name: 'Set password' }));
 
-        expect(api.get).toHaveBeenCalledWith('/reset-password/tok-2/info');
-        expect(api.post.mock.calls[0][0]).toBe('/reset-password/tok-2');
+        expect(api.get).toHaveBeenCalledWith('/api/reset-password/tok-2');
+        expect(api.post.mock.calls[0][0]).toBe('/api/reset-password/tok-2');
         expect(await screen.findByText(/Sign-in page: Your password has been changed/)).toBeInTheDocument();
     });
 
@@ -128,7 +128,7 @@ describe('AccountLink', () => {
 
         // Without signing out, the sign-in page would send ada straight back to her own files.
         expect(await screen.findByText(/Sign-in page: Your account is ready/)).toBeInTheDocument();
-        expect(api.post.mock.calls.map(([url]) => url)).toEqual(['/invite/tok-1', '/logout']);
+        expect(api.post.mock.calls.map(([url]) => url)).toEqual(['/api/invite/tok-1', '/logout']);
         expect(store.getState().auth.isAuthenticated).toBe(false);
     });
 

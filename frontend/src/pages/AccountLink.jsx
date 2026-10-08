@@ -9,10 +9,10 @@ import { formatDate } from '../utils/date';
 import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
 
-// What each kind of link is for: its routes on the server, and the words on its page.
+// What each kind of link is for: where the API answers it, and the words on its page.
 const PURPOSES = {
     invite: {
-        route: '/invite',
+        api: '/api/invite',
         heading: 'Create your account',
         intro: (username) => (
             <>
@@ -26,7 +26,7 @@ const PURPOSES = {
         failed: 'Could not create the account.',
     },
     reset: {
-        route: '/reset-password',
+        api: '/api/reset-password',
         heading: 'Choose a new password',
         intro: (username) => (
             <>
@@ -56,7 +56,7 @@ const AccountLink = ({ purpose }) => {
     const dispatch = useDispatch();
     const { isAuthenticated, user } = useSelector((state) => state.auth);
     const text = PURPOSES[purpose];
-    const endpoint = `${text.route}/${encodeURIComponent(token)}`;
+    const endpoint = `${text.api}/${encodeURIComponent(token)}`;
 
     const [link, setLink] = useState(null);
     const [loadError, setLoadError] = useState(null);
@@ -67,7 +67,7 @@ const AccountLink = ({ purpose }) => {
 
     useEffect(() => {
         let cancelled = false;
-        api.get(`${endpoint}/info`)
+        api.get(endpoint)
             .then((response) => {
                 if (cancelled) return;
                 // Anything but the link's description, such as the app's HTML from a request that

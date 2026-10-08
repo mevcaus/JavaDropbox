@@ -1,18 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
-const accountLinkProxy = (route) => ({
-  target: 'http://localhost:8080',
-  changeOrigin: true,
-  secure: false,
-  bypass: (req) => {
-    const isLinkPage = new RegExp(`^/${route}/[^/?]+(\\?|$)`).test(req.url);
-    return isLinkPage && req.method === 'GET' && req.headers.accept?.includes('text/html')
-      ? '/index.html'
-      : undefined;
-  },
-});
-
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -47,11 +35,6 @@ export default defineConfig({
           return isLinkPage && req.headers.accept?.includes('text/html') ? '/index.html' : undefined;
         },
       },
-      // The links admins send, to create an account or set a new password. Like a share link, a
-      // browser opening the link itself gets the app's page for it; the page's /info and the POST
-      // of the chosen password go to the backend.
-      '/invite': accountLinkProxy('invite'),
-      '/reset-password': accountLinkProxy('reset-password'),
       '/setup': {
         target: 'http://localhost:8080',
         changeOrigin: true,

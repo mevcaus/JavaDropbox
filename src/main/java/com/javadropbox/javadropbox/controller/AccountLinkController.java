@@ -14,9 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The links admins hand out (see AdminController), used by someone without a session: they are
- * public in SecurityConfig. A browser opening {@code /invite/{token}} or {@code
- * /reset-password/{token}} gets the app's page for it, which reads {@code /info} and posts the
- * chosen password back.
+ * public in SecurityConfig. A browser opening the link itself, {@code /invite/{token}} or {@code
+ * /reset-password/{token}}, gets the app's page for it (SpaFallbackFilter), which reads what the
+ * link is for here and posts the chosen password back. Under {@code /api} like the rest of the API,
+ * so the server and the dev server need no list of these routes of their own.
  */
 @RestController
 @Tag(name = "Account links", description = "Accept an invitation or reset a password")
@@ -28,7 +29,7 @@ public class AccountLinkController {
     this.accountLinks = accountLinks;
   }
 
-  @GetMapping("/invite/{token}/info")
+  @GetMapping("/api/invite/{token}")
   @Operation(
       summary = "Describe an invitation",
       description =
@@ -38,7 +39,7 @@ public class AccountLinkController {
     return accountLinks.describe(Purpose.INVITE, token);
   }
 
-  @PostMapping("/invite/{token}")
+  @PostMapping("/api/invite/{token}")
   @Operation(
       summary = "Accept an invitation",
       description =
@@ -50,7 +51,7 @@ public class AccountLinkController {
     return Map.of("message", "Account created");
   }
 
-  @GetMapping("/reset-password/{token}/info")
+  @GetMapping("/api/reset-password/{token}")
   @Operation(
       summary = "Describe a password reset link",
       description =
@@ -60,7 +61,7 @@ public class AccountLinkController {
     return accountLinks.describe(Purpose.PASSWORD_RESET, token);
   }
 
-  @PostMapping("/reset-password/{token}")
+  @PostMapping("/api/reset-password/{token}")
   @Operation(
       summary = "Reset a password",
       description =

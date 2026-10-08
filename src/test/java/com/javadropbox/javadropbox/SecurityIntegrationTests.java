@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -115,6 +116,23 @@ class SecurityIntegrationTests {
           .perform(get(path).header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
           .andExpect(status().isOk())
           .andExpect(forwardedUrl("/index.html"));
+    }
+  }
+
+  @Test
+  @DisplayName("The links admins send open the app without a session, and its API answers them")
+  void accountLinkPagesAreTheAppShell() throws Exception {
+    // Tokens are base64url: letters, digits, - and _, never a dot.
+    String token = "Ab-9_xYz0123456789abcdefghijklmnopqrstuvwxyz";
+    for (String page : new String[] {"/invite/" + token, "/reset-password/" + token}) {
+      mockMvc
+          .perform(get(page).with(anonymous()).header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
+          .andExpect(status().isOk())
+          .andExpect(forwardedUrl("/index.html"));
+    }
+    // What the page reads is public too: an unknown token is a 404, not a 401.
+    for (String api : new String[] {"/api/invite/" + token, "/api/reset-password/" + token}) {
+      mockMvc.perform(get(api).with(anonymous())).andExpect(status().isNotFound());
     }
   }
 
