@@ -5,12 +5,9 @@ import com.javadropbox.javadropbox.dto.Download.FileDownload;
 import com.javadropbox.javadropbox.dto.Download.FolderDownload;
 import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.model.PreviewType;
-import com.javadropbox.javadropbox.service.FolderArchive;
-import com.javadropbox.javadropbox.service.StoragePaths;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -53,15 +50,14 @@ final class DownloadResponses {
           .contentType(MediaType.parseMediaType(file.contentType()))
           .header(CONTENT_SECURITY_POLICY, SANDBOX)
           .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
-          .body(new FileSystemResource(StoragePaths.recheck(file.path())));
+          .body(file.content());
     }
 
     FolderDownload folder = (FolderDownload) download;
     response.setContentType("application/zip");
     response.setHeader(CONTENT_SECURITY_POLICY, SANDBOX);
     response.setHeader(HttpHeaders.CONTENT_DISPOSITION, disposition);
-    String rootName = folder.filename().substring(0, folder.filename().length() - ".zip".length());
-    FolderArchive.write(folder.path(), rootName, response.getOutputStream());
+    folder.zip().writeTo(response.getOutputStream());
     response.flushBuffer();
     return null;
   }
@@ -87,7 +83,7 @@ final class DownloadResponses {
       // An SVG opened on its own would otherwise run its scripts on the app's origin.
       response.header(CONTENT_SECURITY_POLICY, SANDBOX);
     }
-    return response.body(new FileSystemResource(StoragePaths.recheck(preview.path())));
+    return response.body(preview.content());
   }
 
   // Built rather than concatenated: a name with a quote, semicolon or non-ASCII characters would

@@ -6,12 +6,10 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -27,11 +25,14 @@ public class SearchService {
   public static final int MAX_RESULTS = 200;
 
   private final StoragePaths storagePaths;
+  private final FileStore store;
   private final SearchIndex index;
   private final AuthService authService;
 
-  public SearchService(StoragePaths storagePaths, SearchIndex index, AuthService authService) {
+  public SearchService(
+      StoragePaths storagePaths, FileStore store, SearchIndex index, AuthService authService) {
     this.storagePaths = storagePaths;
+    this.store = store;
     this.index = index;
     this.authService = authService;
   }
@@ -59,7 +60,7 @@ public class SearchService {
     User user = authService.requireCurrentUser();
     Home home = storagePaths.home(user);
     StoragePath folder = home.resolve(folderPath);
-    if (!Files.isDirectory(folder.path(), LinkOption.NOFOLLOW_LINKS)) {
+    if (!store.stat(folder.storeKey()).map(Entry::isDirectory).orElse(false)) {
       throw new NotFoundException("Folder not found: " + folder.key());
     }
 
@@ -74,26 +75,29 @@ public class SearchService {
     return new SearchResults(results, hits.total(), !hits.complete());
   }
 
-  // The hit as it is on disk now. One that has gone since it was indexed, or can now only be
+  // The hit as it is stored now. One that has gone since it was indexed, or can now only be
   // reached through a symlink, is left out, and the index told to drop it.
   private SearchResult result(Home home, SearchIndex.Hit hit) {
     StoragePath item;
-    BasicFileAttributes attributes;
+    Entry entry;
     try {
       item = home.resolveItem(hit.path());
-      attributes =
-          Files.readAttributes(item.path(), BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+      entry = store.stat(item.storeKey()).orElse(null);
     } catch (BadRequestException | IOException e) {
+      item = null;
+      entry = null;
+    }
+    if (entry == null) {
       index.changed(home, hit.path());
       return null;
     }
-    boolean isDirectory = attributes.isDirectory();
+    boolean isDirectory = entry.isDirectory();
     return new SearchResult(
         item.name(),
         item.key(),
         isDirectory,
-        isDirectory ? null : attributes.size(),
-        attributes.lastModifiedTime().toInstant(),
+        isDirectory ? null : entry.size(),
+        entry.modified(),
         isDirectory ? null : PreviewType.of(item.name()).orElse(null),
         hit.snippet());
   }

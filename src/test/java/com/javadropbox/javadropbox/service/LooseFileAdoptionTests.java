@@ -28,14 +28,16 @@ class LooseFileAdoptionTests {
   private final UserRepository users = mock(UserRepository.class);
   private final SearchIndex searchIndex = mock(SearchIndex.class);
   private final User owner = new User("owner", "unused", User.ROLE_ADMIN);
+  private LocalFileStore store;
   private StoragePaths storagePaths;
   private LooseFileAdoption adoption;
 
   @BeforeEach
   void setUp() throws IOException {
     owner.setId(1L);
-    storagePaths = new StoragePaths(servingDir);
-    adoption = new LooseFileAdoption(storagePaths, users, searchIndex);
+    store = new LocalFileStore(servingDir);
+    storagePaths = new StoragePaths(store, servingDir);
+    adoption = new LooseFileAdoption(storagePaths, store, users, searchIndex);
   }
 
   @Test
@@ -51,7 +53,7 @@ class LooseFileAdoptionTests {
 
     adoption.adoptAtStartup();
 
-    Path home = storagePaths.home(owner).root();
+    Path home = store.path(storagePaths.home(owner).key());
     assertThat(home.resolve("a.txt")).hasContent("a");
     assertThat(home.resolve("docs/b.txt")).hasContent("b");
     assertThat(servingDir.resolve("a.txt")).doesNotExist();
@@ -64,12 +66,14 @@ class LooseFileAdoptionTests {
   @Test
   @DisplayName("an item whose name the account's folder already has stays where it is")
   void clashingItemStays() throws IOException {
-    Files.writeString(storagePaths.home(owner).root().resolve("a.txt"), "the account's own");
+    Files.writeString(
+        store.path(storagePaths.home(owner).key()).resolve("a.txt"), "the account's own");
     Files.writeString(servingDir.resolve("a.txt"), "loose");
 
     adoption.adopt(owner);
 
-    assertThat(storagePaths.home(owner).root().resolve("a.txt")).hasContent("the account's own");
+    assertThat(store.path(storagePaths.home(owner).key()).resolve("a.txt"))
+        .hasContent("the account's own");
     assertThat(servingDir.resolve("a.txt")).hasContent("loose");
   }
 
@@ -82,7 +86,7 @@ class LooseFileAdoptionTests {
     adoption.adoptAtStartup();
 
     assertThat(servingDir.resolve("a.txt")).exists();
-    assertThat(storagePaths.homesDir()).doesNotExist();
+    assertThat(servingDir.resolve(StoragePaths.HOMES_DIR)).doesNotExist();
   }
 
   @Test

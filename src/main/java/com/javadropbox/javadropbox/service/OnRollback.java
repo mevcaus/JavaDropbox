@@ -6,9 +6,9 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * Undoes a filesystem change if the database transaction it belongs to does not commit. A move on
- * disk is not rolled back with the rows that describe it; without an undo, a failure after the move
- * leaves the disk showing a change the database never recorded.
+ * Undoes a change in the {@link FileStore} if the database transaction it belongs to does not
+ * commit. A move in the store is not rolled back with the rows that describe it; without an undo, a
+ * failure after the move leaves the store showing a change the database never recorded.
  */
 final class OnRollback {
 

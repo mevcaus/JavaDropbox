@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StorageQuota;
 import java.io.IOException;
@@ -57,6 +58,7 @@ class StorageQuotaIntegrationTests {
   @Autowired private JdbcTemplate jdbc;
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -65,7 +67,7 @@ class StorageQuotaIntegrationTests {
   @BeforeEach
   void setUp() {
     owner = users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
   }
 
   @AfterEach

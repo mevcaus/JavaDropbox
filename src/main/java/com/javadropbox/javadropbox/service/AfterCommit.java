@@ -6,9 +6,9 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * Defers filesystem clean-up until the database change that makes it safe has committed. Deleting a
- * version's file before its row is gone would leave a row pointing at nothing if the transaction
- * then rolled back; the other way round only ever leaves an orphaned file.
+ * Defers clean-up in the {@link FileStore} until the database change that makes it safe has
+ * committed. Deleting a version's file before its row is gone would leave a row pointing at nothing
+ * if the transaction then rolled back; the other way round only ever leaves an orphaned file.
  */
 final class AfterCommit {
 

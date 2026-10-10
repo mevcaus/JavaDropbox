@@ -35,6 +35,7 @@ class SearchIndexTests {
   @TempDir Path servingDir;
   @TempDir Path indexDir;
 
+  private LocalFileStore store;
   private StoragePaths storagePaths;
   // The folder of the account the tests search, and where they put its files.
   private Home home;
@@ -54,9 +55,10 @@ class SearchIndexTests {
 
   @BeforeEach
   void setUp() throws IOException {
-    storagePaths = new StoragePaths(servingDir);
+    store = new LocalFileStore(servingDir);
+    storagePaths = new StoragePaths(store, servingDir);
     home = storagePaths.home(1);
-    files = home.root();
+    files = store.path(home.key());
   }
 
   @AfterEach
@@ -182,11 +184,13 @@ class SearchIndexTests {
   @DisplayName("a search finds the account's own files only, not another's or loose ones")
   void searchFindsTheAccountsOwnFilesOnly() throws Exception {
     Files.writeString(files.resolve("mine.txt"), "shared word");
-    Files.writeString(storagePaths.home(2).root().resolve("theirs.txt"), "shared word");
-    Files.writeString(storagePaths.home(12).root().resolve("also-theirs.txt"), "shared word");
-    Files.writeString(storagePaths.homesDir().resolve("loose.txt"), "shared word");
-    Files.createDirectories(storagePaths.homesDir().resolve("stray"));
-    Files.writeString(storagePaths.homesDir().resolve("stray/stray.txt"), "shared word");
+    Files.writeString(store.path(storagePaths.home(2).key()).resolve("theirs.txt"), "shared word");
+    Files.writeString(
+        store.path(storagePaths.home(12).key()).resolve("also-theirs.txt"), "shared word");
+    Path homes = store.path(StoragePaths.HOMES_DIR);
+    Files.writeString(homes.resolve("loose.txt"), "shared word");
+    Files.createDirectories(homes.resolve("stray"));
+    Files.writeString(homes.resolve("stray/stray.txt"), "shared word");
     SearchIndex index = open();
     reconcile(index);
 
@@ -200,7 +204,7 @@ class SearchIndexTests {
   }
 
   private SearchIndex open() throws IOException {
-    SearchIndex index = new SearchIndex(storagePaths, extractor, indexDir.toString());
+    SearchIndex index = new SearchIndex(storagePaths, store, extractor, indexDir.toString());
     opened.add(index);
     return index;
   }

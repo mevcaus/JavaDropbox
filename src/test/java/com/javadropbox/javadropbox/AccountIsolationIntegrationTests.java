@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.nio.charset.StandardCharsets;
@@ -63,6 +64,7 @@ class AccountIsolationIntegrationTests {
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
   @Autowired private SearchIndex searchIndex;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;
@@ -93,9 +95,9 @@ class AccountIsolationIntegrationTests {
   @Test
   @DisplayName("each account's files are in a folder of its own on disk")
   void filesAreInTheAccountsFolder() {
-    assertThat(storagePaths.home(alice).root().resolve("secret.txt"))
+    assertThat(localStore.path(storagePaths.home(alice).key()).resolve("secret.txt"))
         .hasContent("alice's newer secret plans");
-    assertThat(storagePaths.home(bob).root().resolve("secret.txt")).doesNotExist();
+    assertThat(localStore.path(storagePaths.home(bob).key()).resolve("secret.txt")).doesNotExist();
   }
 
   @Test
@@ -162,7 +164,7 @@ class AccountIsolationIntegrationTests {
     long alicesId = idOf(ALICE, "docs/a.txt");
     long bobsId = idOf(BOB, "docs/a.txt");
     String alicesLink = share(ALICE, "docs/a.txt");
-    Path versions = storagePaths.versionsDir();
+    Path versions = localStore.path(StoragePaths.VERSIONS_DIR);
     assertThat(versions.resolve(bobsId + "/v1")).hasContent("bob's draft");
 
     mockMvc
@@ -170,7 +172,7 @@ class AccountIsolationIntegrationTests {
         .andExpect(status().isOk());
 
     // Bob's folder and its versions are gone ...
-    assertThat(storagePaths.home(bob).root().resolve("docs")).doesNotExist();
+    assertThat(localStore.path(storagePaths.home(bob).key()).resolve("docs")).doesNotExist();
     assertThat(versions.resolve(String.valueOf(bobsId))).doesNotExist();
     // ... and Alice's file, version and link are all still there.
     mockMvc
@@ -272,9 +274,10 @@ class AccountIsolationIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isNotFound());
 
-    assertThat(storagePaths.home(alice).root().resolve("secret.txt"))
+    assertThat(localStore.path(storagePaths.home(alice).key()).resolve("secret.txt"))
         .hasContent("alice's newer secret plans");
-    assertThat(storagePaths.home(bob).root().resolve("secret_v1.txt")).doesNotExist();
+    assertThat(localStore.path(storagePaths.home(bob).key()).resolve("secret_v1.txt"))
+        .doesNotExist();
     mockMvc
         .perform(get("/api/files/" + id + "/versions").with(ALICE))
         .andExpect(jsonPath("$.length()").value(1));
@@ -294,7 +297,7 @@ class AccountIsolationIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isBadRequest());
 
-    assertThat(storagePaths.home(alice).root().resolve("secret.txt")).exists();
+    assertThat(localStore.path(storagePaths.home(alice).key()).resolve("secret.txt")).exists();
   }
 
   @Test

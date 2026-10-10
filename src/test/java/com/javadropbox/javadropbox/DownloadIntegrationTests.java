@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -60,6 +61,7 @@ class DownloadIntegrationTests {
 
   @Autowired private JdbcTemplate jdbc;
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   // The signed-in account's folder, where its files are.
   private Path home;
@@ -71,7 +73,9 @@ class DownloadIntegrationTests {
 
   @BeforeEach
   void setUp() throws IOException {
-    home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
+    home =
+        localStore.path(
+            storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).key());
     Files.createDirectories(home.resolve("docs/nested"));
     Files.writeString(home.resolve("docs/top.txt"), "top");
     Files.writeString(home.resolve("docs/nested/deep.txt"), "deep");

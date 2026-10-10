@@ -5,22 +5,18 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 /**
  * Each account's quota: the most it may store, previous versions included, which an admin gives it
- * ({@link User#getQuotaBytes}); an account without one may store anything the disk holds.
+ * ({@link User#getQuotaBytes}); an account without one may store as much as there is room for.
  *
- * <p>Usage is measured by walking the account's folder, which is what the disk actually holds
+ * <p>Usage is measured by walking the account's folder, which is what the store actually holds
  * whatever the database thinks, plus the sizes of its files' previous versions from their rows,
  * since the version store is shared. That is cheap at the sizes quotas are meant for, such as the
- * public demo's.
+ * public demo's: on the disk a walk of the folder, in S3 a listing of a thousand files a request.
  *
  * <p>There used to be a second cap, on everything the serving directory held, which only the demo
  * set; the demo account's quota does that job now (see DemoService). A server still configured with
@@ -36,10 +32,12 @@ public class StorageQuota {
   public record Usage(long usedBytes, Long quotaBytes) {}
 
   private final StoragePaths storagePaths;
+  private final FileStore store;
   private final FileVersionRepository versions;
 
   public StorageQuota(
       StoragePaths storagePaths,
+      FileStore store,
       FileVersionRepository versions,
       @Value("${" + REMOVED_CAP + ":}") String removedCap) {
     if (!removedCap.isBlank()) {
@@ -49,6 +47,7 @@ public class StorageQuota {
               + " see docs/self-hosting.md), then remove the setting.");
     }
     this.storagePaths = storagePaths;
+    this.store = store;
     this.versions = versions;
   }
 
@@ -74,27 +73,16 @@ public class StorageQuota {
   }
 
   /**
-   * The bytes in an account's folder, plus those of its files' previous versions. Symlinks are not
-   * followed.
+   * The bytes in an account's folder, hidden files and upload scratch files included, plus those of
+   * its files' previous versions. Symlinks are not followed.
    */
   public long usedBytes(User user) throws IOException {
     long[] total = {0};
-    Files.walkFileTree(
-        storagePaths.home(user).root(),
-        new SimpleFileVisitor<>() {
-          @Override
-          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-            if (attrs.isRegularFile()) {
-              total[0] += attrs.size();
-            }
-            return FileVisitResult.CONTINUE;
-          }
-
-          // A file deleted while the walk is under way simply no longer counts.
-          @Override
-          public FileVisitResult visitFileFailed(Path file, IOException e) {
-            return FileVisitResult.CONTINUE;
-          }
+    store.walk(
+        storagePaths.home(user).key(),
+        entry -> {
+          total[0] += entry.size();
+          return FileVisitResult.CONTINUE;
         });
     return total[0] + versions.totalSizeOf(user.getId());
   }

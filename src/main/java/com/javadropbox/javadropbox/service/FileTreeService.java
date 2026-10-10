@@ -5,17 +5,17 @@ import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.FileVisitResult;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -24,8 +24,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Builds the file tree the UI browses: what is in one account's folder. The disk is the source of
- * truth for what exists; the database adds ids, owners and dates for items the app created.
+ * Builds the file tree the UI browses: what is in one account's folder. The {@link FileStore} is
+ * the source of truth for what exists; the database adds ids, owners and dates for items the app
+ * created.
  */
 @Service
 public class FileTreeService {
@@ -40,10 +41,12 @@ public class FileTreeService {
           .thenComparing(FileTreeNode::getName, String.CASE_INSENSITIVE_ORDER);
 
   private final StoragePaths storagePaths;
+  private final FileStore store;
   private final FileMetadataRepository files;
 
-  public FileTreeService(StoragePaths storagePaths, FileMetadataRepository files) {
+  public FileTreeService(StoragePaths storagePaths, FileStore store, FileMetadataRepository files) {
     this.storagePaths = storagePaths;
+    this.store = store;
     this.files = files;
   }
 
@@ -57,52 +60,53 @@ public class FileTreeService {
   /** The tree below one folder, built the same way: what a shared folder's page lists. */
   @Transactional(readOnly = true)
   public List<FileTreeNode> tree(StoragePath folder) {
-    return children(folder.path(), folder.key(), metadata(folder.home().userId()));
+    Map<String, FileMetadata> metadata = metadata(folder.home().userId());
+    // The folder's key in the store, and each node's key in the account's folder, both end where
+    // the part below the folder starts.
+    String top = folder.storeKey();
+    String homePrefix = folder.home().key() + "/";
+    List<FileTreeNode> topLevel = new ArrayList<>();
+    Map<String, FileTreeNode> folders = new HashMap<>();
+    try {
+      // Folders come before what they hold, so each item's parent is there before it.
+      store.walk(
+          top,
+          entry -> {
+            if (entry.key().equals(top)) {
+              return FileVisitResult.CONTINUE;
+            }
+            // Hidden entries include upload scratch files and the app's own folders.
+            if (entry.name().startsWith(".")) {
+              return FileVisitResult.SKIP_SUBTREE;
+            }
+            String parentKey = entry.key().substring(0, entry.key().lastIndexOf('/'));
+            FileTreeNode parent = folders.get(parentKey);
+            if (parent == null && !parentKey.equals(top)) {
+              return FileVisitResult.SKIP_SUBTREE;
+            }
+            String key = entry.key().substring(homePrefix.length());
+            FileTreeNode node = node(entry, key, metadata);
+            (parent == null ? topLevel : parent.getChildren()).add(node);
+            if (entry.isDirectory()) {
+              folders.put(entry.key(), node);
+            }
+            return FileVisitResult.CONTINUE;
+          });
+    } catch (IOException e) {
+      log.warn("Could not list {}: {}", top, e.toString());
+    }
+    finish(topLevel);
+    return topLevel;
   }
 
-  // One query for every row, rather than one per file on disk.
+  // One query for every row, rather than one per item stored.
   private Map<String, FileMetadata> metadata(long ownerId) {
     return files.findAllOf(ownerId).stream()
         .collect(Collectors.toMap(FileMetadata::getPath, Function.identity()));
   }
 
-  private List<FileTreeNode> children(Path folder, String key, Map<String, FileMetadata> metadata) {
-    List<FileTreeNode> nodes = new ArrayList<>();
-    try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
-      for (Path entry : entries) {
-        String name = entry.getFileName().toString();
-        // Hidden entries include the app's own directories.
-        if (name.startsWith(".")) {
-          continue;
-        }
-        String childKey = key.isEmpty() ? name : key + "/" + name;
-        try {
-          // Read once without following links, so the entry checked is the entry listed.
-          BasicFileAttributes attributes =
-              Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-          // Symlinks are skipped: one pointing outside the serving directory would expose it, one
-          // pointing at an ancestor would loop.
-          if (!attributes.isSymbolicLink()) {
-            nodes.add(node(entry, attributes, name, childKey, metadata));
-          }
-        } catch (IOException e) {
-          log.warn("Skipping {} in the file tree: {}", entry, e.toString());
-        }
-      }
-    } catch (IOException e) {
-      log.warn("Could not list {}: {}", folder, e.toString());
-    }
-    nodes.sort(FOLDERS_FIRST_BY_NAME);
-    return nodes;
-  }
-
-  private FileTreeNode node(
-      Path entry,
-      BasicFileAttributes attributes,
-      String name,
-      String key,
-      Map<String, FileMetadata> metadata) {
-    FileTreeNode node = new FileTreeNode(name, attributes.isDirectory(), attributes.size(), key);
+  private static FileTreeNode node(Entry entry, String key, Map<String, FileMetadata> metadata) {
+    FileTreeNode node = new FileTreeNode(entry.name(), entry.isDirectory(), entry.size(), key);
 
     FileMetadata row = metadata.get(key);
     if (row != null) {
@@ -111,18 +115,39 @@ public class FileTreeService {
       node.setLastModified(row.getUpdatedAt());
       node.setOwnerName(row.getOwner() != null ? row.getOwner().getUsername() : UNTRACKED_OWNER);
     } else {
-      node.setCreatedDate(attributes.creationTime().toInstant());
-      node.setLastModified(attributes.lastModifiedTime().toInstant());
+      node.setCreatedDate(entry.created());
+      node.setLastModified(entry.modified());
       node.setOwnerName(UNTRACKED_OWNER);
     }
-
-    if (attributes.isDirectory()) {
-      List<FileTreeNode> children = children(entry, key, metadata);
-      node.setChildren(children);
-      node.setSize(children.stream().mapToLong(FileTreeNode::getSize).sum());
-    } else {
-      node.setPreviewType(PreviewType.of(name).orElse(null));
+    if (!entry.isDirectory()) {
+      node.setPreviewType(PreviewType.of(entry.name()).orElse(null));
     }
     return node;
+  }
+
+  // Sorts each folder's contents and adds up its size. A folder whose dates the store does not
+  // know, as in S3 where one exists only because something is in it, takes the latest of what is.
+  private static void finish(List<FileTreeNode> nodes) {
+    for (FileTreeNode node : nodes) {
+      if (node.getIsDirectory()) {
+        finish(node.getChildren());
+        node.setSize(node.getChildren().stream().mapToLong(FileTreeNode::getSize).sum());
+        if (node.getLastModified() == null) {
+          node.setLastModified(latest(node.getChildren(), FileTreeNode::getLastModified));
+        }
+        if (node.getCreatedDate() == null) {
+          node.setCreatedDate(latest(node.getChildren(), FileTreeNode::getCreatedDate));
+        }
+      }
+    }
+    nodes.sort(FOLDERS_FIRST_BY_NAME);
+  }
+
+  private static Instant latest(List<FileTreeNode> nodes, Function<FileTreeNode, Instant> date) {
+    return nodes.stream()
+        .map(date)
+        .filter(Objects::nonNull)
+        .max(Comparator.naturalOrder())
+        .orElse(null);
   }
 }

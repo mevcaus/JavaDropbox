@@ -30,8 +30,8 @@ class FolderArchiveTests {
 
   @TempDir Path folder;
 
-  // The app archives paths built on the real storage root, and FolderArchive refuses a path with a
-  // symlink along it, which a temp directory can have (/var on macOS).
+  // The store refuses a path with a symlink along it, which a temp directory can have (/var on
+  // macOS), so it is given the real one, as the app's is.
   @BeforeEach
   void useRealPath() throws IOException {
     folder = folder.toRealPath();
@@ -93,7 +93,7 @@ class FolderArchiveTests {
           }
         };
 
-    FolderArchive.write(folder, "project", deletingOnFirstWrite);
+    FolderArchive.write(new LocalFileStore(folder), "", "project", deletingOnFirstWrite);
 
     // Whatever made it in is complete; reading the zip to its end proves it is not cut short.
     Map<String, String> files = unzip(zip.toByteArray());
@@ -123,7 +123,7 @@ class FolderArchiveTests {
 
   private byte[] archive() throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    FolderArchive.write(folder, "project", out);
+    FolderArchive.write(new LocalFileStore(folder), "", "project", out);
     return out.toByteArray();
   }
 

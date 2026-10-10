@@ -12,32 +12,32 @@ import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.ShareLinkRepository;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
+import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Optional;
 import org.springframework.core.io.InputStreamSource;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Changes to stored files and folders, each in the folder of the account making it. Each change
- * runs in one database transaction, and a failure part-way leaves the previous content in place:
- * new content is written to a scratch file outside the transaction, and the moves inside it -- the
- * live file into the version store, the scratch file onto the live path -- are undone if the
- * transaction does not commit.
+ * Changes to stored files and folders, each in the folder of the account making it, in the {@link
+ * FileStore}. Each change runs in one database transaction, and a failure part-way leaves the
+ * previous content in place: new content is written to a scratch file outside the transaction, and
+ * the moves inside it -- the live file into the version store, the scratch file onto the live path
+ * -- are undone if the transaction does not commit.
  *
  * <p>Failures are logged to the history in a transaction of their own after the change's
  * transaction has rolled back. Each change also tells the {@link SearchIndex}, which reads the
@@ -47,8 +47,10 @@ import org.springframework.web.multipart.MultipartFile;
 public class FileService {
 
   private static final int MAX_COPY_NAME_ATTEMPTS = 1000;
+  private static final String OCTET_STREAM = "application/octet-stream";
 
   private final StoragePaths storagePaths;
+  private final FileStore store;
   private final FileMetadataRepository files;
   private final FileVersionService versions;
   private final FileHistoryService history;
@@ -61,6 +63,7 @@ public class FileService {
 
   public FileService(
       StoragePaths storagePaths,
+      FileStore store,
       FileMetadataRepository files,
       FileVersionService versions,
       FileHistoryService history,
@@ -71,6 +74,7 @@ public class FileService {
       SearchIndex searchIndex,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
+    this.store = store;
     this.files = files;
     this.versions = versions;
     this.history = history;
@@ -137,21 +141,22 @@ public class FileService {
     store(content, home.resolveChild(folder, name), user);
   }
 
-  // Where a segment of the path is a file, createDirectories fails with a disk error that says
+  // Where a segment of the path is a file, creating the folders fails with an error that says
   // nothing useful to the client; say what is wrong instead.
   private void createFolders(StoragePath folder) throws IOException {
-    Path existing = folder.path();
-    while (!Files.exists(existing)) {
-      existing = existing.getParent();
+    String existingKey = folder.key();
+    int missing = 0;
+    Optional<Entry> existing;
+    while ((existing = store.stat(storeKey(folder.home(), existingKey))).isEmpty()
+        && !existingKey.isEmpty()) {
+      existingKey = parentKey(existingKey);
+      missing++;
     }
-    // existing is an ancestor of the folder, so its key is the folder's with segments dropped.
-    int missing = folder.path().getNameCount() - existing.getNameCount();
-    if (!Files.isDirectory(existing)) {
-      throw new BadRequestException(
-          "\"" + ancestorKey(folder.key(), missing) + "\" is a file, not a folder");
+    if (existing.isPresent() && !existing.get().isDirectory()) {
+      throw new BadRequestException("\"" + existingKey + "\" is a file, not a folder");
     }
     if (missing > 0) {
-      Files.createDirectories(folder.path());
+      store.createFolders(folder.storeKey());
       // The file going into them is reported on its own, once it is stored.
       searchIndex.changed(folder.home(), ancestorKey(folder.key(), missing - 1));
     }
@@ -165,32 +170,32 @@ public class FileService {
   }
 
   private void store(InputStreamSource upload, StoragePath target, User user) throws IOException {
-    if (Files.isDirectory(target.path())) {
+    if (isFolder(target)) {
       throw new ConflictException("A folder named \"" + target.name() + "\" already exists here");
     }
 
-    Path scratch = StorageFiles.tempFileBeside(target.path());
+    String scratch = store.scratchBeside(target.storeKey());
     try {
+      long size;
       try (InputStream in = upload.getInputStream()) {
-        Files.copy(in, scratch, StandardCopyOption.REPLACE_EXISTING);
+        size = store.write(scratch, in, lengthOf(upload));
       }
-      long size = Files.size(scratch);
       quota.check(user);
 
       inTransaction(
           () -> {
-            // Locked before looking at the disk, so that concurrent uploads of one file take
+            // Locked before looking at the store, so that concurrent uploads of one file take
             // turns and each archives what the one before it left.
             Optional<FileMetadata> row = files.lockByPath(user.getId(), target.key());
-            boolean replacing = Files.exists(target.path());
+            boolean replacing = store.exists(target.storeKey());
             FileMetadata file =
                 replacing
                     ? row.orElseGet(() -> track(target, size, user))
                     : claim(target, row, false, size, user);
             if (replacing) {
-              versions.archive(file, StoragePaths.recheck(target.path()), user);
+              versions.archive(file, target.storeKey(), user);
             }
-            moveIntoPlace(scratch, target.path(), replacing);
+            moveIntoPlace(scratch, target.storeKey(), replacing);
 
             file.setSize(size);
             file.setUpdatedAt(Instant.now());
@@ -199,8 +204,24 @@ public class FileService {
           });
       metrics.fileUploaded(size);
     } finally {
-      Files.deleteIfExists(scratch);
+      store.delete(scratch);
     }
+  }
+
+  // Known for an upload and for a file the server supplies, so a store elsewhere can send the
+  // content on as it arrives rather than keep it first.
+  private static long lengthOf(InputStreamSource source) {
+    try {
+      if (source instanceof MultipartFile upload) {
+        return upload.getSize();
+      }
+      if (source instanceof Resource resource) {
+        return resource.contentLength();
+      }
+    } catch (IOException e) {
+      // Not known after all.
+    }
+    return -1;
   }
 
   /** Deletes a file, or a folder with everything in it, along with their metadata and versions. */
@@ -208,25 +229,26 @@ public class FileService {
     User user = authService.requireCurrentUser();
     try {
       StoragePath target = storagePaths.home(user).resolveItem(path);
-      if (!Files.exists(target.path(), LinkOption.NOFOLLOW_LINKS)) {
+      if (!store.exists(target.storeKey())) {
         throw new NotFoundException("Not found: " + target.key());
       }
 
       inTransaction(
           () -> {
             // Bulk statements, so a folder costs the same few queries however much it holds. They
-            // run before anything irreversible happens on disk, so a database problem stops it.
+            // run before anything irreversible happens in the store, so a database problem stops
+            // it.
             versions.discardAllAtOrBelow(user.getId(), target.key());
             files.deleteAtOrBelow(
                 user.getId(), target.key(), FileMetadataRepository.below(target.key()));
 
             // A concurrent delete of the same item got here first: the deletes above waited for
-            // its row locks and found nothing, and now the disk has nothing either.
-            if (!Files.exists(target.path(), LinkOption.NOFOLLOW_LINKS)) {
+            // its row locks and found nothing, and now the store has nothing either.
+            if (!store.exists(target.storeKey())) {
               throw new NotFoundException("Not found: " + target.key());
             }
             try {
-              StorageFiles.deleteRecursively(target.path());
+              store.deleteRecursively(target.storeKey());
             } catch (NoSuchFileException e) {
               throw new NotFoundException("Not found: " + target.key());
             }
@@ -245,10 +267,10 @@ public class FileService {
       Home home = storagePaths.home(user);
       StoragePath parent = home.resolve(parentPath);
       StoragePath target = home.resolveChild(parent, name);
-      if (!Files.isDirectory(parent.path())) {
+      if (!isFolder(parent)) {
         throw new NotFoundException("Folder not found: " + parent.key());
       }
-      if (Files.exists(target.path(), LinkOption.NOFOLLOW_LINKS)) {
+      if (store.exists(target.storeKey())) {
         throw new ConflictException("\"" + name + "\" already exists here");
       }
 
@@ -256,7 +278,7 @@ public class FileService {
           () -> {
             FileMetadata folder =
                 claim(target, files.lockByPath(user.getId(), target.key()), true, 0, user);
-            Files.createDirectory(StoragePaths.recheck(target.path()));
+            store.createFolder(target.storeKey());
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
             searchIndex.changed(target);
           });
@@ -288,7 +310,7 @@ public class FileService {
             // instead of archiving under the same version number.
             FileMetadata current =
                 files.lockById(fileId).orElseThrow(() -> new NotFoundException("File not found"));
-            Path source = versions.storedCopy(current, number);
+            String source = versions.storedCopy(current, number);
             if (mode == RestoreMode.COPY) {
               restoreAsCopy(current, source, number, user);
             } else {
@@ -301,51 +323,47 @@ public class FileService {
     }
   }
 
-  private void restoreInPlace(FileMetadata file, Path source, int number, User user)
+  private void restoreInPlace(FileMetadata file, String source, int number, User user)
       throws IOException {
-    StoragePath live = storagePaths.home(user).resolveItem(file.getPath());
-    Files.createDirectories(live.path().getParent());
-    Path scratch = StorageFiles.tempFileBeside(live.path());
+    Home home = storagePaths.home(user);
+    StoragePath live = home.resolveItem(file.getPath());
+    store.createFolders(storeKey(home, parentKey(live.key())));
+    String scratch = store.scratchBeside(live.storeKey());
     try {
-      Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      store.copy(source, scratch);
       quota.check(user);
-      boolean replacing = Files.exists(live.path());
+      boolean replacing = store.exists(live.storeKey());
       if (replacing) {
-        versions.archive(file, StoragePaths.recheck(live.path()), user);
+        versions.archive(file, live.storeKey(), user);
       }
-      moveIntoPlace(scratch, live.path(), replacing);
+      moveIntoPlace(scratch, live.storeKey(), replacing);
     } finally {
-      Files.deleteIfExists(scratch);
+      store.delete(scratch);
     }
 
-    file.setSize(Files.size(live.path()));
+    file.setSize(sizeOf(live));
     file.setUpdatedAt(Instant.now());
     history.recordSuccess(file, ChangeType.RESTORE, user, "Restored version " + number);
     searchIndex.changed(live);
   }
 
-  private void restoreAsCopy(FileMetadata file, Path source, int number, User user)
+  private void restoreAsCopy(FileMetadata file, String source, int number, User user)
       throws IOException {
     Home home = storagePaths.home(user);
     StoragePath parent = home.resolve(parentKey(file.getPath()));
-    Files.createDirectories(parent.path());
-    // Copied to a scratch file first and renamed into place, like an upload, so the copy never
+    store.createFolders(parent.storeKey());
+    // Copied to a scratch file first and moved into place, like an upload, so the copy never
     // shows up under its name half-written.
-    Path scratch = StorageFiles.tempFileBeside(home.resolveItem(file.getPath()).path());
+    String scratch = store.scratchBeside(home.resolveItem(file.getPath()).storeKey());
     try {
-      Files.copy(source, scratch, StandardCopyOption.REPLACE_EXISTING);
+      store.copy(source, scratch);
       quota.check(user);
       StoragePath target = claimCopyName(parent, file.getFilename(), number);
-      OnRollback.undo("creating " + target.path(), () -> Files.deleteIfExists(target.path()));
-      StorageFiles.moveIntoPlace(scratch, target.path());
+      OnRollback.undo("creating " + target.storeKey(), () -> store.delete(target.storeKey()));
+      store.replace(scratch, target.storeKey());
 
       FileMetadata copy =
-          claim(
-              target,
-              files.lockByPath(user.getId(), target.key()),
-              false,
-              Files.size(target.path()),
-              user);
+          claim(target, files.lockByPath(user.getId(), target.key()), false, sizeOf(target), user);
       history.recordSuccess(
           copy,
           ChangeType.RESTORE,
@@ -353,7 +371,7 @@ public class FileService {
           "Restored a copy of " + file.getPath() + " (version " + number + ")");
       searchIndex.changed(target);
     } finally {
-      Files.deleteIfExists(scratch);
+      store.delete(scratch);
     }
   }
 
@@ -370,11 +388,8 @@ public class FileService {
       String suffix = attempt == 1 ? "" : " (" + attempt + ")";
       StoragePath candidate =
           parent.home().resolveChild(parent, base + "_v" + number + suffix + extension);
-      try {
-        Files.createFile(StoragePaths.recheck(candidate.path()));
+      if (store.createFile(candidate.storeKey())) {
         return candidate;
-      } catch (FileAlreadyExistsException e) {
-        // Taken; try the next one.
       }
     }
     throw new ConflictException("Could not find a free name for the restored copy");
@@ -384,11 +399,10 @@ public class FileService {
    * Moves a scratch file onto {@code target}. What was there before has been archived (whose undo
    * puts it back); if nothing was, the new file is removed again should the transaction fail.
    */
-  private static void moveIntoPlace(Path scratch, Path target, boolean replacing)
-      throws IOException {
-    StorageFiles.moveIntoPlace(scratch, target);
+  private void moveIntoPlace(String scratch, String target, boolean replacing) throws IOException {
+    store.replace(scratch, target);
     if (!replacing) {
-      OnRollback.undo("creating " + target, () -> Files.deleteIfExists(target));
+      OnRollback.undo("creating " + target, () -> store.delete(target));
     }
   }
 
@@ -404,19 +418,26 @@ public class FileService {
 
   /** Like {@link #download(String)}, for an item already resolved, such as a share link's. */
   public Download download(StoragePath target) throws IOException {
-    if (!Files.exists(target.path())) {
-      throw new NotFoundException("Not found: " + target.key());
-    }
+    Entry item = find(target);
     files.markAccessed(target.home().userId(), target.key(), Instant.now());
 
-    if (Files.isDirectory(target.path())) {
-      return new Download.FolderDownload(target.path(), target.name() + ".zip");
+    if (item.isDirectory()) {
+      String name = target.name();
+      return new Download.FolderDownload(
+          name + ".zip", out -> FolderArchive.write(store, target.storeKey(), name, out));
     }
-    String contentType = Files.probeContentType(target.path());
     return new Download.FileDownload(
-        target.path(),
-        target.name(),
-        contentType != null ? contentType : "application/octet-stream");
+        store.resource(item), target.name(), contentType(target.name()));
+  }
+
+  // By the name's extension, as the system's own MIME types have it.
+  private static String contentType(String name) {
+    try {
+      String type = Files.probeContentType(Path.of(name));
+      return type != null ? type : OCTET_STREAM;
+    } catch (IOException | InvalidPathException e) {
+      return OCTET_STREAM;
+    }
   }
 
   /**
@@ -432,10 +453,8 @@ public class FileService {
 
   /** Like {@link #preview(String)}, for an item already resolved, such as a share link's. */
   public Preview preview(StoragePath target) throws IOException {
-    if (!Files.exists(target.path())) {
-      throw new NotFoundException("Not found: " + target.key());
-    }
-    if (Files.isDirectory(target.path())) {
+    Entry item = find(target);
+    if (item.isDirectory()) {
       throw new BadRequestException("Folders cannot be previewed: " + target.key());
     }
     PreviewType type =
@@ -445,7 +464,25 @@ public class FileService {
                     new BadRequestException(
                         "This kind of file cannot be previewed: " + target.key()));
     files.markAccessed(target.home().userId(), target.key(), Instant.now());
-    return new Preview(target.path(), target.name(), type, PreviewType.contentType(target.name()));
+    return new Preview(
+        store.resource(item), target.name(), type, PreviewType.contentType(target.name()));
+  }
+
+  private Entry find(StoragePath target) throws IOException {
+    return store
+        .stat(target.storeKey())
+        .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
+  }
+
+  private boolean isFolder(StoragePath target) throws IOException {
+    return store.stat(target.storeKey()).map(Entry::isDirectory).orElse(false);
+  }
+
+  private long sizeOf(StoragePath file) throws IOException {
+    return store
+        .stat(file.storeKey())
+        .orElseThrow(() -> new NoSuchFileException(file.storeKey()))
+        .size();
   }
 
   /**
@@ -469,10 +506,14 @@ public class FileService {
     return files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, owner));
   }
 
-  // A file that is on disk but was never tracked, e.g. copied in by hand, gets a row now so its
+  // A file that is stored but was never tracked, e.g. copied in by hand, gets a row now so its
   // current content can be kept as a version before it is replaced.
   private FileMetadata track(StoragePath target, long size, User user) {
     return files.save(new FileMetadata(target.key(), target.name(), size, false, user));
+  }
+
+  private static String storeKey(Home home, String key) {
+    return key.isEmpty() ? home.key() : home.key() + "/" + key;
   }
 
   private static String childKey(StoragePath folder, String name) {

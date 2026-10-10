@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,6 +49,7 @@ class FileDatesIntegrationTests {
   @Autowired private PasswordEncoder passwordEncoder;
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -62,7 +64,7 @@ class FileDatesIntegrationTests {
                 () ->
                     userRepository.save(
                         new User("testadmin", passwordEncoder.encode("password"), "ROLE_ADMIN")));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
     Files.writeString(home.resolve("testfile.txt"), "hello world");
   }
 

@@ -17,6 +17,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.DemoService;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
@@ -69,6 +70,7 @@ class DemoIntegrationTests {
   @Autowired private SearchIndex searchIndex;
   @Autowired private UserRepository users;
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   // Each test starts from a fresh demo, as on a first start: no account, no files, no reset yet.
   @BeforeEach
@@ -309,7 +311,7 @@ class DemoIntegrationTests {
 
   // The demo account's folder.
   private Path home() {
-    return storagePaths.home(users.findByUsername("demo").orElseThrow()).root();
+    return localStore.path(storagePaths.home(users.findByUsername("demo").orElseThrow()).key());
   }
 
   private List<String> searchPaths(String q) throws Exception {

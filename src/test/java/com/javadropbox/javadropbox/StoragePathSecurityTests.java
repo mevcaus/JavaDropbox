@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -61,6 +62,7 @@ class StoragePathSecurityTests {
   }
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -72,7 +74,7 @@ class StoragePathSecurityTests {
         userRepository
             .findByUsername("testuser")
             .orElseGet(() -> userRepository.save(new User("testuser", "unused", "ROLE_ADMIN")));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
     Files.writeString(home.resolve("keep.txt"), "keep");
     Files.writeString(outsideDir.resolve("secret.txt"), "secret");
   }

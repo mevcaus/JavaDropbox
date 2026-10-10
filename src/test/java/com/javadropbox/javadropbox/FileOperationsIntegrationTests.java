@@ -22,6 +22,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileService;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StorageSweeper;
 import java.io.FilterInputStream;
@@ -79,6 +80,7 @@ class FileOperationsIntegrationTests {
   @Autowired private FileHistoryRepository history;
   @Autowired private StorageSweeper sweeper;
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -87,7 +89,7 @@ class FileOperationsIntegrationTests {
   @BeforeEach
   void setUp() {
     owner = users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
   }
 
   @Autowired private JdbcTemplate jdbc;
@@ -444,8 +446,8 @@ class FileOperationsIntegrationTests {
 
     upload("", "mine.txt", "x");
 
-    assertThat(storagePaths.home(owner).root().resolve("mine.txt")).hasContent("x");
-    assertThat(storagePaths.home(first).root().resolve("mine.txt")).doesNotExist();
+    assertThat(localStore.path(storagePaths.home(owner).key()).resolve("mine.txt")).hasContent("x");
+    assertThat(localStore.path(storagePaths.home(first).key()).resolve("mine.txt")).doesNotExist();
     assertThat(metadata.findByPath(owner.getId(), "mine.txt").orElseThrow().getOwner().getId())
         .isEqualTo(owner.getId());
     assertThat(history.findAll())
