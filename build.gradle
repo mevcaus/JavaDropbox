@@ -25,6 +25,11 @@ ext {
 	// rejects that, so Testcontainers cannot reach the daemon on 29.x hosts.
 	set('testcontainersVersion', "1.21.4")
 	set('luceneVersion', "10.5.2")
+	set('awsSdkVersion', "2.55.3")
+	// What the AWS SDK's HTTP client is built against, ahead of the versions the Spring Boot BOM
+	// manages (5.5 and 5.3), which it would otherwise be held back to.
+	set('httpclient5.version', "5.6.4")
+	set('httpcore5.version', "5.4.3")
 }
 
 dependencies {
@@ -44,6 +49,13 @@ dependencies {
 		exclude group: 'commons-logging', module: 'commons-logging'
 	}
 
+	// Storage in S3 or a service compatible with it, as an alternative to the local disk.
+	implementation('software.amazon.awssdk:s3') {
+		// The asynchronous client's HTTP stack; the store uses the synchronous one.
+		exclude group: 'software.amazon.awssdk', module: 'netty-nio-client'
+	}
+	implementation 'software.amazon.awssdk:apache5-client'
+
 	runtimeOnly 'org.postgresql:postgresql'
 	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 
@@ -61,6 +73,7 @@ dependencies {
 dependencyManagement {
 	imports {
 		mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
+		mavenBom "software.amazon.awssdk:bom:${awsSdkVersion}"
 	}
 }
 
