@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.net.http.HttpResponse;
@@ -55,6 +56,7 @@ class TrustedProxyIntegrationTests {
   private HttpTestClient http;
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -70,7 +72,7 @@ class TrustedProxyIntegrationTests {
                 () ->
                     userRepository.save(
                         new User("owner", passwordEncoder.encode("correct-horse"), "ROLE_ADMIN")));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
     Files.writeString(home.resolve("shared.txt"), "share me");
   }
 

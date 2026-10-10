@@ -1,6 +1,6 @@
 package com.javadropbox.javadropbox.config;
 
-import com.javadropbox.javadropbox.service.StoragePaths;
+import com.javadropbox.javadropbox.service.FileStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.context.WebServerInitializedEvent;
@@ -13,10 +13,10 @@ public class StartupBanner {
 
   private static final Logger log = LoggerFactory.getLogger(StartupBanner.class);
 
-  private final StoragePaths storagePaths;
+  private final FileStore store;
 
-  public StartupBanner(StoragePaths storagePaths) {
-    this.storagePaths = storagePaths;
+  public StartupBanner(FileStore store) {
+    this.store = store;
   }
 
   @EventListener
@@ -24,6 +24,6 @@ public class StartupBanner {
     log.info(
         "JavaDropbox is running at http://localhost:{} and serving {}",
         event.getWebServer().getPort(),
-        storagePaths.root());
+        store.description());
   }
 }

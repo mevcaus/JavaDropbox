@@ -7,12 +7,9 @@ import com.javadropbox.javadropbox.model.FileVersion;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
-import java.time.Instant;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,9 +19,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Keeps previous versions of files. Each version is stored as {@code .versions/<file id>/v<n>}, so
- * two files that share a name in different folders never share storage. Rows written before this
- * layout store a bare {@code <name>.v<n>}; both resolve relative to the versions directory.
+ * Keeps previous versions of files. Each version is stored as {@code .versions/<file id>/v<n>} in
+ * the {@link FileStore}, so two files that share a name in different folders never share storage.
+ * Rows written before this layout store a bare {@code <name>.v<n>}; both resolve relative to the
+ * versions folder.
  */
 @Service
 public class FileVersionService {
@@ -33,13 +31,13 @@ public class FileVersionService {
 
   private final FileVersionRepository versions;
   private final FileMetadataRepository files;
-  private final StoragePaths storagePaths;
+  private final FileStore store;
   private final int maxRetained;
 
   public FileVersionService(
       FileVersionRepository versions,
       FileMetadataRepository files,
-      StoragePaths storagePaths,
+      FileStore store,
       @Value("${javadropbox.versions.max-retained:10}") int maxRetained) {
     // Checked here so a bad setting stops the app starting, rather than failing every replace.
     if (maxRetained < 0) {
@@ -48,7 +46,7 @@ public class FileVersionService {
     }
     this.versions = versions;
     this.files = files;
-    this.storagePaths = storagePaths;
+    this.store = store;
     this.maxRetained = maxRetained;
   }
 
@@ -69,31 +67,33 @@ public class FileVersionService {
   }
 
   /**
-   * Moves the live file into the version store as its next version, then prunes versions beyond the
-   * retention limit. Runs in the caller's transaction, which must hold the lock on the file's row
-   * ({@link FileMetadataRepository#lockById}) so that no one else numbers a version meanwhile.
+   * Moves the live file, as the store has just shown it, into the version store as its next
+   * version, then prunes versions beyond the retention limit. Runs in the caller's transaction,
+   * which must hold the lock on the file's row ({@link FileMetadataRepository#lockById}) so that no
+   * one else numbers a version meanwhile.
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public void archive(FileMetadata file, Path live, User user) throws IOException {
+  public void archive(FileMetadata file, Entry live, User user) throws IOException {
     int number = file.getCurrentVersion() != null ? file.getCurrentVersion() : 1;
     String stored = file.getId() + "/v" + number;
-    Path target = storagePaths.versionsDir().resolve(stored);
+    String target = resolve(stored);
 
-    Files.createDirectories(target.getParent());
-    if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+    // Never replacing: a file that is in the way now belongs to someone else, and failing is
+    // better than overwriting it, unless it is left over from an interrupted operation.
+    try {
+      store.move(live.key(), target);
+    } catch (FileAlreadyExistsException e) {
       removeLeftover(target, stored);
+      store.move(live.key(), target);
     }
-    // Never REPLACE_EXISTING: a file that is in the way now belongs to someone else, and failing
-    // is better than overwriting it.
-    Files.move(live, target);
-    // A move keeps the old modification time; a fresh one tells the startup sweep that this is no
-    // leftover even before the row below is committed.
-    Files.setLastModifiedTime(target, FileTime.from(Instant.now()));
+    // A fresh modification time tells the startup sweep that this is no leftover even before the
+    // row below is committed.
+    store.touch(target);
     // Also covers the caller having moved new content onto the live path since: the previous
     // content goes back over it.
     OnRollback.undo(
-        "archiving " + live + " as " + target, () -> StorageFiles.moveIntoPlace(target, live));
-    versions.save(new FileVersion(file, number, stored, Files.size(target), user));
+        "archiving " + live.key() + " as " + target, () -> store.replace(target, live.key()));
+    versions.save(new FileVersion(file, number, stored, live.size(), user));
     file.setCurrentVersion(number + 1);
 
     List<FileVersion> all = versions.findByFileMetadataOrderByVersionDesc(file);
@@ -104,28 +104,28 @@ public class FileVersionService {
 
   // Under the row lock nobody else can be writing this version, so a file already there that no
   // row points to is left over from an operation that was interrupted before it could clean up.
-  private void removeLeftover(Path target, String stored) throws IOException {
+  private void removeLeftover(String target, String stored) throws IOException {
     if (versions.existsByStoredFilename(stored)) {
       throw new IllegalStateException("Version " + stored + " already exists");
     }
     log.warn("Removing {}, left over from an interrupted operation", target);
-    Files.delete(target);
+    store.deleteRecursively(target);
   }
 
   /**
-   * The stored copy of one version.
+   * The key in the store of one version's stored copy.
    *
    * @throws NotFoundException if the version does not exist or its file is missing
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public Path storedCopy(FileMetadata file, int number) {
+  public String storedCopy(FileMetadata file, int number) throws IOException {
     FileVersion version =
         versions.findByFileMetadataOrderByVersionDesc(file).stream()
             .filter(v -> v.getVersion() == number)
             .findFirst()
             .orElseThrow(() -> new NotFoundException("Version " + number + " not found"));
-    Path stored = resolve(version.getStoredFilename());
-    if (!Files.isRegularFile(stored)) {
+    String stored = resolve(version.getStoredFilename());
+    if (store.stat(stored).filter(entry -> !entry.isDirectory()).isEmpty()) {
       throw new NotFoundException("The stored copy of version " + number + " is missing");
     }
     return stored;
@@ -138,9 +138,9 @@ public class FileVersionService {
   @Transactional(propagation = Propagation.MANDATORY)
   public void discardAll(FileMetadata file) {
     versions.findByFileMetadataOrderByVersionDesc(file).forEach(this::delete);
-    Path folder = storagePaths.versionsDir().resolve(String.valueOf(file.getId()));
-    // With anything left in it, e.g. from an interrupted operation, deleteIfExists would fail.
-    AfterCommit.run("remove " + folder, () -> StorageFiles.deleteRecursively(folder));
+    String folder = StoragePaths.VERSIONS_DIR + "/" + file.getId();
+    // Along with anything left in it, e.g. from an interrupted operation.
+    AfterCommit.run("remove " + folder, () -> store.deleteRecursively(folder));
   }
 
   /**
@@ -151,40 +151,41 @@ public class FileVersionService {
   @Transactional(propagation = Propagation.MANDATORY)
   public void discardAllAtOrBelow(Long ownerId, String path) {
     String below = FileMetadataRepository.below(path);
-    List<Path> stored =
+    List<String> stored =
         versions.findStoredFilenamesAtOrBelow(ownerId, path, below).stream()
-            .map(this::resolve)
+            .map(FileVersionService::resolve)
             .toList();
-    List<Path> folders =
+    List<String> folders =
         files.findIdsAtOrBelow(ownerId, path, below).stream()
-            .map(id -> storagePaths.versionsDir().resolve(String.valueOf(id)))
+            .map(id -> StoragePaths.VERSIONS_DIR + "/" + id)
             .toList();
     versions.deleteAtOrBelow(ownerId, path, below);
 
     AfterCommit.run(
         "remove the versions of " + path,
         () -> {
-          for (Path file : stored) {
-            Files.deleteIfExists(file);
+          for (String file : stored) {
+            store.delete(file);
           }
-          for (Path folder : folders) {
-            StorageFiles.deleteRecursively(folder);
+          for (String folder : folders) {
+            store.deleteRecursively(folder);
           }
         });
   }
 
   private void delete(FileVersion version) {
     versions.delete(version);
-    Path stored = resolve(version.getStoredFilename());
-    AfterCommit.run("remove " + stored, () -> Files.deleteIfExists(stored));
+    String stored = resolve(version.getStoredFilename());
+    AfterCommit.run("remove " + stored, () -> store.delete(stored));
   }
 
-  private Path resolve(String storedFilename) {
-    Path versionsDir = storagePaths.versionsDir();
-    Path stored = versionsDir.resolve(storedFilename).normalize();
-    if (!stored.startsWith(versionsDir)) {
-      throw new IllegalStateException("Version row points outside the version store");
+  // Rows are written by the app, but a row pointing anywhere else would be the store's to lose.
+  private static String resolve(String storedFilename) {
+    for (String segment : storedFilename.split("/", -1)) {
+      if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+        throw new IllegalStateException("Version row points outside the version store");
+      }
     }
-    return stored;
+    return StoragePaths.VERSIONS_DIR + "/" + storedFilename;
   }
 }

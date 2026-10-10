@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.nio.charset.StandardCharsets;
@@ -68,6 +69,7 @@ class SearchIntegrationTests {
   @Autowired private ObjectMapper json;
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -76,7 +78,7 @@ class SearchIntegrationTests {
   @BeforeEach
   void setUp() {
     owner = users.save(new User("owner", "unused", "ROLE_ADMIN"));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
   }
 
   // Everything goes, the index with it, so each test starts from nothing.

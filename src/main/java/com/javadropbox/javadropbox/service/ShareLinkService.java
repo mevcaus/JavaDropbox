@@ -12,9 +12,9 @@ import com.javadropbox.javadropbox.model.ShareLink;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.ShareLinkRepository;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +32,7 @@ public class ShareLinkService {
   private final ShareLinkRepository links;
   private final FileMetadataRepository files;
   private final StoragePaths storagePaths;
+  private final FileStore store;
   private final FileService fileService;
   private final FileTreeService fileTree;
   private final AuthService authService;
@@ -40,12 +41,14 @@ public class ShareLinkService {
       ShareLinkRepository links,
       FileMetadataRepository files,
       StoragePaths storagePaths,
+      FileStore store,
       FileService fileService,
       FileTreeService fileTree,
       AuthService authService) {
     this.links = links;
     this.files = files;
     this.storagePaths = storagePaths;
+    this.store = store;
     this.fileService = fileService;
     this.fileTree = fileTree;
     this.authService = authService;
@@ -65,14 +68,15 @@ public class ShareLinkService {
   public CreatedLink create(String path, Duration lifetime) throws IOException {
     User user = authService.requireCurrentUser();
     StoragePath target = storagePaths.home(user).resolveItem(path);
-    if (!Files.exists(target.path())) {
-      throw new NotFoundException("Not found: " + target.key());
-    }
+    Entry item =
+        store
+            .stat(target.storeKey())
+            .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
     FileMetadata file = files.findByPath(user.getId(), target.key()).orElse(null);
     if (file == null) {
-      boolean isDirectory = Files.isDirectory(target.path());
-      long size = isDirectory ? 0 : Files.size(target.path());
-      file = files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, user));
+      file =
+          files.save(
+              new FileMetadata(target.key(), target.name(), item.size(), item.isDirectory(), user));
     }
 
     String token = Tokens.newToken();
@@ -116,7 +120,7 @@ public class ShareLinkService {
     return new SharedItemDto(
         target.name(),
         false,
-        Files.size(target.path()),
+        shared.item().size(),
         file.getUpdatedAt(),
         PreviewType.of(target.name()).orElse(null),
         expiresAt,
@@ -134,10 +138,15 @@ public class ShareLinkService {
   }
 
   /** A link that still opens, and the item it opens. */
-  private record Shared(ShareLink link, StoragePath target, boolean isDirectory) {}
+  private record Shared(ShareLink link, StoragePath target, Entry item) {
+
+    boolean isDirectory() {
+      return item.isDirectory();
+    }
+  }
 
   // A disabled account's links stop opening along with the account.
-  private Shared resolve(String token) {
+  private Shared resolve(String token) throws IOException {
     ShareLink link =
         links
             .findByTokenHash(Tokens.hash(token))
@@ -151,10 +160,11 @@ public class ShareLinkService {
     }
     StoragePath target = storagePaths.home(file.getOwner()).resolveItem(link.getPath());
     boolean isDirectory = Boolean.TRUE.equals(file.getIsDirectory());
-    if (!Files.exists(target.path()) || Files.isDirectory(target.path()) != isDirectory) {
+    Entry item = store.stat(target.storeKey()).orElseThrow(ShareLinkService::linkNotFound);
+    if (item.isDirectory() != isDirectory) {
       throw linkNotFound();
     }
-    return new Shared(link, target, isDirectory);
+    return new Shared(link, target, item);
   }
 
   /**

@@ -1,18 +1,16 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.dto.Snippet;
+import com.javadropbox.javadropbox.exception.BadRequestException;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.text.BreakIterator;
 import java.text.Normalizer;
 import java.time.Duration;
@@ -93,11 +91,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 /**
  * A Lucene index of every file's and folder's name, and of the text in files' contents (see {@link
  * TextExtractor}), in every account's folder. Each item is indexed under its account's id followed
- * by its path, and every search is confined to one account's. The disk stays the source of truth:
- * the index only mirrors it, and can be deleted at any time to be rebuilt from what is stored.
+ * by its path, and every search is confined to one account's. The {@link FileStore} stays the
+ * source of truth: the index only mirrors it, and can be deleted at any time to be rebuilt from
+ * what is stored.
  *
  * <p>All writing happens on one background thread, so an upload never waits for a PDF to be read.
- * The index catches up with the disk
+ * The index catches up with the store
  *
  * <ul>
  *   <li>after each change the app makes ({@link #changed}), once its transaction has finished;
@@ -107,9 +106,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *   <li>when a search turns up an item that is no longer there.
  * </ul>
  *
- * <p>It lives in {@code .javadropbox/search-index} in the serving directory, or wherever {@code
- * javadropbox.search.index-directory} says. The writer is open only while there is work, so an idle
- * server holds no lock on it.
+ * <p>It lives on the local disk, in {@code .javadropbox/search-index} in the serving directory or
+ * wherever {@code javadropbox.search.index-directory} says, whichever store holds the files. The
+ * writer is open only while there is work, so an idle server holds no lock on it.
  */
 @Service
 public class SearchIndex {
@@ -121,8 +120,8 @@ public class SearchIndex {
   public record Hit(String path, Snippet snippet) {}
 
   /**
-   * The best hits, how many items matched in all, and whether the index had caught up with the disk
-   * since the server started.
+   * The best hits, how many items matched in all, and whether the index had caught up with the
+   * store since the server started.
    */
   public record Hits(List<Hit> hits, long total, boolean complete) {}
 
@@ -197,7 +196,10 @@ public class SearchIndex {
 
   private static final Logger log = LoggerFactory.getLogger(SearchIndex.class);
 
-  private final Path root;
+  // The folder of the accounts' folders: keys start with the account's id.
+  private static final String HOMES = StoragePaths.HOMES_DIR;
+
+  private final FileStore store;
   private final TextExtractor extractor;
   private final Path location;
   private final Directory directory;
@@ -219,11 +221,11 @@ public class SearchIndex {
 
   public SearchIndex(
       StoragePaths storagePaths,
+      FileStore store,
       TextExtractor extractor,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
-    // The accounts' folders, on the real root: keys start with the account's id.
-    this.root = storagePaths.homesDir();
+    this.store = store;
     this.extractor = extractor;
     this.location =
         indexDirectory.isBlank()
@@ -289,10 +291,10 @@ public class SearchIndex {
   }
 
   /**
-   * Reads the item at {@code key} in an account's folder, and everything below it, from disk again:
-   * what is there now is indexed afresh and what is gone is dropped. Called inside a transaction,
-   * this waits for the transaction to finish, whichever way it does: a rollback puts the disk back,
-   * and the index then matches that.
+   * Reads the item at {@code key} in an account's folder, and everything below it, from the store
+   * again: what is there now is indexed afresh and what is gone is dropped. Called inside a
+   * transaction, this waits for the transaction to finish, whichever way it does: a rollback puts
+   * the store back, and the index then matches that.
    */
   public void changed(Home home, String key) {
     changed(home.indexKey(key));
@@ -314,7 +316,7 @@ public class SearchIndex {
   }
 
   /**
-   * Brings the whole index in step with the disk, reading again only the files whose size or
+   * Brings the whole index in step with the store, reading again only the files whose size or
    * modification time is not what was indexed.
    */
   public void reconcile() {
@@ -466,14 +468,14 @@ public class SearchIndex {
     }
   }
 
-  // Compares what is indexed with what is on disk, item by item, and indexes what differs.
+  // Compares what is indexed with what is stored, item by item, and indexes what differs.
   private void reconcileAll(IndexWriter writer, Counts counts) throws IOException {
     Map<String, Stamp> indexed = indexedStamps(writer);
     walk(
-        root,
-        (key, path, attributes) -> {
-          if (!Stamp.of(attributes).equals(indexed.remove(key))) {
-            writer.updateDocument(new Term(PATH, key), document(key, path, attributes));
+        HOMES,
+        (key, entry) -> {
+          if (!Stamp.of(entry).equals(indexed.remove(key))) {
+            writer.updateDocument(new Term(PATH, key), document(key, entry));
             counts.indexed++;
           }
         });
@@ -520,7 +522,7 @@ public class SearchIndex {
     return stamps;
   }
 
-  // Drops everything at and below key, and indexes what is there on disk now.
+  // Drops everything at and below key, and indexes what is stored there now.
   private void replace(IndexWriter writer, String key, Counts counts) throws IOException {
     if (key.isEmpty()) {
       writer.deleteAll();
@@ -528,120 +530,97 @@ public class SearchIndex {
       writer.deleteDocuments(
           new TermQuery(new Term(PATH, key)), new PrefixQuery(new Term(PATH, key + "/")));
     }
-    Path start = locate(key);
-    if (start != null) {
+    if (!isKey(key)) {
+      return;
+    }
+    try {
       walk(
-          start,
-          (itemKey, path, attributes) -> {
-            writer.addDocument(document(itemKey, path, attributes));
+          key.isEmpty() ? HOMES : HOMES + "/" + key,
+          (itemKey, entry) -> {
+            writer.addDocument(document(itemKey, entry));
             counts.indexed++;
           });
+    } catch (BadRequestException e) {
+      // The way there passes through a symlink, which could lead out of the serving directory.
     }
   }
 
-  // The item at key, or null if nothing is there or the way there passes through a symlink, which
-  // could lead out of the serving directory.
-  private Path locate(String key) {
-    Path path = root;
-    if (!key.isEmpty()) {
-      for (String segment : key.split("/")) {
-        if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
-          return null;
-        }
-        path = path.resolve(segment);
-        if (Files.isSymbolicLink(path)) {
-          return null;
-        }
+  private static boolean isKey(String key) {
+    if (key.isEmpty()) {
+      return true;
+    }
+    for (String segment : key.split("/", -1)) {
+      if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+        return false;
       }
     }
-    return Files.exists(path, LinkOption.NOFOLLOW_LINKS) ? path : null;
+    return true;
   }
 
   private interface Visitor {
-    void visit(String key, Path path, BasicFileAttributes attributes) throws IOException;
+    void visit(String key, Entry entry) throws IOException;
   }
 
-  // The items the file tree lists: no hidden names (the app's own folders among them), no symlinks,
-  // and no special files such as FIFOs, which reading would block on.
-  private void walk(Path start, Visitor visitor) throws IOException {
-    Files.walkFileTree(
+  // The items the file tree lists: no hidden names (the app's own folders among them). The store
+  // leaves out symlinks, and special files such as FIFOs, which reading would block on.
+  private void walk(String start, Visitor visitor) throws IOException {
+    store.walk(
         start,
-        new SimpleFileVisitor<>() {
-          @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes)
-              throws IOException {
-            if (closing) {
-              return FileVisitResult.TERMINATE;
-            }
-            if (dir.equals(root)) {
-              return FileVisitResult.CONTINUE;
-            }
-            if (isHidden(dir)) {
-              return FileVisitResult.SKIP_SUBTREE;
-            }
-            // An account's folder is not an item in it, and a folder beside them is nobody's.
-            if (dir.getParent().equals(root)) {
-              return isHome(dir) ? FileVisitResult.CONTINUE : FileVisitResult.SKIP_SUBTREE;
-            }
-            visitor.visit(keyOf(dir), dir, attributes);
+        entry -> {
+          if (closing) {
+            return FileVisitResult.TERMINATE;
+          }
+          if (entry.key().equals(HOMES)) {
             return FileVisitResult.CONTINUE;
           }
-
-          @Override
-          public FileVisitResult visitFile(Path file, BasicFileAttributes attributes)
-              throws IOException {
-            if (closing) {
-              return FileVisitResult.TERMINATE;
-            }
-            if (attributes.isRegularFile() && !isHidden(file) && !file.getParent().equals(root)) {
-              visitor.visit(keyOf(file), file, attributes);
-            }
-            return FileVisitResult.CONTINUE;
+          if (entry.name().startsWith(".")) {
+            return FileVisitResult.SKIP_SUBTREE;
           }
-
-          @Override
-          public FileVisitResult visitFileFailed(Path file, IOException e) {
-            log.debug("Could not index {}: {}", file, e.toString());
-            return FileVisitResult.CONTINUE;
+          String key = entry.key().substring(HOMES.length() + 1);
+          // An account's folder is not an item in it, and anything beside them is nobody's.
+          if (key.indexOf('/') < 0) {
+            return entry.isDirectory() && isHome(key)
+                ? FileVisitResult.CONTINUE
+                : FileVisitResult.SKIP_SUBTREE;
           }
+          visitor.visit(key, entry);
+          return FileVisitResult.CONTINUE;
         });
   }
 
-  private static boolean isHidden(Path path) {
-    return path.getFileName().toString().startsWith(".");
-  }
-
   // Accounts' folders are named after their ids.
-  private static boolean isHome(Path dir) {
-    String name = dir.getFileName().toString();
+  private static boolean isHome(String name) {
     return !name.isEmpty() && name.chars().allMatch(c -> c >= '0' && c <= '9');
   }
 
-  private String keyOf(Path path) {
-    Path relative = root.relativize(path);
-    return relative.toString().replace(relative.getFileSystem().getSeparator(), "/");
-  }
-
-  private Document document(String key, Path path, BasicFileAttributes attributes) {
-    String name = path.getFileName().toString();
+  private Document document(String key, Entry entry) {
+    String name = entry.name();
     Document document = new Document();
     document.add(new StringField(PATH, key, Field.Store.YES));
     document.add(new SortedDocValuesField(PATH, new BytesRef(key)));
     document.add(new StringField(NAME, fold(name), Field.Store.NO));
-    document.add(new NumericDocValuesField(DIRECTORY, attributes.isDirectory() ? 1 : 0));
-    if (!attributes.isDirectory()) {
-      document.add(new NumericDocValuesField(SIZE, attributes.size()));
-      document.add(new NumericDocValuesField(MODIFIED, attributes.lastModifiedTime().toMillis()));
-      text(key, path, name, attributes.size())
+    document.add(new NumericDocValuesField(DIRECTORY, entry.isDirectory() ? 1 : 0));
+    if (!entry.isDirectory()) {
+      document.add(new NumericDocValuesField(SIZE, entry.size()));
+      document.add(new NumericDocValuesField(MODIFIED, Stamp.millis(entry)));
+      text(key, entry)
           .ifPresent(text -> document.add(new Field(CONTENT, nfc(text), CONTENT_FIELD)));
     }
     return document;
   }
 
-  // A file whose text cannot be read is still found by its name.
-  private Optional<String> text(String key, Path path, String name, long size) {
+  // A file whose text cannot be read is still found by its name. One whose text would not be read
+  // anyway is not fetched from the store.
+  private Optional<String> text(String key, Entry file) {
+    String name = file.name();
+    long size = file.size();
+    if (!extractor.reads(name, size)) {
+      return Optional.empty();
+    }
     try {
-      return extractor.extract(path, name, size).filter(text -> !text.isBlank());
+      return store
+          .readLocally(file.key(), path -> extractor.extract(path, name, size))
+          .filter(text -> !text.isBlank());
     } catch (NoSuchFileException e) {
       // Deleted since the walk saw it; that delete's own change will drop it.
       log.debug("{} went before its text could be read", key);
@@ -788,10 +767,12 @@ public class SearchIndex {
 
     static final Stamp FOLDER = new Stamp(true, 0, 0);
 
-    static Stamp of(BasicFileAttributes attributes) {
-      return attributes.isDirectory()
-          ? FOLDER
-          : new Stamp(false, attributes.size(), attributes.lastModifiedTime().toMillis());
+    static Stamp of(Entry entry) {
+      return entry.isDirectory() ? FOLDER : new Stamp(false, entry.size(), millis(entry));
+    }
+
+    static long millis(Entry file) {
+      return file.modified() != null ? file.modified().toEpochMilli() : -1;
     }
   }
 

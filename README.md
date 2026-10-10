@@ -14,7 +14,7 @@
 
 # ☁️ JavaDropbox
 
-A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox and Google Drive. Upload, preview, version, share and restore files through a React dashboard, backed by a Spring Boot REST API, PostgreSQL and the filesystem. Each account has files of its own, and admins invite people and set their quotas.
+A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox and Google Drive. Upload, preview, version, share and restore files through a React dashboard, backed by a Spring Boot REST API, PostgreSQL, and the filesystem or any S3-compatible bucket. Each account has files of its own, and admins invite people and set their quotas.
 
 **[Try the live demo →](https://javadropbox.mevcaus.dev)** Sign in as `demo` with the password `javadropbox`. Everyone shares that account, and it is reset every day.
 
@@ -42,11 +42,12 @@ A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox
 - **Revocable share links** that open as a page previewing the file, or listing the folder, before anything is downloaded. Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
 - **Streaming downloads.** Folders are zipped straight into the HTTP response, so memory use is flat however big the folder is. Files support range requests for resumable downloads.
 - **Full-text search** inside text files, PDFs and Word documents, ranked by relevance with the matching passage highlighted. An embedded Lucene index follows every change on a background thread, and catches up with files changed outside the app.
-- **Tested against the real thing.** About 400 backend tests, all on PostgreSQL via Testcontainers with the schema the migrations build, including concurrency, migration and upgrade tests, cross-account isolation tests for every endpoint, and symlink-swap tests, plus about 270 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
+- **On disk or in S3.** Files live in a folder on the server or in a bucket in S3, MinIO, R2 or any other service with the S3 API, behind one storage interface whose two implementations pass the same contract tests. Uploads stream on to S3, large ones in parts, and downloads fetch only the byte range a client asked for.
+- **Tested against the real thing.** About 500 backend tests, all on PostgreSQL via Testcontainers with the schema the migrations build, including concurrency, migration and upgrade tests, the app run on an S3 server, cross-account isolation tests for every endpoint, and symlink-swap tests, plus about 270 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
 
 ## Architecture
 
-The whole app ships as one container: Spring Boot serves the REST API and the built React app. File bytes live on the filesystem, in a folder per account; everything about them (accounts, metadata, versions, history, share links) lives in PostgreSQL. The search index is a Lucene index on the filesystem too, built from the files and rebuilt from them whenever it has to be.
+The whole app ships as one container: Spring Boot serves the REST API and the built React app. File bytes live in a folder per account, on the server's disk or in an S3 bucket; everything about them (accounts, metadata, versions, history, share links) lives in PostgreSQL. The search index is a Lucene index on the server's disk, built from the files and rebuilt from them whenever it has to be.
 
 ```mermaid
 flowchart TB
@@ -58,21 +59,26 @@ flowchart TB
         Controllers["REST controllers<br/>files · versions · shares · history · search · admin"]
         Services["Services<br/>FileService · FileVersionService · ShareLinkService · SearchService · AccountService"]
         Index["SearchIndex<br/>Lucene, written on a background thread"]
-        Paths["StoragePaths<br/>the only way a client path reaches the disk,<br/>inside the account's own folder"]
+        Paths["StoragePaths<br/>the only way a client path reaches the store,<br/>inside the account's own folder"]
+        Store["FileStore<br/>LocalFileStore or S3FileStore"]
         Repos["Spring Data JPA repositories"]
         Security --> Controllers --> Services
         Services --> Paths
+        Services --> Store
         Services --> Repos
         Services --> Index
+        Paths --> Store
+        Index -- "reads files" --> Store
     end
 
     DB[("PostgreSQL<br/>accounts · metadata · versions · history · share links")]
-    Disk[("Filesystem<br/>.users/&lt;id&gt;/ · .versions/ · .javadropbox/search-index")]
+    Files[("Filesystem or S3 bucket<br/>.users/&lt;id&gt;/ · .versions/")]
+    Disk[("Local disk<br/>.javadropbox/search-index")]
 
     Browser -- "JSON over HTTPS<br/>session cookie + CSRF token" --> Security
     Repos -- "JDBC · schema by Flyway" --> DB
-    Paths --> Disk
-    Index -- "reads files, keeps its index" --> Disk
+    Store --> Files
+    Index -- "keeps its index" --> Disk
 ```
 
 | Layer | Responsibility | Key classes |
@@ -80,6 +86,7 @@ flowchart TB
 | **Config** | Security chain, first-run setup gate, sign-in throttling, ending sessions of changed accounts, CORS | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `AccountSessionFilter`, `SpaFallbackFilter` |
 | **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `SearchController`, `AdminController`, `AccountLinkController`, `DownloadResponses`, `ApiExceptionHandler` |
 | **Service** | Path validation, file I/O, versioning, audit log, share links, search, accounts and quotas | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor`, `AccountService`, `AccountLinkService`, `StorageQuota` |
+| **Storage** | Where the bytes are: a folder on disk or an S3 bucket, both behaving like a filesystem | `FileStore`, `LocalFileStore`, `S3FileStore` |
 | **Repository** | Data access, including pessimistic row locks | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `ShareLinkRepository`, `UserRepository`, `AccountLinkRepository` |
 
 ### Data model
@@ -174,6 +181,8 @@ sequenceDiagram
     S-->>B: 200 Uploaded 1 file
 ```
 
+In S3 the steps are the same, with the scratch file an object uploaded in parts and each move a copy within S3, which readers see whole or not at all (see [why a storage interface](#why-a-storage-interface-rather-than-an-s3-filesystem-library)).
+
 ### Sharing a file
 
 ```mermaid
@@ -201,14 +210,14 @@ Nothing is downloaded until the visitor asks: a browser opening the link gets a 
 
 ### Searching
 
-The disk stays the source of truth: the index only mirrors it, so it can be deleted at any time and is rebuilt from what is stored. One background thread does all the writing, so an upload never waits for a PDF to be read.
+The stored files stay the source of truth: the index only mirrors them, so it can be deleted at any time and is rebuilt from what is stored. One background thread does all the writing, so an upload never waits for a PDF to be read.
 
 ```mermaid
 sequenceDiagram
     participant B as Browser
     participant F as FileService
     participant I as SearchIndex
-    participant D as Disk
+    participant D as Disk or S3
 
     B->>F: upload, delete, create a folder or restore
     F->>F: commit the change
@@ -220,12 +229,22 @@ sequenceDiagram
     I-->>B: matches below Reports, best first, each with the passage that matched
 ```
 
-Every word has to appear in the item's name or in its text. Case and accents don't matter (`cafe` finds `Café`), and the last word also matches the start of a longer one, so results come up while it is still being typed. A match in the name ranks an item ahead of anything matched by its text alone, and the words appearing together rank a file ahead of the same words scattered through it. Each result is checked against the disk before it is returned, so a file deleted behind the app's back is never offered, and the index is told to drop it.
+Every word has to appear in the item's name or in its text. Case and accents don't matter (`cafe` finds `Café`), and the last word also matches the start of a longer one, so results come up while it is still being typed. A match in the name ranks an item ahead of anything matched by its text alone, and the words appearing together rank a file ahead of the same words scattered through it. Each result is checked against the store before it is returned, so a file deleted behind the app's back is never offered, and the index is told to drop it.
 
 ## Design decisions
 
 ### Why a dual storage strategy (filesystem + database)?
-Files are stored on the **filesystem** for performance and simplicity (no BLOB overhead), while **metadata, version history, and audit logs** live in PostgreSQL. The database is the source of truth for relationships and history, and the filesystem handles raw bytes. Keeping the two consistent is what the upload flow above is about.
+Files are stored on the **filesystem** or in **S3** for performance and simplicity (no BLOB overhead), while **metadata, version history, and audit logs** live in PostgreSQL. The database is the source of truth for relationships and history, and the store handles raw bytes. Keeping the two consistent is what the upload flow above is about.
+
+### Why a storage interface rather than an S3 filesystem library?
+The services were written against `java.nio.file`, and there are libraries that make an S3 bucket look like a `java.nio` filesystem. Using one would have left the code as it was and quietly broken what it relies on: a rename that S3 cannot do atomically, symlink checks with nothing to check, a call to S3 for every `Files.exists`, and directories that S3 does not have. So the services talk to `FileStore`, an interface of the dozen operations they actually use, and each store implements them in the way its storage allows:
+
+- **Folders.** S3 has only objects. `S3FileStore` follows the convention S3's own console uses: a folder is there while anything is below it, and an empty one is a zero-byte object named with a trailing slash. Deleting a folder's last file leaves the folder, as it would on disk.
+- **Moves.** A rename on disk is a copy within S3 followed by a delete. Readers still see the old content or the new, never part of either, and what an interruption leaves behind is cleaned up at startup like any other leftover.
+- **Large files.** Uploads go on to S3 as they arrive, in 64 MB parts, each kept in a temporary file until S3 has it so that a part that fails is sent again on its own. Objects too big for one copy are copied in parts, so nothing has to fit in memory. Downloads skip to the range asked for in the request to S3 itself rather than reading up to it.
+- **Listings.** The tree, the quota and search read an account's folder with one flat listing, a thousand objects a request, rather than a request per folder.
+
+The local store keeps everything the disk gives: atomic renames, case-insensitive names spelled as on disk, and symlinks refused right before each operation. Both stores pass one suite of contract tests, run on a temporary folder and on an S3 server in Testcontainers, and the app runs its file flows end to end on S3 as well. The keys are laid out as the serving directory is, so moving an install to S3 is a copy of the folder into the bucket.
 
 ### Why an embedded Lucene index rather than Elasticsearch?
 Elasticsearch is Lucene with a cluster around it. Its indexing, BM25 relevance, analyzers and highlighter are Lucene's; what it adds is distribution, with shards and replicas behind a network API that many app servers can share. JavaDropbox runs as one server over one owner's files, which a single Lucene index handles with room to spare. So it uses the engine without the cluster: the same relevance, no network hop between a change and the index, and no second service to deploy, secure, upgrade and back up. That also keeps the app in one container, and the live demo within its 512 MB machine, where Elasticsearch alone would want a gigabyte or more.
@@ -240,7 +259,7 @@ Folder downloads write a `ZipOutputStream` straight to the HTTP response (`Folde
 ### Why a folder per account?
 Every account's files live in `.users/<id>/` inside the serving directory, and `StoragePaths` resolves each request's paths inside the signed-in account's folder only: whatever a path says, normalized and with symlinks refused, it can't leave that folder. So isolation doesn't depend on every query remembering a `WHERE owner = ?`; a path simply has nowhere else to go. Rows that are reached by id instead (versions, restores, share links) are checked against their owner, and another account's item is a `404`, as if it did not exist. Paths in the database are relative to the owner's folder and unique per owner, so two accounts can each have a `report.txt`, and the search index keys each item by its owner's id and path, so every search is confined to one account's files.
 
-The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. A folder per account also maps directly onto an S3 prefix per account later. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
+The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. A folder per account also maps directly onto a prefix per account in S3, which is how the S3 store keeps them. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
 
 Sessions are checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
 
@@ -296,8 +315,9 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 - Accessible dialogs (focus trap and restore, Escape to close), keyboard-operable sorting with `aria-sort`, errors announced to screen readers
 
 **Operations**
+- Files on the server's disk or in any S3-compatible bucket (AWS, MinIO, Cloudflare R2, Backblaze B2 and others), chosen with one setting; the bucket stays private, with every download going through the app
 - One Docker image with the frontend bundled into the backend, plus Docker Compose with PostgreSQL
-- Health and usage metrics through Spring Boot Actuator (details and metrics for admins), and an OpenAPI spec with Swagger UI in development
+- Health (the database, the disk, the bucket) and usage metrics through Spring Boot Actuator (details and metrics for admins), and an OpenAPI spec with Swagger UI in development
 
 ## Tech stack
 
@@ -305,15 +325,16 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 |-------|-----------|
 | **Backend** | Java 21, Spring Boot 3.5, Spring Security 6, Spring Data JPA / Hibernate |
 | **Database** | PostgreSQL, Flyway migrations |
+| **Storage** | The local filesystem, or S3 and compatible services through the AWS SDK for Java 2 |
 | **Search** | Apache Lucene (embedded), Apache PDFBox for the text of PDFs |
 | **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
-| **Testing** | JUnit 5, MockMvc, Testcontainers, Jimfs; Vitest, Testing Library |
+| **Testing** | JUnit 5, MockMvc, Testcontainers (PostgreSQL, S3Mock), Jimfs; Vitest, Testing Library |
 | **Build and style** | Gradle, Spotless with google-java-format, ESLint |
 | **Delivery** | Docker (multi-stage build), Docker Compose, GitHub Actions, Fly.io |
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc. All of them run on **PostgreSQL in Testcontainers**, each test context on an empty database of its own built by the Flyway migrations, so the constraints, unique indexes and cascades of a real install are under test everywhere, concurrent replaces and deletes of one file included. Other suites run every Flyway migration on its own and upgrade an install from before accounts had their own files. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc. All of them run on **PostgreSQL in Testcontainers**, each test context on an empty database of its own built by the Flyway migrations, so the constraints, unique indexes and cascades of a real install are under test everywhere, concurrent replaces and deletes of one file included. Other suites run every Flyway migration on its own and upgrade an install from before accounts had their own files. Storage in S3 is tested on **an S3 server in Testcontainers**: both stores pass one contract suite, and the app's uploads, versions, restores, zips, share links, search and quotas run end to end on a bucket. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
@@ -360,7 +381,7 @@ Then open `http://localhost:8080` and create the first account with the setup co
 - [x] **Full-text search** across file contents and metadata on the server
 - [x] **Folder upload** of whole directory structures
 - [x] **Multi-user support** with role-based access and per-user quotas
-- [ ] **S3-compatible storage backend**
+- [x] **S3-compatible storage backend**
 - [ ] **Desktop sync client** that keeps a local folder in sync
 
 ## License

@@ -65,26 +65,49 @@ public class TextExtractor {
   }
 
   /**
+   * Whether {@link #extract} would read a file called {@code name}, which is {@code size} bytes
+   * long: whether it is a kind that has text, and small enough.
+   */
+  public boolean reads(String name, long size) {
+    return size <= maxFileSize && kind(name) != null;
+  }
+
+  /**
    * The text of the file at {@code file}, called {@code name}, which is {@code size} bytes long.
    *
    * @return the text, or empty if this kind of file has none or it is too large to read
    * @throws IOException if the file could not be read, or is not what its extension says
    */
   public Optional<String> extract(Path file, String name, long size) throws IOException {
-    if (size > maxFileSize) {
+    if (!reads(name, size)) {
       return Optional.empty();
     }
+    return Optional.of(
+        switch (kind(name)) {
+          case TEXT -> text(file);
+          case PDF -> pdf(file);
+          case DOCX -> docx(file);
+        });
+  }
+
+  private enum Kind {
+    TEXT,
+    PDF,
+    DOCX
+  }
+
+  private static Kind kind(String name) {
     if (PreviewType.of(name).orElse(null) == PreviewType.TEXT) {
-      return Optional.of(text(file));
+      return Kind.TEXT;
     }
     String lower = name.toLowerCase(Locale.ROOT);
     if (lower.endsWith(".pdf")) {
-      return Optional.of(pdf(file));
+      return Kind.PDF;
     }
     if (lower.endsWith(".docx")) {
-      return Optional.of(docx(file));
+      return Kind.DOCX;
     }
-    return Optional.empty();
+    return null;
   }
 
   // Undecodable bytes become U+FFFD rather than failing the file: a Latin-1 text file still has

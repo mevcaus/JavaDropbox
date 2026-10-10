@@ -34,10 +34,12 @@ class StoragePathsTests {
     serving = Files.createDirectory(tmp.resolve("root"));
     Files.createDirectories(serving.resolve(".versions/1"));
     Files.createDirectories(serving.resolve(".javadropbox"));
-    StoragePaths storagePaths = new StoragePaths(serving.toString());
-    Files.writeString(storagePaths.home(2).root().resolve("theirs.txt"), "another account's");
+    LocalFileStore store = new LocalFileStore(serving);
+    StoragePaths storagePaths = new StoragePaths(store, serving);
+    Files.writeString(
+        store.path(storagePaths.home(2).key()).resolve("theirs.txt"), "another account's");
     paths = storagePaths.home(1);
-    root = paths.root();
+    root = store.path(paths.key());
   }
 
   @ParameterizedTest
@@ -136,8 +138,9 @@ class StoragePathsTests {
   void keysUseTheOnDiskSpellingOnAnyPlatform() throws IOException {
     try (FileSystem macLike = Jimfs.newFileSystem(Configuration.osX())) {
       Path macServing = Files.createDirectories(macLike.getPath("/srv/files"));
-      Home macPaths = new StoragePaths(macServing).home(1);
-      Path macRoot = macPaths.root();
+      LocalFileStore macStore = new LocalFileStore(macServing);
+      Home macPaths = new StoragePaths(macStore, macServing).home(1);
+      Path macRoot = macStore.path(macPaths.key());
       Files.createDirectories(macRoot.resolve("Docs"));
       Files.writeString(macRoot.resolve("Docs/Report.txt"), "report");
       Files.createDirectories(macRoot.resolve(".versions"));

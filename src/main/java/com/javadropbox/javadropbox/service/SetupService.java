@@ -77,7 +77,7 @@ public class SetupService {
   }
 
   /**
-   * Creates the first account, which is given whatever is already in the serving directory.
+   * Creates the first account, which is given whatever is already at the top of the store.
    * Synchronized, and the check and insert both commit before it returns, so two simultaneous
    * submissions cannot both create an account.
    *

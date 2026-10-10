@@ -15,7 +15,6 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,6 +70,7 @@ public class DemoService implements ApplicationRunner {
   private final PasswordEncoder passwordEncoder;
   private final FileService fileService;
   private final StoragePaths storagePaths;
+  private final FileStore store;
   private final SearchIndex searchIndex;
   private final JdbcTemplate jdbc;
   private final TransactionTemplate transactions;
@@ -90,6 +90,7 @@ public class DemoService implements ApplicationRunner {
       PasswordEncoder passwordEncoder,
       FileService fileService,
       StoragePaths storagePaths,
+      FileStore store,
       SearchIndex searchIndex,
       JdbcTemplate jdbc,
       PlatformTransactionManager transactionManager,
@@ -102,6 +103,7 @@ public class DemoService implements ApplicationRunner {
         passwordEncoder,
         fileService,
         storagePaths,
+        store,
         searchIndex,
         jdbc,
         transactionManager,
@@ -117,6 +119,7 @@ public class DemoService implements ApplicationRunner {
       PasswordEncoder passwordEncoder,
       FileService fileService,
       StoragePaths storagePaths,
+      FileStore store,
       SearchIndex searchIndex,
       JdbcTemplate jdbc,
       PlatformTransactionManager transactionManager,
@@ -129,6 +132,7 @@ public class DemoService implements ApplicationRunner {
     this.passwordEncoder = passwordEncoder;
     this.fileService = fileService;
     this.storagePaths = storagePaths;
+    this.store = store;
     this.searchIndex = searchIndex;
     this.jdbc = jdbc;
     this.transactions = new TransactionTemplate(transactionManager);
@@ -235,12 +239,10 @@ public class DemoService implements ApplicationRunner {
           jdbc.update("DELETE FROM file_metadata");
         });
 
-    Path root = storagePaths.internalDir().getParent();
-    try (Stream<Path> entries = Files.list(root)) {
-      for (Path entry : entries.toList()) {
-        if (!entry.equals(storagePaths.internalDir())) {
-          StorageFiles.deleteRecursively(entry);
-        }
+    // The app's own folder stays: it holds the search index, and the marker of the last reset.
+    for (FileStore.Entry entry : store.list("")) {
+      if (!entry.key().equals(StoragePaths.INTERNAL_DIR)) {
+        store.deleteRecursively(entry.key());
       }
     }
     // Deleted behind FileService's back, so the index has to be told.

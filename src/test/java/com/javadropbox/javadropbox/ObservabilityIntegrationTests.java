@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.config.SetupFilter;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -69,6 +70,7 @@ class ObservabilityIntegrationTests {
   @Autowired private SetupFilter setupFilter;
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   @AfterEach
   void tearDown() throws IOException {
@@ -90,7 +92,7 @@ class ObservabilityIntegrationTests {
     if (userRepository.findByUsername("testuser").isEmpty()) {
       userRepository.save(new User("testuser", "unused", "ROLE_USER"));
     }
-    return storagePaths.home(admin).root();
+    return localStore.path(storagePaths.home(admin).key());
   }
 
   @Test

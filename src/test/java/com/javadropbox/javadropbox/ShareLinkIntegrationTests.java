@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -59,6 +60,7 @@ class ShareLinkIntegrationTests {
   @Autowired private ObjectMapper json;
 
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -70,7 +72,7 @@ class ShareLinkIntegrationTests {
         userRepository
             .findByUsername("testadmin")
             .orElseGet(() -> userRepository.save(new User("testadmin", "unused", "ROLE_ADMIN")));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
     Files.writeString(home.resolve("shared.txt"), "share me");
   }
 

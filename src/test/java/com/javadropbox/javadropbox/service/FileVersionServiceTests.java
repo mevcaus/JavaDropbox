@@ -16,7 +16,7 @@ class FileVersionServiceTests {
       new ApplicationContextRunner()
           .withBean(FileVersionRepository.class, () -> mock(FileVersionRepository.class))
           .withBean(FileMetadataRepository.class, () -> mock(FileMetadataRepository.class))
-          .withBean(StoragePaths.class, () -> mock(StoragePaths.class))
+          .withBean(FileStore.class, () -> mock(FileStore.class))
           .withBean(FileVersionService.class);
 
   @Test

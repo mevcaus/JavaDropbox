@@ -6,8 +6,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,9 +17,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * The one place a client-supplied path is turned into a filesystem path. Each account's files are
- * in a folder of its own, {@code .users/<id>} in the serving directory ({@link #home}), and every
- * storage operation resolves its paths inside one of those, so the rules live in one place:
+ * The one place a client-supplied path is turned into a location in the {@link FileStore}. Each
+ * account's files are in a folder of its own, {@code .users/<id>} in the store ({@link #home}), and
+ * every storage operation resolves its paths inside one of those, so the rules live in one place:
  *
  * <ul>
  *   <li>the result stays inside the account's folder after {@code ..} is normalized away, so it
@@ -30,9 +31,8 @@ import org.springframework.stereotype.Component;
  *   <li>nothing new is created under a name starting with a dot, which the file tree hides.
  * </ul>
  *
- * <p>A resolved path is built on the real serving directory, so no part of it is a symlink. Code
- * about to touch the disk calls {@link #recheck} to confirm that is still true, since a folder can
- * be swapped for a link between the check and the use.
+ * <p>The app's own state, such as the search index, is kept on the local disk in {@link
+ * #internalDir} whichever store holds the files.
  */
 @Component
 public class StoragePaths {
@@ -46,6 +46,13 @@ public class StoragePaths {
   /** Where each account's files are kept, in a folder named after the account's id. */
   public static final String HOMES_DIR = ".users";
 
+  /** Put in a new store, and given to the first account by setup (see LooseFileAdoption). */
+  static final String WELCOME_FILE = "Welcome to JavaDropbox.txt";
+
+  static final String WELCOME_TEXT =
+      "This is your JavaDropbox storage folder. Anything you put here shows up in the web"
+          + " interface.\n";
+
   private static final Set<String> RESERVED_DIRS = Set.of(VERSIONS_DIR, INTERNAL_DIR, HOMES_DIR);
   private static final String INVALID_PATH = "Invalid path";
   private static final String HIDDEN_NAME =
@@ -56,46 +63,32 @@ public class StoragePaths {
 
   private static final Logger log = LoggerFactory.getLogger(StoragePaths.class);
 
-  private final Path root;
-  private final Path realRoot;
+  private final FileStore store;
+  private final Path internalDir;
 
   @Autowired
-  public StoragePaths(@Value("${javadropbox.serving.directory}") String directory)
+  public StoragePaths(FileStore store, @Value("${javadropbox.serving.directory}") String directory)
       throws IOException {
-    this(Path.of(directory));
+    this(store, Path.of(directory));
   }
 
-  // For tests on another filesystem, such as an in-memory case-insensitive one.
+  // For tests on the local disk, or on another filesystem such as an in-memory case-insensitive
+  // one.
   StoragePaths(Path directory) throws IOException {
-    this.root = directory.toAbsolutePath().normalize();
-    if (!Files.exists(root)) {
-      Files.createDirectories(root);
-      Files.writeString(
-          root.resolve("Welcome to JavaDropbox.txt"),
-          "This is your JavaDropbox storage folder. Anything you put here shows up in the web"
-              + " interface.\n");
-      log.info("Created the serving directory {}", root);
-    }
-    this.realRoot = root.toRealPath();
+    this(new LocalFileStore(directory), directory);
   }
 
-  /** The serving directory, as configured. */
-  public Path root() {
-    return root;
+  StoragePaths(FileStore store, Path directory) throws IOException {
+    this.store = store;
+    // With the files kept elsewhere, the serving directory holds only the app's own state.
+    Path serving = Files.createDirectories(directory.toAbsolutePath().normalize());
+    // Built on the real directory, which may itself sit under a symlink (/var on macOS).
+    this.internalDir = serving.toRealPath().resolve(INTERNAL_DIR);
   }
 
-  // Built on the real root, like resolved paths: recheck refuses any symlink along a path, and the
-  // configured directory may itself sit under one (/var on macOS, a symlinked mount).
-  public Path versionsDir() {
-    return realRoot.resolve(VERSIONS_DIR);
-  }
-
+  /** Where the app keeps its own state, on the local disk. */
   public Path internalDir() {
-    return realRoot.resolve(INTERNAL_DIR);
-  }
-
-  public Path homesDir() {
-    return realRoot.resolve(HOMES_DIR);
+    return internalDir;
   }
 
   /** The folder of an account's files, which is created if it does not exist yet. */
@@ -105,15 +98,13 @@ public class StoragePaths {
 
   /** Like {@link #home(User)}, by the account's id. */
   public Home home(long userId) {
-    Path folder = homesDir().resolve(String.valueOf(userId));
-    if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) {
-      try {
-        Files.createDirectories(folder);
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
+    String key = HOMES_DIR + "/" + userId;
+    try {
+      store.createFolders(key);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
-    return new Home(userId, folder);
+    return new Home(store, userId, key);
   }
 
   /**
@@ -122,21 +113,23 @@ public class StoragePaths {
    */
   public static final class Home {
 
+    private final FileStore store;
     private final long userId;
-    private final Path root;
+    private final String key;
 
-    private Home(long userId, Path root) {
+    private Home(FileStore store, long userId, String key) {
+      this.store = store;
       this.userId = userId;
-      this.root = root;
+      this.key = key;
     }
 
     public long userId() {
       return userId;
     }
 
-    /** The folder itself, on the real serving directory. */
-    public Path root() {
-      return root;
+    /** The folder's key in the store. */
+    public String key() {
+      return key;
     }
 
     /** What the search index calls the item at {@code key}: the account's id, then the path. */
@@ -153,42 +146,28 @@ public class StoragePaths {
      */
     public StoragePath resolve(String relativePath) {
       String raw = relativePath == null ? "" : relativePath;
-      Path candidate;
-      try {
-        candidate = root.resolve(raw).normalize();
-      } catch (InvalidPathException e) {
-        throw new BadRequestException(INVALID_PATH);
-      }
-
-      if (!candidate.startsWith(root)) {
-        log.warn("Rejected path outside the account's folder: {}", raw);
-        throw new BadRequestException(INVALID_PATH);
-      }
-
-      Path relative = root.relativize(candidate);
+      String relative = normalize(raw);
       if (isReserved(relative)) {
         throw new BadRequestException(INVALID_PATH);
       }
-
-      Path existing = candidate;
-      while (existing.startsWith(root) && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-        existing = existing.getParent();
-      }
-      if (!existing.startsWith(root)) {
-        throw new BadRequestException(INVALID_PATH);
-      }
-      // Keyed by the filesystem's own spelling of the part that exists, so every spelling a
+      // Keyed by the store's own spelling of the part that exists, so every spelling a
       // case-insensitive filesystem accepts for one file gives it one key.
-      Path created = existing.relativize(candidate);
-      Path key = realRelativeOf(existing, raw).resolve(created);
-      if (isReserved(key)) {
+      String spelled;
+      try {
+        spelled = store.spelling(key, relative);
+      } catch (InvalidPathException e) {
         throw new BadRequestException(INVALID_PATH);
       }
-      // Whatever does not exist yet may be created by the caller, e.g. an upload's folder.
-      if (hasHiddenName(created)) {
+      if (isReserved(spelled)) {
+        throw new BadRequestException(INVALID_PATH);
+      }
+      // Whatever does not exist yet may be created by the caller, e.g. an upload's folder, so it
+      // must not be hidden. A hidden name that already exists may be reached.
+      int hidden = endOfLastHiddenName(spelled);
+      if (hidden >= 0 && !exists(child(key, spelled.substring(0, hidden)))) {
         throw new BadRequestException(HIDDEN_NAME);
       }
-      return new StoragePath(this, root.resolve(key), toKey(key));
+      return new StoragePath(this, spelled);
     }
 
     /**
@@ -220,96 +199,120 @@ public class StoragePaths {
       if (name.length() > MAX_NAME_LENGTH) {
         throw new BadRequestException("Names can be at most " + MAX_NAME_LENGTH + " characters");
       }
-      if (name.startsWith(".") || hasHiddenName(root.relativize(parent.path()))) {
+      if (name.startsWith(".") || endOfLastHiddenName(parent.key()) >= 0) {
         throw new BadRequestException(HIDDEN_NAME);
       }
       return resolveItem(parent.isRoot() ? name : parent.key() + "/" + name);
     }
 
-    // Normalizing only removes "..": a symlink can still lead anywhere, so refuse a path whose
-    // existing part passes through one. Returns the real location of that part relative to the
-    // folder, which also carries the filesystem's own spelling of each name.
-    private Path realRelativeOf(Path existing, String raw) {
-      for (Path part = existing; part.startsWith(root) && !part.equals(root); ) {
-        if (Files.isSymbolicLink(part)) {
-          log.warn("Rejected path through a symlink: {}", raw);
-          throw new BadRequestException(INVALID_PATH);
-        }
-        part = part.getParent();
-      }
+    private boolean exists(String key) {
       try {
-        // Only a link swapped in since the loop above could lead elsewhere.
-        Path real = existing.toRealPath();
-        if (!real.startsWith(root)) {
-          log.warn("Rejected path that leaves the account's folder: {}", raw);
-          throw new BadRequestException(INVALID_PATH);
-        }
-        return root.relativize(real);
+        return store.exists(key);
       } catch (IOException e) {
-        // Removed, or replaced by a dangling or looping link, while it was being checked.
-        throw new BadRequestException(INVALID_PATH);
+        throw new UncheckedIOException(e);
       }
     }
   }
 
   /**
-   * Checks again, right before a resolved path is used, that no part of it has been replaced by a
-   * symlink since it was resolved.
+   * {@code raw} as a path relative to the folder it is resolved in, with {@code .}, {@code ..} and
+   * empty segments taken out, as a filesystem would.
    *
-   * @param path a {@link StoragePath#path()}, or a folder along one
-   * @return {@code path}, for use inline
-   * @throws BadRequestException if part of the path is now a symlink
+   * @throws BadRequestException if it climbs out of the folder, is absolute, or cannot be a name
    */
-  public static Path recheck(Path path) {
-    for (Path part = path; part != null; part = part.getParent()) {
-      if (Files.isSymbolicLink(part)) {
-        log.warn("Rejected path that became a symlink after it was checked: {}", path);
-        throw new BadRequestException(INVALID_PATH);
+  private static String normalize(String raw) {
+    if (raw.indexOf('\0') >= 0 || !isWellFormed(raw)) {
+      throw new BadRequestException(INVALID_PATH);
+    }
+    if (raw.startsWith("/")) {
+      log.warn("Rejected path outside the account's folder: {}", raw);
+      throw new BadRequestException(INVALID_PATH);
+    }
+    Deque<String> segments = new ArrayDeque<>();
+    for (String segment : raw.split("/")) {
+      if (segment.isEmpty() || segment.equals(".")) {
+        continue;
+      }
+      if (segment.equals("..")) {
+        if (segments.isEmpty()) {
+          log.warn("Rejected path outside the account's folder: {}", raw);
+          throw new BadRequestException(INVALID_PATH);
+        }
+        segments.removeLast();
+      } else {
+        segments.addLast(segment);
       }
     }
-    return path;
+    return String.join("/", segments);
+  }
+
+  // No name on disk or in S3 can hold half of a surrogate pair: it has no encoding.
+  private static boolean isWellFormed(String text) {
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (Character.isHighSurrogate(c)
+          && i + 1 < text.length()
+          && Character.isLowSurrogate(text.charAt(i + 1))) {
+        i++;
+      } else if (Character.isSurrogate(c)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // A case-insensitive filesystem (macOS, Windows) treats ".VERSIONS" as ".versions".
-  private static boolean isReserved(Path relative) {
-    if (relative.getNameCount() == 0) {
+  private static boolean isReserved(String relative) {
+    if (relative.isEmpty()) {
       return false;
     }
-    String first = relative.getName(0).toString();
+    int slash = relative.indexOf('/');
+    String first = slash < 0 ? relative : relative.substring(0, slash);
     return RESERVED_DIRS.stream().anyMatch(first::equalsIgnoreCase);
   }
 
-  // The file tree skips such names, so an item created under one would never be seen again.
-  private static boolean hasHiddenName(Path relative) {
-    for (Path name : relative) {
-      if (name.toString().startsWith(".")) {
-        return true;
+  // The file tree skips names starting with a dot, so an item created under one would never be
+  // seen again. Returns where the last such name in key ends, or -1 if it has none.
+  private static int endOfLastHiddenName(String key) {
+    int end = -1;
+    int start = 0;
+    while (start < key.length()) {
+      int slash = key.indexOf('/', start);
+      int segmentEnd = slash < 0 ? key.length() : slash;
+      if (key.charAt(start) == '.') {
+        end = segmentEnd;
       }
+      start = segmentEnd + 1;
     }
-    return false;
+    return end;
   }
 
-  private static String toKey(Path relative) {
-    return relative.toString().replace(relative.getFileSystem().getSeparator(), "/");
+  private static String child(String folder, String key) {
+    return key.isEmpty() ? folder : folder + "/" + key;
   }
 
   /**
    * A validated location inside an account's folder.
    *
    * @param home the account's folder
-   * @param path the absolute filesystem path, inside the real serving directory
    * @param key the path relative to the account's folder with forward slashes, {@code ""} for the
-   *     folder itself, spelled as on disk where it exists. This is the form stored in the database
-   *     and shown to clients.
+   *     folder itself, spelled as the store spells it where it exists. This is the form stored in
+   *     the database and shown to clients.
    */
-  public record StoragePath(Home home, Path path, String key) {
+  public record StoragePath(Home home, String key) {
 
     public boolean isRoot() {
       return key.isEmpty();
     }
 
+    /** The last segment of the path; the account's id for its folder itself. */
     public String name() {
-      return path.getFileName().toString();
+      return isRoot() ? String.valueOf(home.userId()) : key.substring(key.lastIndexOf('/') + 1);
+    }
+
+    /** Where it is in the store. */
+    public String storeKey() {
+      return child(home.key(), key);
     }
   }
 }

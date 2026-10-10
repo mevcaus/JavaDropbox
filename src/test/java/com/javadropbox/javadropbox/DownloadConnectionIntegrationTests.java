@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.ShareLinkService;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
@@ -65,10 +66,13 @@ class DownloadConnectionIntegrationTests {
   @Autowired private ShareLinkService shareLinks;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   @BeforeEach
   void setUp() throws IOException {
-    Path home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
+    Path home =
+        localStore.path(
+            storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).key());
     // Sparse, so it costs no disk, but far more than the socket buffers can absorb.
     try (RandomAccessFile big = new RandomAccessFile(home.resolve("big.bin").toFile(), "rw")) {
       big.setLength(512L * 1024 * 1024);

@@ -18,6 +18,7 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileHistoryService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import jakarta.persistence.EntityManagerFactory;
@@ -91,6 +92,7 @@ class FileIntegrityIntegrationTests {
   @MockitoSpyBean private FileVersionService versionService;
   @MockitoSpyBean private FileHistoryService historyService;
   @MockitoSpyBean private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -99,7 +101,7 @@ class FileIntegrityIntegrationTests {
   @BeforeEach
   void setUp() {
     owner = users.save(new User("owner", "unused", User.ROLE_ADMIN));
-    home = storagePaths.home(owner).root();
+    home = localStore.path(storagePaths.home(owner).key());
   }
 
   @AfterEach

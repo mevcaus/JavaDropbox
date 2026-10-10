@@ -48,6 +48,23 @@ npm run dev
 
 Then open `http://localhost:5173`. While no account exists, the sign-in page offers **Set up the first user**; the setup code is in the backend's log (see [self-hosting.md](self-hosting.md#first-run-setup)). With the `dev` profile, the Swagger UI at `http://localhost:8080/swagger-ui.html` lists and runs every endpoint, and [api.md](api.md) has the same reference in writing.
 
+### With the files in S3
+
+To work on the S3 store, run an S3 server and point the backend at a bucket in it. [S3Mock](https://github.com/adobe/S3Mock), which the tests use, keeps everything in the container, so its bucket is empty again on every start:
+
+```bash
+docker run --rm -p 9090:9090 -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=javadropbox adobe/s3mock:5.2.2
+
+JAVADROPBOX_STORAGE_TYPE=s3 \
+JAVADROPBOX_STORAGE_S3_BUCKET=javadropbox \
+JAVADROPBOX_STORAGE_S3_ENDPOINT=http://localhost:9090 \
+JAVADROPBOX_STORAGE_S3_PATH_STYLE_ACCESS=true \
+JAVADROPBOX_STORAGE_S3_ACCESS_KEY=any JAVADROPBOX_STORAGE_S3_SECRET_KEY=any \
+./gradlew bootRun
+```
+
+Everything else is as above, with the search index still in `./JDB/.javadropbox`. [self-hosting.md](self-hosting.md#storing-files-in-s3) has every S3 setting.
+
 ## Project structure
 
 ```
@@ -99,7 +116,8 @@ JavaDropbox/
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
-│   │   │   ├── StartupBanner.java       # Logs the bound port and serving directory
+│   │   │   ├── StartupBanner.java       # Logs the bound port and where files are stored
+│   │   │   ├── StorageConfig.java       # The file store: the serving directory, or an S3 bucket
 │   │   │   ├── DemoResetFilter.java     # Live demo: runs the daily reset when it falls due
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
 │   │   │   └── PasswordConfig.java      # BCrypt encoder bean
@@ -122,12 +140,15 @@ JavaDropbox/
 │   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink, AccountLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
 │   │   └── service/
-│   │       ├── StoragePaths.java        # The one place client paths become filesystem paths, in an account's folder
+│   │       ├── StoragePaths.java        # The one place client paths become keys in the store, in an account's folder
+│   │       ├── FileStore.java           # Where the bytes are, behaving like a filesystem on any storage
+│   │       ├── LocalFileStore.java      # The serving directory on disk, with symlinks refused before each operation
+│   │       ├── S3FileStore.java         # A bucket in S3 or a service with its API: folder markers, moves as copies
 │   │       ├── LooseFileAdoption.java   # Gives an upgraded install's files to the first account
 │   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree
-│   │       ├── SearchIndex.java         # Lucene index of names and text, kept in step with the disk
-│   │       ├── SearchService.java       # Checks searches and their hits against the disk
+│   │       ├── SearchIndex.java         # Lucene index of names and text, kept in step with the store
+│   │       ├── SearchService.java       # Checks searches and their hits against the store
 │   │       ├── TextExtractor.java       # Text of text files, PDFs (PDFBox) and .docx
 │   │       ├── FileVersionService.java  # Archiving, pruning and looking up versions
 │   │       ├── FileHistoryService.java  # Audit log, including failures

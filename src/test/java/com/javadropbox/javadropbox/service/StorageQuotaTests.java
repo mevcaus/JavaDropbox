@@ -13,7 +13,7 @@ class StorageQuotaTests {
   @Test
   @DisplayName("the removed server-wide cap stops the app from starting, and says what replaced it")
   void removedCapIsRefused() {
-    assertThatThrownBy(() -> new StorageQuota(null, null, "50MB"))
+    assertThatThrownBy(() -> new StorageQuota(null, null, null, "50MB"))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining(StorageQuota.REMOVED_CAP)
         .hasMessageContaining("quota");

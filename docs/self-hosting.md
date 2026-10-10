@@ -36,11 +36,67 @@ Every account has files of its own, which nobody else can see: not other users, 
 
 An admin can't disable their own account or change their own role, and the app always keeps at least one admin who can sign in, so nobody can lock everyone out.
 
-**On disk**, each account's files are in `.users/<id>/` inside the serving directory, where `<id>` is the account's number (`SELECT id, username FROM users` lists them). Files copied in there by hand show up for that account, and search finds them within ten minutes. Previous versions stay in the shared `.versions/`, named by file.
+**On disk**, each account's files are in `.users/<id>/` inside the serving directory, where `<id>` is the account's number (`SELECT id, username FROM users` lists them). Files copied in there by hand show up for that account, and search finds them within ten minutes. Previous versions stay in the shared `.versions/`, named by file. [In S3](#storing-files-in-s3) the layout is the same, in the bucket.
 
 **Upgrading** from a version without accounts of their own: at the first start, the database migration gives every file, version, share link and history entry to the first account (the one setup created), makes that account an admin, and the app moves everything at the top of the serving directory into its folder. Paths, versions and share links keep working. Other accounts start with nothing. Anything put at the top of the serving directory later is moved into the first account's folder at the next start, unless that folder already has something by the same name.
 
 **`javadropbox.storage.max-total-size` is gone.** It capped everything the server stored, every account's files together; give each account a quota in the app instead (see above). A server still configured with it refuses to start and says so, rather than running without the cap you set: remove the setting (or `JAVADROPBOX_STORAGE_MAX_TOTAL_SIZE`) once the accounts have quotas.
+
+## Storing files in S3
+
+Files are kept in the serving directory on the server's disk unless told otherwise. They can be kept in a bucket instead: in Amazon S3, or in any service with the same API, such as MinIO, Cloudflare R2, Backblaze B2, Wasabi or Garage. Everything works the same either way, versions, share links, search, quotas, previews and zipped folders included.
+
+```properties
+javadropbox.storage.type=s3
+javadropbox.storage.s3.bucket=my-javadropbox
+# For a service other than AWS:
+javadropbox.storage.s3.endpoint=https://minio.example.com
+javadropbox.storage.s3.path-style-access=true
+javadropbox.storage.s3.access-key=...
+javadropbox.storage.s3.secret-key=...
+```
+
+With Docker Compose, the same settings go in the app's `environment`:
+
+```yaml
+      JAVADROPBOX_STORAGE_TYPE: s3
+      JAVADROPBOX_STORAGE_S3_BUCKET: my-javadropbox
+      JAVADROPBOX_STORAGE_S3_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+```
+
+| Property | Default | Purpose |
+|----------|---------|---------|
+| `javadropbox.storage.s3.bucket` | none | The bucket; required, and it must exist |
+| `javadropbox.storage.s3.prefix` | none | Where in the bucket the files go, such as `javadropbox/`, to share a bucket with something else. Without one, a bucket holding anything that is not the app's is refused |
+| `javadropbox.storage.s3.endpoint` | AWS | The service's URL, for anything but AWS itself |
+| `javadropbox.storage.s3.region` | `AWS_REGION`, the AWS config, or the instance's; `us-east-1` with an endpoint | The region to sign requests for; R2 takes `auto` |
+| `javadropbox.storage.s3.path-style-access` | `false` | Address the bucket as `https://endpoint/bucket/` rather than `https://bucket.endpoint/`; MinIO and most self-hosted services need `true` |
+| `javadropbox.storage.s3.access-key` / `.secret-key` | where the AWS SDK looks | Credentials. Without them: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, `~/.aws/credentials`, or the role of the EC2 instance, ECS task or EKS pod |
+
+The credentials need `s3:ListBucket` on the bucket, and `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and `s3:AbortMultipartUpload` on its objects (below the prefix, with one). The bucket can, and should, stay private: browsers never talk to it, since every download and preview goes through the app, with the same headers as from the disk.
+
+At startup the app checks that it can reach the bucket, and stops with a message saying why if it cannot: no such bucket, credentials refused, or no answer. It also stops if the bucket, or the folder the prefix names, already holds objects that are not its own, since what is at the top would be moved into the first account's folder as it is on disk. A store the app has used, or a serving directory copied in, is recognised by its `.users/`, `.versions/` or welcome file. An admin sees it as the `storage` component of `/actuator/health` from then on, which is `DOWN` while the bucket cannot be reached.
+
+**In the bucket**, files are laid out as in the serving directory: `.users/<id>/` for each account, `.versions/<file id>/v<n>` for previous versions. Folders follow the convention S3's own console uses: a folder is there while anything is stored below it, and an empty one is an empty object whose name ends in `/`. Objects put there with another tool, such as `aws s3 cp`, show up for that account, and search finds them within ten minutes. An empty bucket is given the welcome file, which setup gives to the first account, as a new serving directory is.
+
+**The serving directory is still used**, for the app's own state: the search index, in `.javadropbox/search-index`. It holds nothing that cannot be rebuilt from the bucket, so it can be on a disk that does not last, but every start on an empty one reads every file to build the index again.
+
+**Moving an existing install to S3**: stop the app, copy the serving directory into the bucket, leaving out `.javadropbox`, and start it with the settings above. The database stays as it is.
+
+```bash
+aws s3 sync /path/to/serving-directory s3://my-javadropbox/ --exclude '.javadropbox/*'
+```
+
+Add `--endpoint-url https://...` for a service other than AWS, and the prefix to the bucket's URL if there is one. `sync` copies files, not folders, so empty folders are not carried over; everything else is, previous versions included.
+
+**Good to know:**
+
+- Uploads go on to S3 as they arrive, 64 MB at a time: each part waits in a temporary file until S3 has it, so a part that fails is sent again rather than the whole upload. That takes up to 64 MB of temporary space for each upload under way. Downloads ask S3 for only the range a client asked for, so resuming a download, or a preview reading the first part of a large text file, does not fetch the rest.
+- S3 cannot rename, so replacing a file copies it within S3 and deletes the original. If the server stops between the two, the startup clean-up removes what is left, as it does on disk. A lifecycle rule that aborts incomplete multipart uploads after a day clears up the parts of an upload cut short the same way.
+- With versioning turned on for the bucket, S3 keeps every object the app replaces or deletes, and they cost as much as any other; the app keeps its own versions anyway. Turn it off, or give noncurrent versions a lifecycle rule.
+- Each change takes a handful of requests to S3, and the file tree, the quota and search each read the account's folder with a listing of a thousand objects a request, which suits the sizes the app is meant for.
 
 ## Forgot your password?
 
@@ -65,7 +121,8 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | Property | Default | Purpose |
 |----------|---------|---------|
 | `spring.datasource.url` / `.username` / `.password` | none (the dev profile uses `compose.yaml`'s Postgres) | Database connection; required in production |
-| `javadropbox.serving.directory` | `./JDB` | Where files are stored, each account's in `.users/<id>/`; also `--directory=/path` or a bare path as the first argument |
+| `javadropbox.serving.directory` | `./JDB` | Where files are stored, each account's in `.users/<id>/`, and the app's own state such as the search index (only that, with the files in S3); also `--directory=/path` or a bare path as the first argument |
+| `javadropbox.storage.type` | `local` | `local` for the serving directory, or `s3` for a bucket (see [Storing files in S3](#storing-files-in-s3)) |
 | `javadropbox.versions.max-retained` | `10` | Previous versions kept per file (0 or more; a negative value stops startup) |
 | `javadropbox.share.max-expiration` | `7d` | Longest lifetime a share link can be given |
 | `javadropbox.search.max-file-size` | `50MB` | Files larger than this are found by name only, without their text being read; `0` searches names alone |
@@ -80,12 +137,12 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 
 ## Search
 
-The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files. It does not count toward any account's quota.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota.
 
-The files on disk are the source of truth, and the index only mirrors them:
+The files stored are the source of truth, and the index only mirrors them:
 
 - Changes made through the app are searchable a moment after they are saved: a background thread reads the new text, so uploads don't wait for it.
-- Files added, changed or removed outside the app, such as copied into the serving directory by hand, are picked up at startup and then every ten minutes, when each file's size and modification time are compared with the index.
+- Files added, changed or removed outside the app, such as copied into the serving directory by hand or into the bucket with another tool, are picked up at startup and then every ten minutes, when each file's size and modification time are compared with the index.
 - The first start after upgrading reads every file once to build the index, logging `Building the search index` and then how many items it indexed. Until that finishes, search results say some files may be missing.
 - To rebuild the index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
 
@@ -97,7 +154,7 @@ A PDF or Word document that cannot be read, such as a damaged or password-protec
 
 | Endpoint | Access | What it reports |
 |----------|--------|-----------------|
-| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable or the disk the files are stored on is nearly full. To an admin, it also shows each check (`db`, `diskSpace` for the serving directory, `ping`) |
+| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable, the disk the files are stored on is nearly full, or the bucket they are stored in cannot be reached. To an admin, it also shows each check (`db`, `diskSpace` for the serving directory, `storage` for the bucket, `ping`) |
 | `GET /actuator/metrics` | Admins | The names of all meters; `/actuator/metrics/<name>` gives one meter's values, filtered with `?tag=key:value` |
 
 Health is public because load balancers and the Docker `HEALTHCHECK` call it without a session, and an anonymous caller learns only `UP` or `DOWN`. The details and the metrics describe the whole server, so they are for admins: anyone else gets `UP` or `DOWN`, and a `403` for metrics.

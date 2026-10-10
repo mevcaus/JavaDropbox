@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 /**
- * An account. Each one has files of its own, in its own folder of the serving directory (see
+ * An account. Each one has files of its own, in its own folder of the store (see
  * StoragePaths#home), which nobody else can see.
  */
 @Entity

@@ -35,6 +35,10 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/javadropbox
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      # To keep the files in a bucket rather than the javadropbox-data volume (see
+      # docs/self-hosting.md#storing-files-in-s3):
+      # JAVADROPBOX_STORAGE_TYPE: s3
+      # JAVADROPBOX_STORAGE_S3_BUCKET: my-javadropbox
     ports:
       - "8080:8080"
     volumes:

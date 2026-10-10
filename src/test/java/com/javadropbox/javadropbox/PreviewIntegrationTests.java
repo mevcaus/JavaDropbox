@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -54,6 +55,7 @@ class PreviewIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private StoragePaths storagePaths;
+  @Autowired private LocalFileStore localStore;
 
   @AfterEach
   void tearDown() {
@@ -62,7 +64,9 @@ class PreviewIntegrationTests {
 
   @BeforeEach
   void setUp() throws IOException {
-    Path home = storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).root();
+    Path home =
+        localStore.path(
+            storagePaths.home(users.save(new User("owner", "unused", "ROLE_ADMIN"))).key());
     Files.createDirectories(home.resolve("docs"));
     Files.write(home.resolve("docs/photo.PNG"), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
     Files.writeString(home.resolve("docs/report.pdf"), "%PDF-1.7");
