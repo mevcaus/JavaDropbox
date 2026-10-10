@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -70,13 +69,12 @@ class RetiredShareKeyTests {
     return servingDir.resolve(".javadropbox/share-jwt.key");
   }
 
-  // The whole application, as it starts in production, on its own in-memory database so it does
-  // not disturb the contexts other tests share.
+  // The whole application, as it starts in production, on a database of its own (see
+  // TestDatabaseEnvironment) so it does not disturb the contexts other tests share.
   private ConfigurableApplicationContext start(String... extraArgs) {
     List<String> args = new ArrayList<>();
     args.add("--server.port=0");
     args.add("--javadropbox.serving.directory=" + servingDir);
-    args.add("--spring.datasource.url=jdbc:h2:mem:" + UUID.randomUUID());
     args.addAll(List.of(extraArgs));
     return new SpringApplicationBuilder(JavadropboxApplication.class)
         .run(args.toArray(String[]::new));

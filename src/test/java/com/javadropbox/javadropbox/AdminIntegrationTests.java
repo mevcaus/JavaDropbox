@@ -23,6 +23,7 @@ import com.javadropbox.javadropbox.service.AccountService;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import org.hamcrest.Matchers;
@@ -216,7 +217,7 @@ class AdminIntegrationTests {
         .andExpect(status().isOk());
 
     String expired = invite("gina", "USER", "");
-    jdbc.update("UPDATE account_links SET expires_at = ?", Instant.now().minusSeconds(1));
+    expireLinks();
 
     for (String token : new String[] {withdrawn, expired}) {
       mockMvc
@@ -612,7 +613,7 @@ class AdminIntegrationTests {
   @DisplayName("an expired reset link no longer works, and the password stays as it was")
   void expiredResetLinksDoNotWork() throws Exception {
     String token = passwordReset(bob);
-    jdbc.update("UPDATE account_links SET expires_at = ?", Instant.now().minusSeconds(1));
+    expireLinks();
 
     mockMvc
         .perform(get("/api/reset-password/" + token).with(anonymous()))
@@ -658,6 +659,13 @@ class AdminIntegrationTests {
             .param("password", password)
             .with(anonymous())
             .with(csrf()));
+  }
+
+  // Every link made so far, as if its time had run out. A Timestamp rather than an Instant, which
+  // the PostgreSQL driver cannot bind.
+  private void expireLinks() {
+    jdbc.update(
+        "UPDATE account_links SET expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
   }
 
   private static String tokenOf(JsonNode link) {

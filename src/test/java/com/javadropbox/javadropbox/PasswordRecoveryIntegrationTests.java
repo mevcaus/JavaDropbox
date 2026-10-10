@@ -26,30 +26,21 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * The "Forgot your password?" procedure in docs/self-hosting.md. On PostgreSQL because it has to
- * work with the real foreign keys: deleting the account instead, as the README once said, fails as
- * soon as the account has uploaded anything.
+ * The "Forgot your password?" procedure in docs/self-hosting.md. It has to work with the real
+ * foreign keys: deleting the account instead, as the README once said, fails as soon as the account
+ * has uploaded anything.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Testcontainers
 @DisplayName("Password recovery (documented procedure, on PostgreSQL)")
 class PasswordRecoveryIntegrationTests {
-
-  @Container
-  static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
 
   @TempDir static Path servingDir;
 
   @DynamicPropertySource
-  static void overrideDatasource(DynamicPropertyRegistry registry) {
-    PostgresTestSupport.register(registry, POSTGRES);
+  static void properties(DynamicPropertyRegistry registry) {
     registry.add("javadropbox.serving.directory", () -> servingDir.toString());
   }
 
