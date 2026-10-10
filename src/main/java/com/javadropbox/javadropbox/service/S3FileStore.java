@@ -4,6 +4,7 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileVisitResult;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.AbstractResource;
@@ -50,9 +52,9 @@ import software.amazon.awssdk.services.s3.model.S3Object;
  * <p>S3 has objects rather than files and folders, so this follows the convention S3's own console
  * and tools share: a folder is there while anything is stored below its key and a slash, and an
  * empty one is an empty object named with the slash, a folder marker. Folders the app creates get
- * one, and so does the folder that held something deleted, so that it stays as it would on a disk.
- * Where an object and a folder share a name, which only another tool could make, the object is the
- * item and the folder is not there.
+ * one, and so does the folder that held something a user deletes, so that it stays as it would on a
+ * disk. Where an object and a folder share a name, which only another tool could make, the object
+ * is the item and the folder is not there.
  *
  * <p>Nothing is renamed in S3: a move is a copy within S3 followed by a delete. Readers still see
  * the old content or the new, never part of either, but an interruption between the two leaves
@@ -60,21 +62,29 @@ import software.amazon.awssdk.services.s3.model.S3Object;
  * cleans up. Every object S3 writes is new, so a moved file is never older than its move, which is
  * all {@link #touch} is for.
  *
- * <p>Content is sent on to S3 as it arrives and read from it as it is sent, so neither ever has to
- * fit in memory: large uploads go up in parts, and downloads ask S3 for only the range a client
- * asked for.
+ * <p>Neither uploads nor downloads ever have to fit in memory: an upload goes up a part at a time,
+ * each kept in a temporary file until S3 has it, and downloads are read from S3 as they are sent,
+ * asking it for only the range a client asked for.
  */
 public class S3FileStore implements FileStore, AutoCloseable {
 
   /** The longest key S3 accepts, in bytes of UTF-8. */
   static final int MAX_KEY_BYTES = 1024;
 
-  // Above this an upload goes up in parts, and a copy is made in parts. S3 takes 5 GiB in one go,
-  // but a part that fails can be sent again on its own.
+  // An upload goes up in parts of this size, each kept in a temporary file until S3 has it, so the
+  // AWS SDK can send a part that fails again rather than fail the whole upload. Copies larger than
+  // S3 makes in one request are made in parts of this size too.
   static final long DEFAULT_PART_SIZE = 64L * 1024 * 1024;
   private static final long MAX_SINGLE_COPY = 5L * 1024 * 1024 * 1024;
   private static final int MAX_PARTS = 10_000;
   private static final int MAX_DELETES_PER_REQUEST = 1000;
+  // The most keys S3 lists in one request.
+  private static final int DEFAULT_PAGE_SIZE = 1000;
+
+  // After any name in S3's order of keys, the bytes of their UTF-8, so a folder's prefix followed
+  // by it is past what the folder holds; a name starting with it is the only exception.
+  private static final String AFTER_ANY_NAME =
+      new String(Character.toChars(Character.MAX_CODE_POINT));
 
   private static final Logger log = LoggerFactory.getLogger(S3FileStore.class);
 
@@ -82,37 +92,67 @@ public class S3FileStore implements FileStore, AutoCloseable {
   private final String bucket;
   private final String prefix;
   private final long partSize;
+  private final int pageSize;
+
+  // Folders this store has made or found, so that making one again, as each request does for the
+  // account's own folder, asks S3 nothing. Forgotten when deleted or moved through this store; one
+  // another tool empties is still taken to be there until the app restarts.
+  private final Set<String> knownFolders = ConcurrentHashMap.newKeySet();
 
   /**
-   * Checks that the bucket can be reached, and puts the welcome file in a store that is empty.
+   * Checks that the bucket can be reached and is JavaDropbox's to use, and puts the welcome file in
+   * a store that is empty.
    *
    * @param prefix where the store's keys start in the bucket; empty for the whole bucket
-   * @throws IllegalStateException if the bucket cannot be reached, saying why
+   * @throws IllegalStateException if the bucket cannot be reached, or already holds objects that
+   *     are not JavaDropbox's, saying why
    */
   public S3FileStore(S3Client client, String bucket, String prefix) {
-    this(client, bucket, prefix, DEFAULT_PART_SIZE);
+    this(client, bucket, prefix, DEFAULT_PART_SIZE, DEFAULT_PAGE_SIZE);
   }
 
-  // For tests, with parts small enough to send a few of.
-  S3FileStore(S3Client client, String bucket, String prefix, long partSize) {
+  // For tests, with parts small enough to send a few of, and pages to list a few of.
+  S3FileStore(S3Client client, String bucket, String prefix, long partSize, int pageSize) {
     this.client = client;
     this.bucket = bucket;
     this.prefix = normalizePrefix(prefix);
     this.partSize = partSize;
+    this.pageSize = pageSize;
     check();
     try {
-      if (client
-          .listObjectsV2(request -> request.bucket(bucket).prefix(this.prefix).maxKeys(1))
-          .contents()
-          .isEmpty()) {
+      if (!hasAnyBelow(this.prefix)) {
         client.putObject(
             request -> request.bucket(bucket).key(objectKey(StoragePaths.WELCOME_FILE)),
             RequestBody.fromString(StoragePaths.WELCOME_TEXT, StandardCharsets.UTF_8));
         log.info("Created {} in {}", StoragePaths.WELCOME_FILE, description());
+      } else if (!isJavaDropboxs()) {
+        // What is at the top of the store is given to the first account (see LooseFileAdoption):
+        // moved into its folder, and out of the way of whatever else uses the bucket.
+        throw new IllegalStateException(
+            "Not using "
+                + description()
+                + ": it holds objects that are not JavaDropbox's, which the first account would be"
+                + " given. Give JavaDropbox a bucket of its own, or a folder of its own in this one"
+                + " with javadropbox.storage.s3.prefix");
       }
     } catch (SdkException e) {
       throw new IllegalStateException("Could not use " + description() + ": " + reason(e), e);
     }
+  }
+
+  // Accounts' folders or versions, as any store the app has used has, or the welcome file it puts
+  // in a new one, as a serving directory copied in from before setup has.
+  private boolean isJavaDropboxs() {
+    return hasAnyBelow(folderPrefix(StoragePaths.HOMES_DIR))
+        || hasAnyBelow(folderPrefix(StoragePaths.VERSIONS_DIR))
+        || hasAnyBelow(objectKey(StoragePaths.WELCOME_FILE));
+  }
+
+  private boolean hasAnyBelow(String objectKeyPrefix) {
+    return !client
+        .listObjectsV2(request -> request.bucket(bucket).prefix(objectKeyPrefix).maxKeys(1))
+        .contents()
+        .isEmpty();
   }
 
   // "files", "/files/" and "files/" are all the folder "files/".
@@ -209,7 +249,9 @@ public class S3FileStore implements FileStore, AutoCloseable {
   /**
    * One listing of everything below the folder, a thousand objects a request. S3 lists keys in
    * order, so everything below a folder comes together, right after the folder's marker if it has
-   * one; a folder known only from what is in it is visited when the first of that comes up.
+   * one; a folder known only from what is in it is visited when the first of that comes up. A
+   * folder left out that runs on past the end of a request is skipped by starting the next request
+   * after it, rather than by listing what it holds.
    */
   @Override
   public void walk(String key, Visitor visitor) throws IOException {
@@ -222,67 +264,117 @@ public class S3FileStore implements FileStore, AutoCloseable {
       return;
     }
     String below = folderPrefix(key);
-    // The folders being visited, innermost last, and one whose contents are left out.
-    Deque<String> open = new ArrayDeque<>();
-    String skipped = null;
+    Walk walk = new Walk(key, visitor);
     try {
-      for (S3Object object : listAll(below)) {
-        String objectKey = object.key();
-        boolean isMarker = objectKey.endsWith("/");
-        String itemKey =
-            keyOf(isMarker ? objectKey.substring(0, objectKey.length() - 1) : objectKey);
-        if (objectKey.equals(below) || !isItemKey(itemKey, key)) {
-          continue;
-        }
-        if (skipped != null && (itemKey.equals(skipped) || itemKey.startsWith(skipped + "/"))) {
-          continue;
-        }
-        skipped = null;
-        while (!open.isEmpty() && !itemKey.startsWith(open.peekLast() + "/")) {
-          open.removeLast();
-        }
-        // The folders on the way to it that nothing has visited yet: ones with no marker.
-        String folder = open.isEmpty() ? key : open.peekLast();
-        String rest = itemKey.substring(folder.isEmpty() ? 0 : folder.length() + 1);
-        for (int slash = rest.indexOf('/');
-            slash >= 0 && skipped == null;
-            slash = rest.indexOf('/')) {
-          folder = child(folder, rest.substring(0, slash));
-          rest = rest.substring(slash + 1);
-          FileVisitResult result = visitor.visit(folder(folder, null));
-          if (result == FileVisitResult.TERMINATE) {
+      String token = null;
+      String after = null;
+      ListObjectsV2Response page;
+      do {
+        page = listPage(below, token, after);
+        for (S3Object object : page.contents()) {
+          if (!object.key().equals(below) && !walk.visit(object)) {
             return;
           }
-          if (result == FileVisitResult.SKIP_SUBTREE) {
-            skipped = folder;
-          } else {
-            open.addLast(folder);
-          }
         }
-        if (skipped != null) {
-          continue;
-        }
-        if (isMarker) {
-          FileVisitResult result = visitor.visit(folder(itemKey, object.lastModified()));
-          if (result == FileVisitResult.TERMINATE) {
-            return;
-          }
-          if (result == FileVisitResult.SKIP_SUBTREE) {
-            skipped = itemKey;
-          } else {
-            open.addLast(itemKey);
-          }
-        } else {
-          if (visitor.visit(file(itemKey, object.size(), object.lastModified()))
-              == FileVisitResult.TERMINATE) {
-            return;
-          }
-          // A folder by the same name, which comes right after, is hidden by the file.
-          skipped = itemKey;
-        }
-      }
+        String skipped = walk.skipped();
+        token = skipped == null ? page.nextContinuationToken() : null;
+        after = skipped == null ? null : folderPrefix(skipped) + AFTER_ANY_NAME;
+      } while (page.isTruncated());
     } catch (SdkException e) {
       throw failure("list", key, e);
+    }
+  }
+
+  private ListObjectsV2Response listPage(String below, String token, String after) {
+    return client.listObjectsV2(
+        request ->
+            request
+                .bucket(bucket)
+                .prefix(below)
+                .maxKeys(pageSize)
+                .continuationToken(token)
+                .startAfter(after));
+  }
+
+  /** Where a walk has got to: the folders it is in, and what it leaves out. */
+  private final class Walk {
+
+    private final String key;
+    private final Visitor visitor;
+    // The folders being visited below the one walked, innermost last.
+    private final Deque<String> open = new ArrayDeque<>();
+    // The files met so far in the folder walked and in each open folder, each of which hides a
+    // folder of its name. S3 lists "a" first, then names such as "a.txt", and only then "a/".
+    private final Deque<Set<String>> files = new ArrayDeque<>();
+    // A folder whose contents are left out, which S3 lists right after it.
+    private String skipped;
+
+    Walk(String key, Visitor visitor) {
+      this.key = key;
+      this.visitor = visitor;
+      files.addLast(new HashSet<>());
+    }
+
+    String skipped() {
+      return skipped;
+    }
+
+    /**
+     * Visits the item an object is, and the folders on the way to it that nothing has visited yet:
+     * ones with no marker.
+     *
+     * @return whether to go on
+     */
+    boolean visit(S3Object object) throws IOException {
+      String objectKey = object.key();
+      boolean isMarker = objectKey.endsWith("/");
+      String itemKey = keyOf(isMarker ? objectKey.substring(0, objectKey.length() - 1) : objectKey);
+      if (!isItemKey(itemKey, key)) {
+        return true;
+      }
+      if (skipped != null && (itemKey.equals(skipped) || itemKey.startsWith(skipped + "/"))) {
+        return true;
+      }
+      skipped = null;
+      while (!open.isEmpty() && !itemKey.startsWith(open.getLast() + "/")) {
+        open.removeLast();
+        files.removeLast();
+      }
+      String folder = open.isEmpty() ? key : open.getLast();
+      String rest = itemKey.substring(folder.isEmpty() ? 0 : folder.length() + 1);
+      for (int slash = rest.indexOf('/'); slash >= 0; slash = rest.indexOf('/')) {
+        folder = child(folder, rest.substring(0, slash));
+        rest = rest.substring(slash + 1);
+        FileVisitResult result = enter(folder(folder, null));
+        if (result == FileVisitResult.TERMINATE) {
+          return false;
+        }
+        if (result == FileVisitResult.SKIP_SUBTREE) {
+          return true;
+        }
+      }
+      if (isMarker) {
+        return enter(folder(itemKey, object.lastModified())) != FileVisitResult.TERMINATE;
+      }
+      files.getLast().add(itemKey);
+      return visitor.visit(file(itemKey, object.size(), object.lastModified()))
+          != FileVisitResult.TERMINATE;
+    }
+
+    // Visits a folder in the innermost open one, unless a file of its name hides it, and goes into
+    // it unless told not to.
+    private FileVisitResult enter(Entry folder) throws IOException {
+      FileVisitResult result =
+          files.getLast().contains(folder.key())
+              ? FileVisitResult.SKIP_SUBTREE
+              : visitor.visit(folder);
+      if (result == FileVisitResult.SKIP_SUBTREE) {
+        skipped = folder.key();
+      } else if (result != FileVisitResult.TERMINATE) {
+        open.addLast(folder.key());
+        files.addLast(new HashSet<>());
+      }
+      return result;
     }
   }
 
@@ -295,7 +387,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
     try {
       for (ListObjectsV2Response page :
           client.listObjectsV2Paginator(
-              request -> request.bucket(bucket).prefix(below).delimiter("/"))) {
+              request -> request.bucket(bucket).prefix(below).delimiter("/").maxKeys(pageSize))) {
         for (S3Object object : page.contents()) {
           found = true;
           String itemKey = keyOf(object.key());
@@ -358,52 +450,59 @@ public class S3FileStore implements FileStore, AutoCloseable {
     return child(parentOf(key), ".upload-" + UUID.randomUUID() + ".tmp");
   }
 
+  /**
+   * Sends the content on a part at a time, each kept in a temporary file until S3 has it: a request
+   * that fails is sent again from the file, where the content as it arrives could not be read a
+   * second time. Content that fits in one part goes up in one request.
+   */
   @Override
   public long write(String key, InputStream content, long length) throws IOException {
-    if (length < 0) {
-      // S3 has to be told the size of what it is sent, so find out first.
-      Path spooled = Files.createTempFile("javadropbox-", ".tmp");
-      try {
-        long size = Files.copy(content, spooled, StandardCopyOption.REPLACE_EXISTING);
-        try (InputStream in = Files.newInputStream(spooled)) {
-          return write(key, in, size);
-        }
-      } finally {
-        Files.deleteIfExists(spooled);
-      }
-    }
     String objectKey = objectKey(key);
+    long size = partSizeFor(length);
+    Path part = Files.createTempFile("javadropbox-", ".part");
     try {
-      if (length <= partSize) {
+      long first = fill(part, content, size);
+      if (first < size || first == length) {
         client.putObject(
-            request -> request.bucket(bucket).key(objectKey),
-            RequestBody.fromInputStream(new Unclosed(content, length), length));
-      } else {
-        writeInParts(objectKey, content, length);
+            request -> request.bucket(bucket).key(objectKey), RequestBody.fromFile(part));
+        return first;
       }
+      return writeInParts(objectKey, content, part, first, size);
     } catch (SdkException e) {
       throw failure("write", key, e);
+    } finally {
+      Files.deleteIfExists(part);
     }
-    return length;
   }
 
-  private void writeInParts(String objectKey, InputStream content, long length) {
-    long size = Math.max(partSize, (length + MAX_PARTS - 1) / MAX_PARTS);
+  // S3 takes at most 10,000 parts, so a file too large for that many goes up in larger ones. One
+  // of a length not known up front can be as large as 10,000 parts of the usual size.
+  private long partSizeFor(long length) {
+    return Math.max(partSize, Math.ceilDiv(length, MAX_PARTS));
+  }
+
+  // The content goes on from where the first part, already in the file, ended.
+  private long writeInParts(String objectKey, InputStream content, Path part, long first, long size)
+      throws IOException {
     String upload =
         client.createMultipartUpload(request -> request.bucket(bucket).key(objectKey)).uploadId();
     try {
       List<CompletedPart> parts = new ArrayList<>();
-      for (long offset = 0; offset < length; offset += size) {
+      long written = 0;
+      for (long length = first; length > 0; length = fill(part, content, size)) {
+        if (parts.size() == MAX_PARTS) {
+          throw new IOException("Too large for S3, which takes at most " + MAX_PARTS + " parts");
+        }
         int number = parts.size() + 1;
-        long partLength = Math.min(size, length - offset);
         String etag =
             client
                 .uploadPart(
                     request ->
                         request.bucket(bucket).key(objectKey).uploadId(upload).partNumber(number),
-                    RequestBody.fromInputStream(new Unclosed(content, partLength), partLength))
+                    RequestBody.fromFile(part))
                 .eTag();
         parts.add(CompletedPart.builder().partNumber(number).eTag(etag).build());
+        written += length;
       }
       client.completeMultipartUpload(
           request ->
@@ -412,10 +511,28 @@ public class S3FileStore implements FileStore, AutoCloseable {
                   .key(objectKey)
                   .uploadId(upload)
                   .multipartUpload(completed -> completed.parts(parts)));
-    } catch (RuntimeException e) {
+      return written;
+    } catch (IOException | RuntimeException e) {
       abort(objectKey, upload);
       throw e;
     }
+  }
+
+  // Puts the next bytes of the content in the file, up to max of them, in place of what it held.
+  private static long fill(Path file, InputStream content, long max) throws IOException {
+    byte[] buffer = new byte[64 * 1024];
+    long filled = 0;
+    try (OutputStream out = Files.newOutputStream(file)) {
+      while (filled < max) {
+        int read = content.read(buffer, 0, (int) Math.min(buffer.length, max - filled));
+        if (read < 0) {
+          break;
+        }
+        out.write(buffer, 0, read);
+        filled += read;
+      }
+    }
+    return filled;
   }
 
   private void abort(String objectKey, String upload) {
@@ -459,7 +576,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
   }
 
   private void copyInParts(String from, String to, long length) {
-    long size = Math.max(partSize, (length + MAX_PARTS - 1) / MAX_PARTS);
+    long size = partSizeFor(length);
     String upload =
         client.createMultipartUpload(request -> request.bucket(bucket).key(to)).uploadId();
     try {
@@ -496,6 +613,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
     }
   }
 
+  // The folders above the destination are there as soon as anything is in them.
   @Override
   public void move(String from, String to) throws IOException {
     if (exists(to)) {
@@ -508,6 +626,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
         deleteObjects(List.of(objectKey(from)));
         return;
       }
+      forget(from);
       String fromPrefix = folderPrefix(from);
       String toPrefix = folderPrefix(to);
       List<String> moved = new ArrayList<>();
@@ -537,7 +656,8 @@ public class S3FileStore implements FileStore, AutoCloseable {
 
   @Override
   public boolean createFile(String key) throws IOException {
-    if (firstBelow(key).isPresent()) {
+    // Asked first as well, for a service that ignores the condition on the request below.
+    if (exists(key)) {
       return false;
     }
     try {
@@ -575,13 +695,19 @@ public class S3FileStore implements FileStore, AutoCloseable {
   public void createFolders(String key) throws IOException {
     Deque<String> missing = new ArrayDeque<>();
     for (String folder = key;
-        !folder.isEmpty() && firstBelow(folder).isEmpty();
+        !folder.isEmpty() && !knownFolders.contains(folder) && firstBelow(folder).isEmpty();
         folder = parentOf(folder)) {
       missing.push(folder);
     }
     for (String folder : missing) {
       putMarker(folder);
     }
+    knownFolders.add(key);
+  }
+
+  // A folder deleted or moved away, and everything in it, has to be made again.
+  private void forget(String folder) {
+    knownFolders.removeIf(known -> known.equals(folder) || known.startsWith(folder + "/"));
   }
 
   private void putMarker(String folder) throws IOException {
@@ -597,6 +723,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
   // something is in stays as long as that does.
   @Override
   public void delete(String key) throws IOException {
+    knownFolders.remove(key);
     try {
       deleteObjects(List.of(objectKey(key), folderPrefix(key)));
     } catch (SdkException e) {
@@ -612,6 +739,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
     }
     try {
       if (item.get().isDirectory()) {
+        forget(key);
         List<String> below = new ArrayList<>();
         for (S3Object object : listAll(folderPrefix(key))) {
           below.add(object.key());
@@ -656,7 +784,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
 
   private Iterable<S3Object> listAll(String below) {
     ListObjectsV2Request request =
-        ListObjectsV2Request.builder().bucket(bucket).prefix(below).build();
+        ListObjectsV2Request.builder().bucket(bucket).prefix(below).maxKeys(pageSize).build();
     return client.listObjectsV2Paginator(request).contents();
   }
 
@@ -772,61 +900,6 @@ public class S3FileStore implements FileStore, AutoCloseable {
       }
       super.close();
     }
-  }
-
-  /** {@code length} bytes of a stream that stays open after them, for the next part. */
-  private static final class Unclosed extends FilterInputStream {
-
-    private long remaining;
-
-    Unclosed(InputStream in, long length) {
-      super(in);
-      this.remaining = length;
-    }
-
-    @Override
-    public int read() throws IOException {
-      if (remaining <= 0) {
-        return -1;
-      }
-      int b = super.read();
-      if (b >= 0) {
-        remaining--;
-      }
-      return b;
-    }
-
-    @Override
-    public int read(byte[] buffer, int offset, int length) throws IOException {
-      if (remaining <= 0) {
-        return -1;
-      }
-      int read = super.read(buffer, offset, (int) Math.min(length, remaining));
-      if (read > 0) {
-        remaining -= read;
-      }
-      return read;
-    }
-
-    @Override
-    public long skip(long n) throws IOException {
-      long skipped = super.skip(Math.min(n, remaining));
-      remaining -= skipped;
-      return skipped;
-    }
-
-    @Override
-    public int available() throws IOException {
-      return (int) Math.min(super.available(), remaining);
-    }
-
-    @Override
-    public boolean markSupported() {
-      return false;
-    }
-
-    @Override
-    public void close() {}
   }
 
   /**

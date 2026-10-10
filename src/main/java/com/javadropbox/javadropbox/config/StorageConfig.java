@@ -43,8 +43,9 @@ public class StorageConfig {
   private static final Logger log = LoggerFactory.getLogger(StorageConfig.class);
 
   // Checked here, rather than leaving the app to fail for want of a store, so the error says why.
+  // Matched as the beans below match it: in any letter case, but without spaces around it.
   public StorageConfig(@Value("${" + TYPE + ":local}") String type) {
-    if (!TYPES.contains(type.trim().toLowerCase(Locale.ROOT))) {
+    if (!TYPES.contains(type.toLowerCase(Locale.ROOT))) {
       throw new IllegalStateException(TYPE + " must be local or s3, not \"" + type + "\"");
     }
   }

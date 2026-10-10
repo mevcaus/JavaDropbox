@@ -21,10 +21,11 @@ import org.springframework.core.io.Resource;
  * StoragePaths} or are built from ones that did, so none is absolute or climbs out with {@code ..}.
  *
  * <p>A store behaves like a filesystem whatever it is built on: an item is a file or a folder, a
- * folder can be empty, and deleting what a folder holds leaves the folder. Anything a store cannot
- * show as one of those, such as a symlink on disk, is not there as far as the app is concerned.
- * Missing items are reported as {@link NoSuchFileException} and taken names as {@link
- * FileAlreadyExistsException}, whichever store it is.
+ * folder can be empty, and deleting what a folder holds, as a user does through {@link
+ * #deleteRecursively}, leaves the folder. Anything a store cannot show as one of those, such as a
+ * symlink on disk, is not there as far as the app is concerned. Missing items are reported as
+ * {@link NoSuchFileException} and taken names as {@link FileAlreadyExistsException}, whichever
+ * store it is.
  */
 public interface FileStore {
 
@@ -124,8 +125,9 @@ public interface FileStore {
   void copy(String from, String to) throws IOException;
 
   /**
-   * Moves the file or folder at {@code from} to {@code to}, which must not exist yet. On the local
-   * disk this is a rename, which keeps the modification time; in S3 it is a copy, which is new.
+   * Moves the file or folder at {@code from} to {@code to}, which must not exist yet, into folders
+   * that are made if they are missing. On the local disk this is a rename, which keeps the
+   * modification time; in S3 it is a copy, which is new.
    *
    * @throws FileAlreadyExistsException if something is at {@code to}
    */
@@ -162,6 +164,10 @@ public interface FileStore {
   /**
    * Deletes the file or the empty folder at {@code key}, if there is one. A folder that something
    * is in is refused or left as it is, never emptied.
+   *
+   * <p>For what the app itself put there, such as scratch files and versions: in S3, a folder that
+   * was only there because of the file goes with it. A user's deletes go through {@link
+   * #deleteRecursively}, which keeps the folder.
    */
   void delete(String key) throws IOException;
 

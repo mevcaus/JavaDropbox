@@ -187,13 +187,14 @@ public class FileService {
             // Locked before looking at the store, so that concurrent uploads of one file take
             // turns and each archives what the one before it left.
             Optional<FileMetadata> row = files.lockByPath(user.getId(), target.key());
-            boolean replacing = store.exists(target.storeKey());
+            Optional<Entry> current = store.stat(target.storeKey());
+            boolean replacing = current.isPresent();
             FileMetadata file =
                 replacing
                     ? row.orElseGet(() -> track(target, size, user))
                     : claim(target, row, false, size, user);
             if (replacing) {
-              versions.archive(file, target.storeKey(), user);
+              versions.archive(file, current.get(), user);
             }
             moveIntoPlace(scratch, target.storeKey(), replacing);
 
@@ -332,9 +333,10 @@ public class FileService {
     try {
       store.copy(source, scratch);
       quota.check(user);
-      boolean replacing = store.exists(live.storeKey());
+      Optional<Entry> current = store.stat(live.storeKey());
+      boolean replacing = current.isPresent();
       if (replacing) {
-        versions.archive(file, live.storeKey(), user);
+        versions.archive(file, current.get(), user);
       }
       moveIntoPlace(scratch, live.storeKey(), replacing);
     } finally {

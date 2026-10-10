@@ -264,7 +264,9 @@ public class LocalFileStore implements FileStore {
   // Never REPLACE_EXISTING: what is in the way is someone else's, and failing beats overwriting it.
   @Override
   public void move(String from, String to) throws IOException {
-    Files.move(recheck(path(from)), recheck(path(to)));
+    Path target = recheck(path(to));
+    Files.createDirectories(target.getParent());
+    Files.move(recheck(path(from)), target);
   }
 
   @Override

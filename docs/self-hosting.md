@@ -69,7 +69,7 @@ With Docker Compose, the same settings go in the app's `environment`:
 | Property | Default | Purpose |
 |----------|---------|---------|
 | `javadropbox.storage.s3.bucket` | none | The bucket; required, and it must exist |
-| `javadropbox.storage.s3.prefix` | none | Where in the bucket the files go, such as `javadropbox/`, to share a bucket with something else |
+| `javadropbox.storage.s3.prefix` | none | Where in the bucket the files go, such as `javadropbox/`, to share a bucket with something else. Without one, a bucket holding anything that is not the app's is refused |
 | `javadropbox.storage.s3.endpoint` | AWS | The service's URL, for anything but AWS itself |
 | `javadropbox.storage.s3.region` | `AWS_REGION`, the AWS config, or the instance's; `us-east-1` with an endpoint | The region to sign requests for; R2 takes `auto` |
 | `javadropbox.storage.s3.path-style-access` | `false` | Address the bucket as `https://endpoint/bucket/` rather than `https://bucket.endpoint/`; MinIO and most self-hosted services need `true` |
@@ -77,7 +77,7 @@ With Docker Compose, the same settings go in the app's `environment`:
 
 The credentials need `s3:ListBucket` on the bucket, and `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and `s3:AbortMultipartUpload` on its objects (below the prefix, with one). The bucket can, and should, stay private: browsers never talk to it, since every download and preview goes through the app, with the same headers as from the disk.
 
-At startup the app checks that it can reach the bucket, and stops with a message saying why if it cannot: no such bucket, credentials refused, or no answer. An admin sees it as the `storage` component of `/actuator/health` from then on, which is `DOWN` while the bucket cannot be reached.
+At startup the app checks that it can reach the bucket, and stops with a message saying why if it cannot: no such bucket, credentials refused, or no answer. It also stops if the bucket, or the folder the prefix names, already holds objects that are not its own, since what is at the top would be moved into the first account's folder as it is on disk. A store the app has used, or a serving directory copied in, is recognised by its `.users/`, `.versions/` or welcome file. An admin sees it as the `storage` component of `/actuator/health` from then on, which is `DOWN` while the bucket cannot be reached.
 
 **In the bucket**, files are laid out as in the serving directory: `.users/<id>/` for each account, `.versions/<file id>/v<n>` for previous versions. Folders follow the convention S3's own console uses: a folder is there while anything is stored below it, and an empty one is an empty object whose name ends in `/`. Objects put there with another tool, such as `aws s3 cp`, show up for that account, and search finds them within ten minutes. An empty bucket is given the welcome file, which setup gives to the first account, as a new serving directory is.
 
@@ -93,7 +93,7 @@ Add `--endpoint-url https://...` for a service other than AWS, and the prefix to
 
 **Good to know:**
 
-- Uploads go on to S3 as they arrive, and files over 64 MB go up in parts. Downloads ask S3 for only the range a client asked for, so resuming a download, or a preview reading the first part of a large text file, does not fetch the rest.
+- Uploads go on to S3 as they arrive, 64 MB at a time: each part waits in a temporary file until S3 has it, so a part that fails is sent again rather than the whole upload. That takes up to 64 MB of temporary space for each upload under way. Downloads ask S3 for only the range a client asked for, so resuming a download, or a preview reading the first part of a large text file, does not fetch the rest.
 - S3 cannot rename, so replacing a file copies it within S3 and deletes the original. If the server stops between the two, the startup clean-up removes what is left, as it does on disk. A lifecycle rule that aborts incomplete multipart uploads after a day clears up the parts of an upload cut short the same way.
 - With versioning turned on for the bucket, S3 keeps every object the app replaces or deletes, and they cost as much as any other; the app keeps its own versions anyway. Turn it off, or give noncurrent versions a lifecycle rule.
 - Each change takes a handful of requests to S3, and the file tree, the quota and search each read the account's folder with a listing of a thousand objects a request, which suits the sizes the app is meant for.

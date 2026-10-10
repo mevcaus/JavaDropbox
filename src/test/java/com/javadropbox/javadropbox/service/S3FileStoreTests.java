@@ -10,7 +10,10 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -32,6 +35,8 @@ class S3FileStoreTests extends FileStoreContractTests {
 
   // Parts as small as S3 takes them, so a multipart upload needs only a few megabytes.
   private static final long PART_SIZE = 5L * 1024 * 1024;
+  // Listings of a few keys a request, so that every test lists across the ends of requests.
+  private static final int PAGE_SIZE = 3;
 
   @Container static final GenericContainer<?> S3 = S3TestSupport.container();
 
@@ -56,7 +61,7 @@ class S3FileStoreTests extends FileStoreContractTests {
   @BeforeEach
   void setUp() {
     prefix = "test-" + UUID.randomUUID() + "/";
-    store = new S3FileStore(client, bucket, prefix, PART_SIZE);
+    store = new S3FileStore(client, bucket, prefix, PART_SIZE, PAGE_SIZE);
     // A new store is given a welcome file, which the tests of what a store does do not expect.
     client.deleteObject(request -> request.bucket(bucket).key(prefix + StoragePaths.WELCOME_FILE));
   }
@@ -69,13 +74,38 @@ class S3FileStoreTests extends FileStoreContractTests {
   @Test
   @DisplayName("an empty store gets a welcome file, one with anything in it does not")
   void emptyStoreGetsAWelcomeFile() throws IOException {
-    put("used/something.txt", "already here");
+    put("used/.users/1/something.txt", "already here");
 
     new S3FileStore(client, bucket, prefix + "fresh");
     new S3FileStore(client, bucket, prefix + "used");
 
     assertThat(read("fresh/" + StoragePaths.WELCOME_FILE)).isEqualTo(StoragePaths.WELCOME_TEXT);
     assertThat(exists("used/" + StoragePaths.WELCOME_FILE)).isFalse();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {".users/1/a.txt", ".versions/7/v1", StoragePaths.WELCOME_FILE})
+  @DisplayName("a store with any sign of the app's own layout is taken as the app's")
+  void storeWithTheAppsLayoutIsUsed(String key) {
+    put("ours/" + key, "the app's");
+    put("ours/notes.txt", "put at the top before setup");
+
+    S3FileStore ours = new S3FileStore(client, bucket, prefix + "ours");
+
+    assertThat(ours.description()).endsWith("/ours/");
+  }
+
+  @Test
+  @DisplayName("a bucket holding someone else's objects is refused, rather than adopted")
+  void someoneElsesObjectsAreRefused() {
+    put("theirs/photos/2024/beach.jpg", "someone else's");
+
+    assertThatThrownBy(() -> new S3FileStore(client, bucket, prefix + "theirs"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("not JavaDropbox's")
+        .hasMessageContaining("javadropbox.storage.s3.prefix");
+    assertThat(exists("theirs/photos/2024/beach.jpg")).isTrue();
+    assertThat(exists("theirs/" + StoragePaths.WELCOME_FILE)).isFalse();
   }
 
   @Test
@@ -89,11 +119,10 @@ class S3FileStoreTests extends FileStoreContractTests {
   @Test
   @DisplayName("the prefix is a folder whatever slashes it is given with")
   void prefixIsNormalized() throws IOException {
-    put("nested/a.txt", "a");
-
     S3FileStore slashed = new S3FileStore(client, bucket, "/" + prefix + "nested//");
 
-    assertThat(keys(slashed.list(""))).containsExactly("a.txt");
+    assertThat(exists("nested/" + StoragePaths.WELCOME_FILE)).isTrue();
+    assertThat(keys(slashed.list(""))).containsExactly(StoragePaths.WELCOME_FILE);
   }
 
   @Test
@@ -107,6 +136,16 @@ class S3FileStoreTests extends FileStoreContractTests {
     assertThat(keys(walk("")))
         .containsExactly("", "docs", "docs/2024", "docs/2024/report.txt", "docs/notes.txt");
     assertThat(keys(store.list("docs"))).containsExactlyInAnyOrder("docs/2024", "docs/notes.txt");
+  }
+
+  @Test
+  @DisplayName("a marker for the store's own folder, as S3's console makes one, is not an item")
+  void markerOfThePrefixIsNotAnItem() throws IOException {
+    put("", "");
+    put("docs/a.txt", "a");
+
+    assertThat(keys(walk(""))).containsExactly("", "docs", "docs/a.txt");
+    assertThat(keys(store.list(""))).containsExactly("docs");
   }
 
   @Test
@@ -130,6 +169,45 @@ class S3FileStoreTests extends FileStoreContractTests {
     assertThat(keys(walk(""))).containsExactly("", "clash", "docs", "docs/a.txt");
     assertThat(store.stat("clash").orElseThrow().isDirectory()).isFalse();
     assertThat(keys(store.list(""))).containsExactlyInAnyOrder("clash", "docs");
+  }
+
+  // S3 lists "clash", then "clash b/..." and "clash.txt", and only then "clash/...".
+  @Test
+  @DisplayName("a folder an object hides stays hidden with names listed between the two")
+  void objectHidesFolderOfItsNameAcrossOtherNames() throws IOException {
+    put("docs/clash", "the object");
+    put("docs/clash b/inside.txt", "in a folder of a longer name");
+    put("docs/clash.txt", "a file of a longer name");
+    put("docs/clash/", "");
+    put("docs/clash/hidden.txt", "behind the object");
+
+    assertThat(keys(walk("docs")))
+        .containsExactly(
+            "docs", "docs/clash", "docs/clash b", "docs/clash b/inside.txt", "docs/clash.txt");
+    assertThat(keys(store.list("docs")))
+        .containsExactlyInAnyOrder("docs/clash", "docs/clash b", "docs/clash.txt");
+  }
+
+  @Test
+  @DisplayName("a folder left out that runs on past a request is skipped, and what follows walked")
+  void skippedFolderAcrossRequests() throws IOException {
+    put("a.txt", "before");
+    for (int i = 0; i < 4 * PAGE_SIZE; i++) {
+      put(".git/objects/" + i, "left out");
+    }
+    put("z.txt", "after");
+
+    List<String> visited = new ArrayList<>();
+    store.walk(
+        "",
+        entry -> {
+          visited.add(entry.key());
+          return entry.name().startsWith(".")
+              ? FileVisitResult.SKIP_SUBTREE
+              : FileVisitResult.CONTINUE;
+        });
+
+    assertThat(visited).containsExactly("", ".git", "a.txt", "z.txt");
   }
 
   // Real S3 takes such keys from any tool, though the S3 server in these tests refuses them.

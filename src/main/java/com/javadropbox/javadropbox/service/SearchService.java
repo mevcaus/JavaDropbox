@@ -10,6 +10,7 @@ import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -82,12 +83,8 @@ public class SearchService {
     Entry entry;
     try {
       item = home.resolveItem(hit.path());
-      entry = store.stat(item.storeKey()).orElse(null);
+      entry = store.stat(item.storeKey()).orElseThrow(() -> new NoSuchFileException(hit.path()));
     } catch (BadRequestException | IOException e) {
-      item = null;
-      entry = null;
-    }
-    if (entry == null) {
       index.changed(home, hit.path());
       return null;
     }

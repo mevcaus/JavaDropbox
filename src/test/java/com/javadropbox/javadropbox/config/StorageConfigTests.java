@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.javadropbox.javadropbox.service.FileStore;
 import com.javadropbox.javadropbox.service.LocalFileStore;
@@ -42,6 +43,14 @@ class StorageConfigTests {
                     .rootCause()
                     .hasMessageContaining("local or s3")
                     .hasMessageContaining("gcs"));
+  }
+
+  @Test
+  @DisplayName("a storage type with a space around it is refused, as no store would match it")
+  void typeWithSpacesIsRefused() {
+    assertThatThrownBy(() -> new StorageConfig("s3 "))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("\"s3 \"");
   }
 
   @Test

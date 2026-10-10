@@ -314,6 +314,17 @@ abstract class FileStoreContractTests {
   }
 
   @Test
+  @DisplayName("a file moves into folders that are not there yet, which are made")
+  void moveMakesFolders() throws IOException {
+    write("a.txt", "moving");
+
+    store().move("a.txt", "versions/7/v1");
+
+    assertThat(read("versions/7/v1")).isEqualTo("moving");
+    assertThat(store().stat("versions/7").orElseThrow().isDirectory()).isTrue();
+  }
+
+  @Test
   @DisplayName("a folder moves with everything in it, empty folders included")
   void moveFolder() throws IOException {
     write("docs/a.txt", "a");
@@ -404,6 +415,21 @@ abstract class FileStoreContractTests {
     assertThat(store().exists("docs/sub/deeper/b.txt")).isFalse();
     assertThat(store().stat("docs").orElseThrow().isDirectory()).isTrue();
     assertThat(store().list("docs")).isEmpty();
+  }
+
+  @Test
+  @DisplayName("folders deleted or moved away are made again when asked for again")
+  void foldersGoneAreMadeAgain() throws IOException {
+    store().createFolders("deleted/sub");
+    store().createFolders("moved/sub");
+
+    store().deleteRecursively("deleted");
+    store().move("moved", "elsewhere");
+    store().createFolders("deleted/sub");
+    store().createFolders("moved/sub");
+
+    assertThat(store().list("deleted/sub")).isEmpty();
+    assertThat(store().list("moved/sub")).isEmpty();
   }
 
   @Test

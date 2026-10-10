@@ -7,8 +7,9 @@ import com.javadropbox.javadropbox.model.FileVersion;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
+import com.javadropbox.javadropbox.service.FileStore.Entry;
 import java.io.IOException;
-import java.nio.file.NoSuchFileException;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,32 +67,33 @@ public class FileVersionService {
   }
 
   /**
-   * Moves the live file, at {@code live} in the store, into the version store as its next version,
-   * then prunes versions beyond the retention limit. Runs in the caller's transaction, which must
-   * hold the lock on the file's row ({@link FileMetadataRepository#lockById}) so that no one else
-   * numbers a version meanwhile.
+   * Moves the live file, as the store has just shown it, into the version store as its next
+   * version, then prunes versions beyond the retention limit. Runs in the caller's transaction,
+   * which must hold the lock on the file's row ({@link FileMetadataRepository#lockById}) so that no
+   * one else numbers a version meanwhile.
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public void archive(FileMetadata file, String live, User user) throws IOException {
+  public void archive(FileMetadata file, Entry live, User user) throws IOException {
     int number = file.getCurrentVersion() != null ? file.getCurrentVersion() : 1;
     String stored = file.getId() + "/v" + number;
     String target = resolve(stored);
 
-    store.createFolders(StoragePaths.VERSIONS_DIR + "/" + file.getId());
-    if (store.exists(target)) {
-      removeLeftover(target, stored);
-    }
     // Never replacing: a file that is in the way now belongs to someone else, and failing is
-    // better than overwriting it.
-    store.move(live, target);
+    // better than overwriting it, unless it is left over from an interrupted operation.
+    try {
+      store.move(live.key(), target);
+    } catch (FileAlreadyExistsException e) {
+      removeLeftover(target, stored);
+      store.move(live.key(), target);
+    }
     // A fresh modification time tells the startup sweep that this is no leftover even before the
     // row below is committed.
     store.touch(target);
     // Also covers the caller having moved new content onto the live path since: the previous
     // content goes back over it.
-    OnRollback.undo("archiving " + live + " as " + target, () -> store.replace(target, live));
-    long size = store.stat(target).orElseThrow(() -> new NoSuchFileException(target)).size();
-    versions.save(new FileVersion(file, number, stored, size, user));
+    OnRollback.undo(
+        "archiving " + live.key() + " as " + target, () -> store.replace(target, live.key()));
+    versions.save(new FileVersion(file, number, stored, live.size(), user));
     file.setCurrentVersion(number + 1);
 
     List<FileVersion> all = versions.findByFileMetadataOrderByVersionDesc(file);
@@ -123,7 +125,7 @@ public class FileVersionService {
             .findFirst()
             .orElseThrow(() -> new NotFoundException("Version " + number + " not found"));
     String stored = resolve(version.getStoredFilename());
-    if (store.stat(stored).map(FileStore.Entry::isDirectory).orElse(true)) {
+    if (store.stat(stored).filter(entry -> !entry.isDirectory()).isEmpty()) {
       throw new NotFoundException("The stored copy of version " + number + " is missing");
     }
     return stored;
