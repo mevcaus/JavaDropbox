@@ -15,14 +15,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Requests arriving through a reverse proxy the app trusts. Production trusts loopback, and the
@@ -31,19 +28,8 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("Requests through a trusted proxy")
+@TempServingDirectory
 class TrustedProxyIntegrationTests {
-
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-    MainProperties.register(
-        registry,
-        "server.forward-headers-strategy",
-        "server.tomcat.remoteip.internal-proxies",
-        "server.servlet.session.cookie.same-site");
-  }
 
   @LocalServerPort private int port;
 

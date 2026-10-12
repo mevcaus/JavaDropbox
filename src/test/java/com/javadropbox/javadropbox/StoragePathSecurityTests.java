@@ -27,28 +27,25 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser(username = "testuser")
 @DisplayName("Storage path security")
+@TempServingDirectory
 class StoragePathSecurityTests {
 
-  @TempDir static Path servingDir;
-  @TempDir static Path outsideDir;
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
+  @TempDir static Path outsideDir;
 
   @Autowired private MockMvc mockMvc;
 

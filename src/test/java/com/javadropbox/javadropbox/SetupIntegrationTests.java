@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.javadropbox.javadropbox.config.SetupFilter;
 import com.javadropbox.javadropbox.model.User;
-import com.javadropbox.javadropbox.repository.FileHistoryRepository;
-import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,7 +24,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -38,20 +39,13 @@ class SetupIntegrationTests {
 
   @Autowired private UserRepository userRepository;
 
-  @Autowired private FileHistoryRepository fileHistoryRepository;
-
-  @Autowired private FileMetadataRepository fileMetadataRepository;
-
   @Autowired private SetupFilter setupFilter;
 
   @Autowired private JdbcTemplate jdbc;
 
   @BeforeEach
   void setUp() {
-    // The filter remembers that setup is done, which is true in production where accounts are
-    // never deleted, but these tests delete them to get back to a fresh install.
-    ReflectionTestUtils.setField(setupFilter, "setupComplete", false);
-    TestDatabase.wipe(jdbc);
+    FreshInstall.restore(jdbc, setupFilter);
   }
 
   // ------------------------------

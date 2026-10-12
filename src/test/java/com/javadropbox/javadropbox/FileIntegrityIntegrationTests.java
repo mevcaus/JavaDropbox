@@ -29,7 +29,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -46,9 +45,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,8 +55,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -75,14 +72,11 @@ import org.springframework.web.multipart.MultipartFile;
     })
 @WithMockUser(username = "owner")
 @DisplayName("File operations on PostgreSQL - concurrency and failures")
+@TempServingDirectory
 class FileIntegrityIntegrationTests {
 
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
   @Autowired private FileService fileService;
   @Autowired private FileMetadataRepository metadata;
@@ -109,11 +103,7 @@ class FileIntegrityIntegrationTests {
     jdbc.execute("DROP TRIGGER IF EXISTS fail_version_insert ON file_versions");
     jdbc.execute("DROP TRIGGER IF EXISTS fail_at_commit ON file_history");
     TestDatabase.wipe(jdbc);
-    try (Stream<Path> entries = Files.list(servingDir)) {
-      for (Path entry : entries.toList()) {
-        deleteTree(entry);
-      }
-    }
+    TestStorage.empty(servingDir);
   }
 
   // --- concurrent replaces -----------------------------------------------------
@@ -533,14 +523,6 @@ class FileIntegrityIntegrationTests {
       return Files.readString(path);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
-    }
-  }
-
-  private static void deleteTree(Path path) throws IOException {
-    try (Stream<Path> walk = Files.walk(path)) {
-      for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-        Files.delete(p);
-      }
     }
   }
 }

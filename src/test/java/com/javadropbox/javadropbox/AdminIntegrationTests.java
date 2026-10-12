@@ -21,7 +21,6 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AccountService;
 import com.javadropbox.javadropbox.service.SearchIndex;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -31,8 +30,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -40,28 +39,22 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.springframework.util.FileSystemUtils;
 
 /** What admins do to accounts, and what the people they invite do with the links they are sent. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @DisplayName("Managing accounts")
+@TempServingDirectory
 class AdminIntegrationTests {
 
   private static final RequestPostProcessor ADMIN = user("root").roles("ADMIN");
   private static final String PASSWORD = "correct horse battery";
 
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;
@@ -86,11 +79,7 @@ class AdminIntegrationTests {
   @AfterEach
   void tearDown() throws Exception {
     TestDatabase.wipe(jdbc);
-    try (var entries = Files.list(servingDir)) {
-      for (Path entry : entries.toList()) {
-        FileSystemUtils.deleteRecursively(entry);
-      }
-    }
+    TestStorage.empty(servingDir);
     searchIndex.reconcile();
     searchIndex.awaitIdle(Duration.ofSeconds(30));
   }

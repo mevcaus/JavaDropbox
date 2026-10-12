@@ -5,48 +5,44 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @DisplayName("File Dates Integration Tests")
+@TempServingDirectory
 class FileDatesIntegrationTests {
 
   private static final String ISO_INSTANT_PATTERN =
       "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$";
-
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
 
   @Autowired private MockMvc mockMvc;
 
   @Autowired private UserRepository userRepository;
 
   @Autowired private PasswordEncoder passwordEncoder;
+
+  @Autowired private FileMetadataRepository files;
 
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
@@ -91,5 +87,25 @@ class FileDatesIntegrationTests {
         // when the instant lands exactly on a second.
         .andExpect(jsonPath("$[0].createdDate", matchesPattern(ISO_INSTANT_PATTERN)))
         .andExpect(jsonPath("$[0].lastModified", matchesPattern(ISO_INSTANT_PATTERN)));
+  }
+
+  @Test
+  @DisplayName("a file the database knows shows the dates in its row rather than the disk's")
+  @WithMockUser(
+      username = "testadmin",
+      roles = {"ADMIN"})
+  void trackedFileShowsTheDatesInItsRow() throws Exception {
+    files.save(new FileMetadata("testfile.txt", "testfile.txt", 11L, false, owner));
+    jdbc.update(
+        "UPDATE file_metadata SET created_at = ?, updated_at = ? WHERE path = 'testfile.txt'",
+        OffsetDateTime.parse("2024-01-02T03:04:05Z"),
+        OffsetDateTime.parse("2024-06-07T08:09:10Z"));
+
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].createdDate").value("2024-01-02T03:04:05Z"))
+        .andExpect(jsonPath("$[0].lastModified").value("2024-06-07T08:09:10Z"))
+        .andExpect(jsonPath("$[0].ownerName").value("testadmin"));
   }
 }

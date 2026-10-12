@@ -36,7 +36,6 @@ import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -45,8 +44,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -54,8 +53,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.TestSecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -63,14 +60,11 @@ import org.springframework.web.multipart.MultipartFile;
 @AutoConfigureMockMvc
 @WithMockUser(username = "owner")
 @DisplayName("File operations")
+@TempServingDirectory
 class FileOperationsIntegrationTests {
 
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
   @Autowired private MockMvc mockMvc;
   @Autowired private FileService fileService;
@@ -97,11 +91,7 @@ class FileOperationsIntegrationTests {
   @AfterEach
   void tearDown() throws IOException {
     TestDatabase.wipe(jdbc);
-    try (Stream<Path> entries = Files.list(servingDir)) {
-      for (Path entry : entries.toList()) {
-        deleteTree(entry);
-      }
-    }
+    TestStorage.empty(servingDir);
   }
 
   // --- uploading -------------------------------------------------------------
@@ -316,14 +306,17 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
-  @DisplayName("versions beyond the retention limit are pruned from the database and the disk")
+  @DisplayName("the oldest versions past the limit are pruned from the database and the disk")
   void oldVersionsArePruned() throws Exception {
     for (String content : List.of("1", "2", "3", "4")) {
       upload("", "busy.txt", content);
     }
 
-    assertThat(versions.findAll()).hasSize(2);
-    assertThat(versionFiles()).hasSize(2);
+    // Each upload after the first kept what it replaced: "1" as v1, "2" as v2 and "3" as v3.
+    assertThat(versions.findAll())
+        .extracting(FileVersion::getVersion)
+        .containsExactlyInAnyOrder(2, 3);
+    assertThat(versionFiles()).extracting(Files::readString).containsExactlyInAnyOrder("2", "3");
   }
 
   @Test
@@ -673,14 +666,6 @@ class FileOperationsIntegrationTests {
     }
     try (Stream<Path> walk = Files.walk(store)) {
       return walk.filter(Files::isRegularFile).toList();
-    }
-  }
-
-  private static void deleteTree(Path path) throws IOException {
-    try (Stream<Path> walk = Files.walk(path)) {
-      for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-        Files.delete(p);
-      }
     }
   }
 

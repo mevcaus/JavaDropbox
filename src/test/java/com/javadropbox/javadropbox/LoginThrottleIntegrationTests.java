@@ -20,8 +20,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * The sign-in throttle on a real Tomcat, which decodes URLs and serves requests in parallel the way
@@ -31,12 +29,6 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("Login throttle")
 class LoginThrottleIntegrationTests {
-
-  @DynamicPropertySource
-  static void properties(DynamicPropertyRegistry registry) {
-    MainProperties.register(
-        registry, "server.forward-headers-strategy", "server.tomcat.remoteip.internal-proxies");
-  }
 
   @LocalServerPort private int port;
 

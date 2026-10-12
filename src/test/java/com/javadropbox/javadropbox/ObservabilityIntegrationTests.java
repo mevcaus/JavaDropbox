@@ -21,43 +21,30 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.util.FileSystemUtils;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @DisplayName("Observability Integration Tests")
+@TempServingDirectory
 class ObservabilityIntegrationTests {
 
   private static final String FILES_SERVED = "javadropbox.files.served";
   private static final String UPLOAD_SIZE = "javadropbox.uploads.size";
   private static final String SHARE_LINKS_CREATED = "javadropbox.share.links.created";
 
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-    // What production exposes, not Spring Boot's defaults (see MainProperties).
-    MainProperties.register(
-        registry,
-        "management.endpoints.web.exposure.include",
-        "management.endpoint.health.show-details",
-        "management.endpoint.health.roles",
-        "management.health.diskspace.path");
-  }
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
   @Autowired private MockMvc mockMvc;
 
@@ -75,11 +62,7 @@ class ObservabilityIntegrationTests {
   @AfterEach
   void tearDown() throws IOException {
     TestDatabase.wipe(jdbc);
-    try (var entries = Files.list(servingDir)) {
-      for (Path entry : entries.toList()) {
-        FileSystemUtils.deleteRecursively(entry);
-      }
-    }
+    TestStorage.empty(servingDir);
   }
 
   // An admin and a user, so that setup is done and each signed-in test user has an account.
