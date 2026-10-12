@@ -382,7 +382,54 @@ Then open `http://localhost:8080` and create the first account with the setup co
 - [x] **Folder upload** of whole directory structures
 - [x] **Multi-user support** with role-based access and per-user quotas
 - [x] **S3-compatible storage backend**
-- [ ] **Desktop sync client** that keeps a local folder in sync
+
+### Sync
+
+What a sync client needs from the server comes first, so that each step is useful on its own.
+
+- [ ] **Change feed**: `GET /api/changes?cursor=…` returns everything that changed since a cursor, so a client catches up without listing every file again ([#234])
+- [ ] **Conflict-safe writes**: each file carries a version tag, and a replace sent with `If-Match` fails with `412` if someone else changed the file first, rather than overwriting their change ([#235])
+- [ ] **Resumable uploads** in chunks named by their SHA-256, so a large upload survives a dropped connection and content the server already has is never sent twice ([#202], [#198])
+- [ ] **Sync client** that keeps a local folder in sync both ways, a command-line tool first, keeping both copies when a file changed on both sides ([#26], [#30])
+
+### Scale and operations
+
+- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared, with the end-to-end tests run against two instances
+- [ ] **The database as the list of what exists** ([#228]), with folders listed a page at a time rather than the whole tree in one response
+- [ ] **Load tests with published numbers** ([#195]): uploads a second, and how long a folder of 10,000 files takes to list, on disk and in S3
+- [ ] **Observability**: structured logs carrying a request id, OpenTelemetry traces, and Prometheus metrics with a Grafana dashboard ([#203], [#204])
+- [ ] **Releases**: tagged versions with a changelog, and multi-architecture images on GitHub Container Registry ([#201])
+- [ ] **Checks in CI**: coverage reports and dependency, container and code scanning ([#199], [#200]), with a threat model in the docs ([#236])
+
+### Product
+
+- [ ] **Trash**: deleted items kept for a while and restorable before they are gone for good ([#208])
+- [ ] **Thumbnails** of images and PDFs, made in the background ([#210])
+- [ ] **Two-factor sign-in** with TOTP, and single sign-on through OpenID Connect ([#207])
+- [ ] **Live updates**: a change made in one tab or device shows up in the others without a refresh ([#205])
+- [ ] **TypeScript** for the frontend ([#206])
+
+[#26]: https://github.com/mevcaus/JavaDropbox/issues/26
+[#30]: https://github.com/mevcaus/JavaDropbox/issues/30
+[#195]: https://github.com/mevcaus/JavaDropbox/issues/195
+[#198]: https://github.com/mevcaus/JavaDropbox/issues/198
+[#199]: https://github.com/mevcaus/JavaDropbox/issues/199
+[#200]: https://github.com/mevcaus/JavaDropbox/issues/200
+[#201]: https://github.com/mevcaus/JavaDropbox/issues/201
+[#202]: https://github.com/mevcaus/JavaDropbox/issues/202
+[#203]: https://github.com/mevcaus/JavaDropbox/issues/203
+[#204]: https://github.com/mevcaus/JavaDropbox/issues/204
+[#205]: https://github.com/mevcaus/JavaDropbox/issues/205
+[#206]: https://github.com/mevcaus/JavaDropbox/issues/206
+[#207]: https://github.com/mevcaus/JavaDropbox/issues/207
+[#208]: https://github.com/mevcaus/JavaDropbox/issues/208
+[#210]: https://github.com/mevcaus/JavaDropbox/issues/210
+[#222]: https://github.com/mevcaus/JavaDropbox/issues/222
+[#228]: https://github.com/mevcaus/JavaDropbox/issues/228
+[#229]: https://github.com/mevcaus/JavaDropbox/issues/229
+[#234]: https://github.com/mevcaus/JavaDropbox/issues/234
+[#235]: https://github.com/mevcaus/JavaDropbox/issues/235
+[#236]: https://github.com/mevcaus/JavaDropbox/issues/236
 
 ## License
 
