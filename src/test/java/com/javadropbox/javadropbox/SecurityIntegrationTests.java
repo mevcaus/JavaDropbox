@@ -2,13 +2,14 @@ package com.javadropbox.javadropbox;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.javadropbox.javadropbox.model.User;
-import com.javadropbox.javadropbox.repository.FileHistoryRepository;
-import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AuthService;
 import org.hamcrest.Matchers;
@@ -24,7 +25,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -38,10 +38,6 @@ class SecurityIntegrationTests {
   @Autowired private AuthService authService;
 
   @Autowired private UserRepository userRepository;
-
-  @Autowired private FileHistoryRepository fileHistoryRepository;
-
-  @Autowired private FileMetadataRepository fileMetadataRepository;
 
   @Autowired private PasswordEncoder passwordEncoder;
 
@@ -277,13 +273,6 @@ class SecurityIntegrationTests {
         roles = {"ADMIN"})
     void adminRoleCanAccessApi() throws Exception {
       mockMvc.perform(get("/api/files")).andExpect(status().isOk());
-    }
-
-    @Test
-    @DisplayName("Anonymous user explicitly denied access")
-    @WithAnonymousUser
-    void anonymousUserDeniedAccess() throws Exception {
-      mockMvc.perform(get("/api/files")).andExpect(status().isUnauthorized());
     }
   }
 

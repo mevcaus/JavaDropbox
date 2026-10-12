@@ -21,14 +21,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * A download in progress must not keep a database connection: with open-in-view on, Hibernate holds
@@ -50,15 +47,8 @@ import org.springframework.test.context.DynamicPropertySource;
 // Signed in as the owner, who makes the share links the downloads go through.
 @WithMockUser(username = "owner")
 @DisplayName("Database connections during downloads")
+@TempServingDirectory
 class DownloadConnectionIntegrationTests {
-
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-    MainProperties.register(registry, "spring.jpa.open-in-view");
-  }
 
   @LocalServerPort private int port;
 

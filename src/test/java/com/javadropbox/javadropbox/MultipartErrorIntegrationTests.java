@@ -15,20 +15,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Upload requests Tomcat cannot parse. MockMvc skips Tomcat's multipart parsing, so these run a
@@ -36,14 +32,8 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("Uploads Tomcat cannot parse")
+@TempServingDirectory
 class MultipartErrorIntegrationTests {
-
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
 
   @LocalServerPort private int port;
   @Autowired private UserRepository users;

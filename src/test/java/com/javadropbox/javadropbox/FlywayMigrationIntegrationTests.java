@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.javadropbox.javadropbox.PostgresTestSupport.Database;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import jakarta.persistence.EntityManagerFactory;
@@ -13,22 +14,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
-@Testcontainers
 @DisplayName("Flyway - migrating an empty database")
 class FlywayMigrationIntegrationTests {
 
-  @Container
-  static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
+  private static final Database DATABASE = PostgresTestSupport.newDatabase();
 
   @DynamicPropertySource
   static void overrideDatasource(DynamicPropertyRegistry registry) {
-    PostgresTestSupport.register(registry, POSTGRES);
+    PostgresTestSupport.register(registry, DATABASE);
   }
 
   @Autowired private Flyway flyway;

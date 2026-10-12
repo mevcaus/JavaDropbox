@@ -37,23 +37,16 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @DisplayName("Downloads")
+@TempServingDirectory
 class DownloadIntegrationTests {
 
-  @TempDir static Path servingDir;
   @TempDir static Path outsideDir;
-
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;

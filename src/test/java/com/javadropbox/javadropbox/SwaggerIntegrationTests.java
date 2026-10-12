@@ -6,9 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.javadropbox.javadropbox.config.SetupFilter;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +19,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+// Published as the dev profile publishes them. Production does not: see
+// ProductionSettingsIntegrationTests.
+@SpringBootTest(
+    properties = {"springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true"})
 @AutoConfigureMockMvc
 @DisplayName("Swagger and OpenAPI Integration Tests")
 class SwaggerIntegrationTests {
@@ -29,11 +33,14 @@ class SwaggerIntegrationTests {
 
   @Autowired private PasswordEncoder passwordEncoder;
 
+  @Autowired private SetupFilter setupFilter;
+
   @Autowired private JdbcTemplate jdbc;
 
-  @AfterEach
-  void tearDown() {
-    TestDatabase.wipe(jdbc);
+  // Every test starts before setup; the ones about after it complete setup first.
+  @BeforeEach
+  void freshInstall() {
+    FreshInstall.restore(jdbc, setupFilter);
   }
 
   private void completeSetup() {

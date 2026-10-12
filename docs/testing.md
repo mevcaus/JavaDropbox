@@ -51,8 +51,9 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 
 ### Test Design Highlights
 - **The production schema everywhere**: One PostgreSQL 15 container serves the whole run, and each Spring context gets an empty database of its own in it, which Flyway migrates and Hibernate validates with the production settings (`TestDatabaseEnvironment`, registered in `src/test/resources/META-INF/spring.factories`). Every test sees the real constraints, partial unique indexes and cascades, and the migrations run on every build
-- **Test isolation**: Contexts never share a database, so nothing one leaves behind reaches another, even from work done outside a test (startup, the search index's background thread). Test classes with the same configuration share one context and its database, so each wipes every table after a test through `TestDatabase.wipe`
-- **Containers of their own**: The migration and upgrade tests start their own PostgreSQL, to begin from an older schema or none, and point their context at it through `PostgresTestSupport`
+- **Production's settings**: Tests run on `src/main/resources/application.properties` as it is. Their own settings in `src/test/resources/config/application.properties` only add to it, so a test that depends on a production setting (forwarded headers, upload limits, what Actuator exposes, the API docs being off) runs with the value a real install has
+- **Test isolation**: Contexts never share a database, so nothing one leaves behind reaches another, even from work done outside a test (startup, the search index's background thread). Test classes with the same configuration share one context and its database, so each wipes every table after a test through `TestDatabase.wipe`. A class marked `@TempServingDirectory` also gets a context of its own on an empty temporary serving directory, which `TestStorage.empty` clears between tests
+- **Databases in another state**: The migration and upgrade tests take a database of their own from the shared container, migrate it to an older schema or build a pre-Flyway one, and point their context at it, all through `PostgresTestSupport`
 
 ### Frontend Tests
 

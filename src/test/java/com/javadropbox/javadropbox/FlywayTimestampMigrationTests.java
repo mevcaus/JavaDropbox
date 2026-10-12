@@ -2,8 +2,8 @@ package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.javadropbox.javadropbox.PostgresTestSupport.Database;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -12,26 +12,19 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.TimeZone;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * V3 converts local times using the JVM's default zone, so it runs here under several: CI runs in
  * UTC, where every conversion is a no-op and any mistake goes unnoticed.
  */
-@Testcontainers
 @DisplayName("Flyway - V3 timestamps with time zone")
 class FlywayTimestampMigrationTests {
 
-  @Container
-  static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
+  private static final Database DATABASE = PostgresTestSupport.newDatabase();
 
   private static final LocalDateTime WRITTEN = LocalDateTime.of(2026, 1, 15, 9, 30);
 
@@ -54,7 +47,7 @@ class FlywayTimestampMigrationTests {
   void noChecksumIsRecorded() throws SQLException {
     migratedInZone("UTC");
 
-    try (Connection c = connect();
+    try (Connection c = DATABASE.connect();
         Statement s = c.createStatement();
         ResultSet rs =
             s.executeQuery("SELECT checksum FROM flyway_schema_history WHERE version = '3'")) {
@@ -65,9 +58,9 @@ class FlywayTimestampMigrationTests {
 
   /** Migrates a fresh database holding {@link #WRITTEN} to V3 with the JVM in {@code zone}. */
   private static Instant migratedInZone(String zone) throws SQLException {
-    flyway(null).clean();
-    flyway("2").migrate();
-    execute(
+    DATABASE.flyway().cleanDisabled(false).load().clean();
+    DATABASE.migrateTo("2");
+    DATABASE.execute(
         "INSERT INTO file_metadata (id, path, filename, is_directory, created_at) VALUES"
             + " (1, 'a.txt', 'a.txt', false, '"
             + WRITTEN
@@ -77,40 +70,16 @@ class FlywayTimestampMigrationTests {
     TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(zone)));
     try {
       assertThat(ZoneId.systemDefault().getId()).isEqualTo(zone);
-      flyway("3").migrate();
+      DATABASE.migrateTo("3");
     } finally {
       TimeZone.setDefault(original);
     }
 
-    try (Connection c = connect();
+    try (Connection c = DATABASE.connect();
         Statement s = c.createStatement();
         ResultSet rs = s.executeQuery("SELECT created_at FROM file_metadata WHERE id = 1")) {
       rs.next();
       return rs.getObject(1, OffsetDateTime.class).toInstant();
-    }
-  }
-
-  private static Flyway flyway(String target) {
-    var config =
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .cleanDisabled(false);
-    if (target != null) {
-      config.target(target);
-    }
-    return config.load();
-  }
-
-  private static Connection connect() throws SQLException {
-    return DriverManager.getConnection(
-        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-  }
-
-  private static void execute(String sql) throws SQLException {
-    try (Connection c = connect();
-        Statement s = c.createStatement()) {
-      s.execute(sql);
     }
   }
 }

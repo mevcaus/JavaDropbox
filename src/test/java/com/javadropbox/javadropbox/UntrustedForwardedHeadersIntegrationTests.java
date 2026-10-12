@@ -16,7 +16,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -32,17 +31,13 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("Forwarded headers from an untrusted client")
+@TempServingDirectory
 class UntrustedForwardedHeadersIntegrationTests {
 
   private static final String CLIENT = "127.0.0.1";
 
-  @TempDir static Path servingDir;
-
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-    MainProperties.register(
-        registry, "server.forward-headers-strategy", "server.servlet.session.cookie.same-site");
     registry.add("server.tomcat.remoteip.internal-proxies", () -> "192\\.0\\.2\\.1");
   }
 

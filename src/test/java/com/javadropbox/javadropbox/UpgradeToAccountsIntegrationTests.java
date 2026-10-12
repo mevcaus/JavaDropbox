@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.javadropbox.javadropbox.PostgresTestSupport.Database;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.SearchIndex;
@@ -20,14 +21,12 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,9 +38,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * An install from before accounts had folders of their own, started with this version: its database
@@ -51,19 +47,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Testcontainers
 @DisplayName("Upgrading an install from before accounts had their own files")
 class UpgradeToAccountsIntegrationTests {
 
-  @Container
-  static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>(PostgresTestSupport.IMAGE);
+  private static final Database DATABASE = PostgresTestSupport.newDatabase();
 
   @TempDir static Path servingDir;
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    PostgresTestSupport.register(registry, POSTGRES);
+    PostgresTestSupport.register(registry, DATABASE);
     registry.add("javadropbox.serving.directory", () -> servingDir.toString());
   }
 
@@ -75,15 +68,8 @@ class UpgradeToAccountsIntegrationTests {
   // Before the app starts: the database as V6 left it, and the files where that version kept them.
   @BeforeAll
   static void installFromBeforeAccounts() throws IOException, SQLException {
-    Flyway.configure()
-        .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-        .locations("classpath:db/migration")
-        .target("6")
-        .load()
-        .migrate();
-    try (Connection c =
-            DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+    DATABASE.migrateTo("6");
+    try (Connection c = DATABASE.connect();
         Statement s = c.createStatement()) {
       // The owner predates the setup code, so it is ROLE_USER; the helper made the folder.
       s.execute(

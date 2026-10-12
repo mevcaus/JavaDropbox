@@ -26,7 +26,6 @@ import com.javadropbox.javadropbox.service.StorageSweeper;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,7 +36,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -65,6 +63,7 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 @Testcontainers
 @WithMockUser(username = "owner")
 @DisplayName("Storage in S3")
+@TempServingDirectory
 class S3StorageIntegrationTests {
 
   private static final Duration INDEXING = Duration.ofSeconds(30);
@@ -72,21 +71,13 @@ class S3StorageIntegrationTests {
   @Container static final GenericContainer<?> S3 = S3TestSupport.container();
 
   // Only the app's own state, such as the search index, is on the disk.
-  @TempDir static Path servingDir;
 
   private static S3Client client;
   private static String bucket;
 
   @DynamicPropertySource
   static void storeFilesInS3(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
     S3TestSupport.register(registry, S3, S3StorageIntegrationTests::bucket);
-    // Health's details, for an admin, as in production.
-    MainProperties.register(
-        registry,
-        "management.endpoints.web.exposure.include",
-        "management.endpoint.health.show-details",
-        "management.endpoint.health.roles");
   }
 
   private static synchronized String bucket() {

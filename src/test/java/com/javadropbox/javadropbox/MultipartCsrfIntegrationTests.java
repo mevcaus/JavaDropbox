@@ -41,23 +41,16 @@ import org.springframework.test.context.DynamicPropertySource;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "spring.servlet.multipart.file-size-threshold=0")
 @DisplayName("Multipart uploads and the CSRF check")
+@TempServingDirectory
 class MultipartCsrfIntegrationTests {
 
   private static final int MB = 1024 * 1024;
-
-  @TempDir static Path servingDir;
 
   @TempDir static Path spoolDir;
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
     registry.add("spring.servlet.multipart.location", () -> spoolDir.toString());
-    MainProperties.register(
-        registry,
-        "spring.servlet.multipart.max-file-size",
-        "spring.servlet.multipart.max-request-size",
-        "spring.servlet.multipart.resolve-lazily");
   }
 
   @LocalServerPort private int port;

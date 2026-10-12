@@ -23,9 +23,7 @@ import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,14 +32,13 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -49,17 +46,15 @@ import org.springframework.test.web.servlet.ResultActions;
 @AutoConfigureMockMvc
 @WithMockUser(username = "owner")
 @DisplayName("Search")
+@TempServingDirectory
 class SearchIntegrationTests {
 
   private static final Duration INDEXING = Duration.ofSeconds(30);
 
-  @TempDir static Path servingDir;
-  @TempDir static Path outsideDir;
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
+  @TempDir static Path outsideDir;
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;
@@ -85,15 +80,7 @@ class SearchIntegrationTests {
   @AfterEach
   void tearDown() throws Exception {
     TestDatabase.wipe(jdbc);
-    try (Stream<Path> entries = Files.list(servingDir)) {
-      for (Path entry : entries.toList()) {
-        try (Stream<Path> walk = Files.walk(entry)) {
-          for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-            Files.delete(p);
-          }
-        }
-      }
-    }
+    TestStorage.empty(servingDir);
     searchIndex.reconcile();
     searchIndex.awaitIdle(INDEXING);
   }

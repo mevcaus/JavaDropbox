@@ -22,7 +22,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -30,8 +29,6 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Clients that cancel a download part-way, over a real socket. Cancelling is routine, so it must
@@ -45,16 +42,10 @@ import org.springframework.test.context.DynamicPropertySource;
 // Signed in as the owner, who makes the share links the downloads go through.
 @WithMockUser(username = "owner")
 @DisplayName("Cancelled downloads")
+@TempServingDirectory
 class ClientAbortIntegrationTests {
 
   private static final String HANDLED = "Client went away";
-
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void properties(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
 
   @LocalServerPort private int port;
 

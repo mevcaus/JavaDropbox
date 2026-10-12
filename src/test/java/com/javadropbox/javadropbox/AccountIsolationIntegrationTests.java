@@ -20,7 +20,6 @@ import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,17 +28,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.springframework.util.FileSystemUtils;
 
 /**
  * Two accounts, each with files of its own: neither can reach the other's, by path or by id,
@@ -49,17 +45,14 @@ import org.springframework.util.FileSystemUtils;
 @SpringBootTest
 @AutoConfigureMockMvc
 @DisplayName("Accounts' files are their own")
+@TempServingDirectory
 class AccountIsolationIntegrationTests {
 
   private static final RequestPostProcessor ALICE = user("alice");
   private static final RequestPostProcessor BOB = user("bob");
 
-  @TempDir static Path servingDir;
-
-  @DynamicPropertySource
-  static void overrideServingDirectory(DynamicPropertyRegistry registry) {
-    registry.add("javadropbox.serving.directory", () -> servingDir.toString());
-  }
+  @Value("${javadropbox.serving.directory}")
+  private Path servingDir;
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository users;
@@ -83,11 +76,7 @@ class AccountIsolationIntegrationTests {
   @AfterEach
   void tearDown() throws Exception {
     TestDatabase.wipe(jdbc);
-    try (var entries = Files.list(servingDir)) {
-      for (Path entry : entries.toList()) {
-        FileSystemUtils.deleteRecursively(entry);
-      }
-    }
+    TestStorage.empty(servingDir);
     searchIndex.reconcile();
     searchIndex.awaitIdle(Duration.ofSeconds(30));
   }

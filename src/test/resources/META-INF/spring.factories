@@ -1,2 +1,4 @@
 org.springframework.boot.env.EnvironmentPostProcessor=\
 com.javadropbox.javadropbox.TestDatabaseEnvironment
+org.springframework.test.context.ContextCustomizerFactory=\
+com.javadropbox.javadropbox.TempServingDirectoryContextCustomizerFactory
