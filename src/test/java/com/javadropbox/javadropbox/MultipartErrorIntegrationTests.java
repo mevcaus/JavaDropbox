@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import jakarta.servlet.ServletContext;
+import jakarta.servlet.MultipartConfigElement;
 import java.io.File;
 import java.io.IOException;
 import java.net.CookieManager;
@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -39,7 +38,7 @@ class MultipartErrorIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private JdbcTemplate jdbc;
-  @Autowired private ServletWebServerApplicationContext server;
+  @Autowired private MultipartConfigElement multipartConfig;
 
   private final CookieManager cookies = new CookieManager();
   private final HttpClient http = HttpClient.newBuilder().cookieHandler(cookies).build();
@@ -64,7 +63,8 @@ class MultipartErrorIntegrationTests {
   @Test
   @DisplayName("a server-side failure storing the upload is a 500, not the client's fault")
   void serverFaultIsA500() throws Exception {
-    File tempDir = (File) server.getServletContext().getAttribute(ServletContext.TEMPDIR);
+    // Where Tomcat spools uploads.
+    File tempDir = new File(multipartConfig.getLocation());
     Files.createDirectories(tempDir.toPath());
     assertThat(tempDir.setWritable(false, false)).isTrue();
     try {

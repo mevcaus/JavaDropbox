@@ -118,6 +118,7 @@ JavaDropbox/
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
 │   │   │   ├── StartupBanner.java       # Logs the bound port and where files are stored
 │   │   │   ├── StorageConfig.java       # The file store: the serving directory, or an S3 bucket
+│   │   │   ├── UploadSpoolConfig.java   # Uploads arrive in .javadropbox/uploads, not java.io.tmpdir
 │   │   │   ├── DemoResetFilter.java     # Live demo: runs the daily reset when it falls due
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
 │   │   │   └── PasswordConfig.java      # BCrypt encoder bean

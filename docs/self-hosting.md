@@ -14,7 +14,7 @@ docker compose --profile app up --build
 
 The logos and favicon are stored in Git LFS (run `git lfs install` once before cloning). Cloned without it, they are small text pointers instead of images: run `git lfs pull` to fetch them. The Docker build stops with a message saying so rather than ship broken images.
 
-Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Uploads are kept in the volume while they arrive too, not in the container, so the volume needs room for them. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
 
 The container runs as uid and gid `10001`. To keep the files in a host directory instead of the volume, mount it at `/data` and hand it to that user first, e.g. `sudo chown -R 10001:10001 /srv/javadropbox`. A volume created by an image from before the uid was fixed belongs to a different uid; hand it over once with `docker compose run --rm --no-deps --user root --entrypoint chown app -R 10001:10001 /data`.
 
@@ -83,7 +83,7 @@ At startup the app checks that it can reach the bucket, and stops with a message
 
 **In the bucket**, files are laid out as in the serving directory: `.users/<id>/` for each account, `.versions/<file id>/v<n>` for previous versions. Folders follow the convention S3's own console uses: a folder is there while anything is stored below it, and an empty one is an empty object whose name ends in `/`. Objects put there with another tool, such as `aws s3 cp`, show up for that account, and search finds them within ten minutes (until [the layout changes](#layout-going-away)). An empty bucket is given the welcome file, which setup gives to the first account, as a new serving directory is.
 
-**The serving directory is still used**, for the app's own state: the search index, in `.javadropbox/search-index`. It holds nothing that cannot be rebuilt from the bucket (and the database, [once files are blobs](#layout-going-away)), so it can be on a disk that does not last, but every start on an empty one reads every file to build the index again.
+**The serving directory is still used**, for the app's own state: the search index, in `.javadropbox/search-index`, and each upload while it arrives, in `.javadropbox/uploads`. It holds nothing that cannot be rebuilt from the bucket (and the database, [once files are blobs](#layout-going-away)), so it can be on a disk that does not last, but every start on an empty one reads every file to build the index again.
 
 **Moving an existing install to S3**: stop the app, copy the serving directory into the bucket, leaving out `.javadropbox`, and start it with the settings above. The database stays as it is. This still works [once files are blobs](#layout-going-away), since the bucket and the serving directory keep the same layout as each other.
 
@@ -130,6 +130,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.search.max-file-size` | `50MB` | Files larger than this are found by name only, without their text being read; `0` searches names alone |
 | `javadropbox.search.index-directory` | `.javadropbox/search-index` in the serving directory | Where the search index is kept |
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
+| `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
