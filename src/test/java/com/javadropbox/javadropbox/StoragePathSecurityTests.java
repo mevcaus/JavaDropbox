@@ -130,13 +130,13 @@ class StoragePathSecurityTests {
   }
 
   @Test
-  @DisplayName("the app's internal directory, which holds the share-link key, is unreachable")
+  @DisplayName("the app's internal directory, which holds the search index, is unreachable")
   void internalDirectoryIsUnreachable() throws Exception {
     Files.createDirectories(servingDir.resolve(".javadropbox"));
-    Files.writeString(servingDir.resolve(".javadropbox/share-jwt.key"), "key");
+    Files.writeString(servingDir.resolve(".javadropbox/state.txt"), "state");
 
     mockMvc
-        .perform(get("/api/files/download").param("path", ".javadropbox/share-jwt.key"))
+        .perform(get("/api/files/download").param("path", ".javadropbox/state.txt"))
         .andExpect(status().isBadRequest());
   }
 
