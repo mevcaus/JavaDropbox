@@ -41,3 +41,7 @@ out/
 
 # Root dev tooling (concurrently, from package.json)
 /node_modules/
+
+### Claude Code ###
+# Per-machine permission rules; saved commands can contain secrets
+**/.claude/settings.local.json
