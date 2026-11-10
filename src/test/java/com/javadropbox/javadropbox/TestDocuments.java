@@ -8,6 +8,8 @@ import java.util.zip.ZipOutputStream;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
+import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 
@@ -18,6 +20,23 @@ public final class TestDocuments {
 
   /** A PDF with one page for each of {@code pages}, each holding that line of text. */
   public static byte[] pdf(String... pages) throws IOException {
+    return pdf(null, pages);
+  }
+
+  /**
+   * Like {@link #pdf}, but protected with an owner password and no user password, so it opens
+   * without one, as most protected PDFs do. Reading it means decrypting each stream, which PDFBox
+   * does into its scratch files.
+   */
+  public static byte[] protectedPdf(String... pages) throws IOException {
+    StandardProtectionPolicy policy =
+        new StandardProtectionPolicy("owner", "", new AccessPermission());
+    policy.setEncryptionKeyLength(128);
+    return pdf(policy, pages);
+  }
+
+  private static byte[] pdf(StandardProtectionPolicy protection, String... pages)
+      throws IOException {
     try (PDDocument document = new PDDocument();
         ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
@@ -31,6 +50,9 @@ public final class TestDocuments {
           content.showText(line);
           content.endText();
         }
+      }
+      if (protection != null) {
+        document.protect(protection);
       }
       document.save(out);
       return out.toByteArray();

@@ -83,7 +83,7 @@ At startup the app checks that it can reach the bucket, and stops with a message
 
 **In the bucket**, files are laid out as in the serving directory: `.users/<id>/` for each account, `.versions/<file id>/v<n>` for previous versions. Folders follow the convention S3's own console uses: a folder is there while anything is stored below it, and an empty one is an empty object whose name ends in `/`. Objects put there with another tool, such as `aws s3 cp`, show up for that account, and search finds them within ten minutes (until [the layout changes](#layout-going-away)). An empty bucket is given the welcome file, which setup gives to the first account, as a new serving directory is.
 
-**The serving directory is still used**, for the app's own state: the search index, in `.javadropbox/search-index`, each upload while it arrives, in `.javadropbox/uploads`, and the store's temporary files, in `.javadropbox/tmp`. It holds nothing that cannot be rebuilt from the bucket (and the database, [once files are blobs](#layout-going-away)), so it can be on a disk that does not last, but every start on an empty one reads every file to build the index again. It does need room for every upload under way, each in full.
+**The serving directory is still used**, for the app's own state: the search index, in `.javadropbox/search-index`, each upload while it arrives, in `.javadropbox/uploads`, and temporary files, in `.javadropbox/tmp`: the store's, and PDFBox's while the search index reads a PDF. It holds nothing that cannot be rebuilt from the bucket (and the database, [once files are blobs](#layout-going-away)), so it can be on a disk that does not last, but every start on an empty one reads every file to build the index again. It does need room for every upload under way, each in full.
 
 **Moving an existing install to S3**: stop the app, copy the serving directory into the bucket, leaving out `.javadropbox`, and start it with the settings above. The database stays as it is. This still works [once files are blobs](#layout-going-away), since the bucket and the serving directory keep the same layout as each other.
 
@@ -140,7 +140,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 
 ## Search
 
-The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a PDF, PDFBox may keep parts of it in scratch files in `.javadropbox/tmp`, up to about the PDF's own size (mostly for protected PDFs, which it decrypts there), and deletes them when it is done.
 
 The files stored are the source of truth, and the index only mirrors them:
 

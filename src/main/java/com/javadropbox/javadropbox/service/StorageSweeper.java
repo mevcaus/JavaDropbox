@@ -25,8 +25,9 @@ import org.springframework.stereotype.Component;
  * Clears up what interrupted operations leave in the store once the app has started: upload scratch
  * files, and stored versions of known files that no row refers to (a crash between moving a file
  * and committing, or a clean-up after commit that failed). On the local disk, it also clears the
- * uploads Tomcat was receiving and the store's temporary files, which a server that stopped
- * mid-request leaves in {@link StoragePaths#internalDir}.
+ * uploads Tomcat was receiving, the store's temporary files and PDFBox's scratch files from reading
+ * a PDF for the search index, which a server that stopped part-way leaves in {@link
+ * StoragePaths#internalDir}.
  *
  * <p>Requests are already being served by then, and other instances may share the storage, so
  * anything modified within the last hour is left alone: a request could be writing it, or be about
@@ -61,6 +62,7 @@ public class StorageSweeper {
     Instant cutoff = Instant.now().minus(MIN_AGE);
     removeLocalLeftovers(storagePaths.uploadsDir(), "upload_*.tmp", cutoff);
     removeLocalLeftovers(storagePaths.tempDir(), S3FileStore.TEMP_PREFIX + "*", cutoff);
+    removeLocalLeftovers(storagePaths.tempDir(), TextExtractor.PDF_SCRATCH_GLOB, cutoff);
     try {
       removeScratchFiles(cutoff);
       if (store.stat(StoragePaths.VERSIONS_DIR).map(Entry::isDirectory).orElse(false)) {
