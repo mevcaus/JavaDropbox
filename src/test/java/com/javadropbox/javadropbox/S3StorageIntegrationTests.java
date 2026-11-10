@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -153,9 +154,42 @@ class S3StorageIntegrationTests {
         .andExpect(jsonPath("$[0].size").value(17))
         .andExpect(
             jsonPath("$[0].children[0].children[0].relativePath").value("docs/2024/report.txt"))
-        .andExpect(jsonPath("$[0].children[0].children[0].id").isNotEmpty());
+        .andExpect(jsonPath("$[0].children[0].children[0].id").isNotEmpty())
+        // The folders the upload made have rows of their own.
+        .andExpect(jsonPath("$[0].id").isNotEmpty())
+        .andExpect(jsonPath("$[0].ownerName").value("owner"))
+        .andExpect(jsonPath("$[0].children[0].id").isNotEmpty())
+        .andExpect(jsonPath("$[0].children[0].ownerName").value("owner"));
     // No upload's scratch object is left behind.
     assertThat(keys("")).noneMatch(key -> key.contains(".upload-"));
+  }
+
+  @Test
+  @DisplayName("folders an upload made are removed from the bucket if their rows fail to commit")
+  void failedFolderRowsLeaveNoFolders() throws Exception {
+    jdbc.execute(
+        "CREATE OR REPLACE FUNCTION simulated_failure() RETURNS trigger AS $$ BEGIN"
+            + " RAISE EXCEPTION 'simulated failure'; END $$ LANGUAGE plpgsql");
+    jdbc.execute(
+        "CREATE CONSTRAINT TRIGGER fail_at_commit AFTER INSERT ON file_history"
+            + " DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.success)"
+            + " EXECUTE FUNCTION simulated_failure()");
+    try {
+      assertThatThrownBy(
+              () ->
+                  mockMvc.perform(
+                      multipart("/api/files")
+                          .file(file("report.txt", "x"))
+                          .param("path", "docs/2024")
+                          .with(csrf().asHeader())))
+          .rootCause()
+          .hasMessageContaining("simulated failure");
+    } finally {
+      jdbc.execute("DROP TRIGGER IF EXISTS fail_at_commit ON file_history");
+    }
+
+    assertThat(keys(home)).noneMatch(key -> key.startsWith(home + "docs"));
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM file_metadata", Long.class)).isZero();
   }
 
   @Test

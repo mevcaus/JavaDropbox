@@ -25,7 +25,7 @@ A session ends on its next request once its account is disabled, or its role or 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/files` | Full tree as recursive JSON |
-| `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, each named by a bare file name, plus `path`, the folder they go into, created with any missing parents if it does not exist); replaced files keep their previous content as a version |
+| `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, each named by a bare file name, plus `path`, the folder they go into, created with any missing parents if it does not exist, each with an id, an owner and a history entry like a folder made with `POST /api/folders`); replaced files keep their previous content as a version |
 | `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
 | `GET` | `/api/files/preview?path=<path>` | Serve a previewable file inline: images and PDFs as themselves, text and source files as `text/plain`; supports range requests. `400` for folders and other kinds of file |

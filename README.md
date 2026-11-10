@@ -155,7 +155,7 @@ The schema is owned by seven versioned [Flyway](https://documentation.red-gate.c
 
 ### Uploading over an existing file
 
-The upload is written outside the transaction, so a slow client never holds a database lock. Inside it, every disk change registers an undo that runs if the transaction rolls back.
+The upload is written outside the transaction, so a slow client never holds a database lock. Inside it, every disk change registers an undo that runs if the transaction rolls back, newest first, so a file is taken out of a folder before the folder is removed. Folders the upload makes on the way are created first, each with a row and a history entry, in a transaction of their own.
 
 ```mermaid
 sequenceDiagram

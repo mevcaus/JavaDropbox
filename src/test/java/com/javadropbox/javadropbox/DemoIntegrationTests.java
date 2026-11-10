@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -155,7 +156,13 @@ class DemoIntegrationTests {
     assertThat(home().resolve("mine.txt")).doesNotExist();
     assertThat(metadata.findAll()).extracting(FileMetadata::getPath).doesNotContain("mine.txt");
     assertThat(home().resolve("Welcome.md")).exists();
-    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_history", Long.class)).isEqualTo(7);
+    // Seven uploads, and the four folders they made on the way.
+    assertThat(
+            jdbc.queryForList(
+                "SELECT change_type, count(*) FROM file_history GROUP BY change_type ORDER BY 1"))
+        .containsExactly(
+            Map.of("change_type", "CREATE_FOLDER", "count", 4L),
+            Map.of("change_type", "UPLOAD", "count", 7L));
 
     // Search forgets what was deleted and finds the samples, the PDF's text among them.
     searchIndex.awaitIdle(Duration.ofSeconds(30));
