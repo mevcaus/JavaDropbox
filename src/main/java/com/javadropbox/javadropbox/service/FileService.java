@@ -18,12 +18,16 @@ import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.core.io.InputStreamSource;
 import org.springframework.core.io.Resource;
@@ -88,7 +92,9 @@ public class FileService {
 
   /**
    * Stores uploaded files in a folder. Each file is committed on its own, so a failure on one does
-   * not undo the ones before it; the failing file and everything after it are not stored.
+   * not undo the ones before it; the failing file and everything after it are not stored. Folders
+   * the upload makes on the way are committed on their own first, and stay if a file then fails, as
+   * a folder made with {@link #createFolder} would.
    *
    * @return how many files were stored
    */
@@ -98,7 +104,7 @@ public class FileService {
     StoragePath folder;
     try {
       folder = home.resolve(folderPath);
-      createFolders(folder);
+      createFolders(folder, user);
     } catch (IOException | RuntimeException e) {
       // Recorded against the first file, the one that could not be stored, like any failed upload.
       Arrays.stream(uploads)
@@ -137,36 +143,99 @@ public class FileService {
       throws IOException {
     Home home = storagePaths.home(user);
     StoragePath folder = home.resolve(folderPath);
-    createFolders(folder);
+    createFolders(folder, user);
     store(content, home.resolveChild(folder, name), user);
   }
 
-  // Where a segment of the path is a file, creating the folders fails with an error that says
-  // nothing useful to the client; say what is wrong instead.
-  private void createFolders(StoragePath folder) throws IOException {
-    String existingKey = folder.key();
-    int missing = 0;
-    Optional<Entry> existing;
-    while ((existing = store.stat(storeKey(folder.home(), existingKey))).isEmpty()
-        && !existingKey.isEmpty()) {
-      existingKey = parentKey(existingKey);
-      missing++;
-    }
-    if (existing.isPresent() && !existing.get().isDirectory()) {
-      throw new BadRequestException("\"" + existingKey + "\" is a file, not a folder");
-    }
-    if (missing > 0) {
-      store.createFolders(folder.storeKey());
-      // The file going into them is reported on its own, once it is stored.
-      searchIndex.changed(folder.home(), ancestorKey(folder.key(), missing - 1));
+  /**
+   * Creates {@code folder} and whatever folders above it are missing, in a transaction of its own.
+   * Does nothing, and opens no transaction, when the folder is already there.
+   */
+  private void createFolders(StoragePath folder, User user) throws IOException {
+    List<String> missing = missingFolders(folder);
+    if (!missing.isEmpty()) {
+      inTransaction(() -> createFolders(folder.home(), missing, user));
     }
   }
 
-  private static String ancestorKey(String key, int levelsUp) {
-    for (int up = levelsUp; up > 0; up--) {
+  /**
+   * The keys of {@code folder} and of the folders above it that the store doesn't have, topmost
+   * first.
+   *
+   * @throws BadRequestException where a segment of the path is a file, rather than the error the
+   *     store would give, which says nothing useful to the client
+   */
+  private List<String> missingFolders(StoragePath folder) throws IOException {
+    List<String> missing = new ArrayList<>();
+    String key = folder.key();
+    Optional<Entry> existing;
+    while ((existing = store.stat(storeKey(folder.home(), key))).isEmpty() && !key.isEmpty()) {
+      missing.add(0, key);
       key = parentKey(key);
     }
-    return key;
+    if (existing.isPresent() && !existing.get().isDirectory()) {
+      throw new BadRequestException("\"" + key + "\" is a file, not a folder");
+    }
+    return missing;
+  }
+
+  /**
+   * Creates the {@code missing} folders, topmost first, each with a row and a history entry as if
+   * the user had created it, so it has an id and an owner like anything else. Must run in a
+   * transaction; the folders are removed again if it rolls back, unless something was put in them.
+   */
+  private void createFolders(Home home, List<String> missing, User user) throws IOException {
+    if (missing.isEmpty()) {
+      return;
+    }
+    List<String> created = new ArrayList<>();
+    for (String key : missing) {
+      boolean inserted =
+          files.insertFolderIfAbsent(user.getId(), key, lastSegment(key), Instant.now()) == 1;
+      // Ours, or the one already there: another request creating the same folder, which this
+      // waited for, or a row that outlived its folder because it was removed outside the app.
+      Optional<FileMetadata> row = files.lockByPath(user.getId(), key);
+      Optional<Entry> stored = store.stat(storeKey(home, key));
+      if (stored.isPresent()) {
+        if (!stored.get().isDirectory()) {
+          throw new BadRequestException("\"" + key + "\" is a file, not a folder");
+        }
+        // Made by another request, or outside the app, since this one looked. A row that was
+        // added here is kept, so the folder has one, but this request didn't create the folder.
+        // Should the other request roll back and remove it again, this row is left without its
+        // folder, and the next request that needs the folder starts the row over and makes it.
+        continue;
+      }
+      if (row.isEmpty()) {
+        // Deleted while this waited for it.
+        throw new ConflictException("\"" + key + "\" changed while it was being created");
+      }
+      FileMetadata folder = inserted ? row.get() : startOver(row.get(), true, 0);
+      history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
+      created.add(key);
+    }
+    if (created.isEmpty()) {
+      return;
+    }
+
+    List<String> undo = new ArrayList<>(created);
+    Collections.reverse(undo);
+    OnRollback.undo(
+        "creating " + storeKey(home, created.get(0)),
+        () -> {
+          // Deepest first. A folder something was put in meanwhile is kept, and so is every
+          // folder above it.
+          for (String key : undo) {
+            try {
+              store.delete(storeKey(home, key));
+            } catch (DirectoryNotEmptyException e) {
+              return;
+            }
+          }
+        });
+    store.createFolders(storeKey(home, created.get(created.size() - 1)));
+    // The file going into them is reported on its own, once it is stored.
+    searchIndex.changed(home, created.get(0));
   }
 
   private void store(InputStreamSource upload, StoragePath target, User user) throws IOException {
@@ -328,7 +397,8 @@ public class FileService {
       throws IOException {
     Home home = storagePaths.home(user);
     StoragePath live = home.resolveItem(file.getPath());
-    store.createFolders(storeKey(home, parentKey(live.key())));
+    StoragePath parent = home.resolve(parentKey(live.key()));
+    createFolders(home, missingFolders(parent), user);
     String scratch = store.scratchBeside(live.storeKey());
     try {
       store.copy(source, scratch);
@@ -353,7 +423,7 @@ public class FileService {
       throws IOException {
     Home home = storagePaths.home(user);
     StoragePath parent = home.resolve(parentKey(file.getPath()));
-    store.createFolders(parent.storeKey());
+    createFolders(home, missingFolders(parent), user);
     // Copied to a scratch file first and moved into place, like an upload, so the copy never
     // shows up under its name half-written.
     String scratch = store.scratchBeside(home.resolveItem(file.getPath()).storeKey());
@@ -497,13 +567,17 @@ public class FileService {
       long size,
       User owner) {
     if (leftover.isPresent()) {
-      FileMetadata row = leftover.get();
-      versions.discardAll(row);
-      shareLinks.deleteByFile(row);
-      row.startOver(size, isDirectory);
-      return files.save(row);
+      return startOver(leftover.get(), isDirectory, size);
     }
     return files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, owner));
+  }
+
+  // A leftover row made to describe a new item: the old one's versions and share links go.
+  private FileMetadata startOver(FileMetadata row, boolean isDirectory, long size) {
+    versions.discardAll(row);
+    shareLinks.deleteByFile(row);
+    row.startOver(size, isDirectory);
+    return files.save(row);
   }
 
   // A file that is stored but was never tracked, e.g. copied in by hand, gets a row now so its

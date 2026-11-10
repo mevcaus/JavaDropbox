@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.repository;
 
 import com.javadropbox.javadropbox.model.FileMetadata;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -41,6 +42,26 @@ public interface FileMetadataRepository
   static String below(String path) {
     return path.replaceAll("[!%_]", "!$0") + "/%";
   }
+
+  /**
+   * Adds a row for a folder at {@code path} unless the account already has a row there. A
+   * concurrent insert of the same path makes this one wait for the other transaction and then add
+   * nothing, so two requests creating the same folder both go on rather than one failing.
+   *
+   * <p>The values are those {@code FileMetadata.startOver} gives a new folder; keep the two in
+   * step.
+   *
+   * @return 1 if the row was added, 0 if there already was one
+   */
+  @Modifying
+  @Query(
+      value =
+          "insert into file_metadata (user_id, path, filename, size, is_directory,"
+              + " current_version, created_at, updated_at)"
+              + " values (:ownerId, :path, :filename, 0, true, 1, :now, :now)"
+              + " on conflict (user_id, path) do nothing",
+      nativeQuery = true)
+  int insertFolderIfAbsent(Long ownerId, String path, String filename, Instant now);
 
   @Query("select m.id from FileMetadata m")
   List<Long> findAllIds();

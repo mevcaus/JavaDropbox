@@ -102,6 +102,7 @@ class FileIntegrityIntegrationTests {
   void tearDown() throws IOException {
     jdbc.execute("DROP TRIGGER IF EXISTS fail_version_insert ON file_versions");
     jdbc.execute("DROP TRIGGER IF EXISTS fail_at_commit ON file_history");
+    jdbc.execute("DROP TRIGGER IF EXISTS slow_folder_insert ON file_metadata");
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
@@ -201,6 +202,78 @@ class FileIntegrityIntegrationTests {
     assertThat(errors).isEmpty();
     assertThat(home.resolve("n_v1.txt")).hasContent("one");
     assertThat(home.resolve("n_v1 (2).txt")).hasContent("one");
+  }
+
+  // --- folders an upload makes on the way ----------------------------------------
+
+  @Test
+  @DisplayName("two uploads into the same new folders at once both succeed, with one row each")
+  void concurrentUploadsIntoNewFolders() throws Exception {
+    slowDownFolderInserts();
+
+    List<Throwable> errors =
+        runTogether(() -> upload("Work/Sub", "a.txt", "A"), () -> upload("Work/Sub", "b.txt", "B"));
+
+    assertThat(errors).isEmpty();
+    assertThat(home.resolve("Work/Sub/a.txt")).hasContent("A");
+    assertThat(home.resolve("Work/Sub/b.txt")).hasContent("B");
+    assertThat(metadata.findAll())
+        .filteredOn(m -> m.getIsDirectory())
+        .extracting(m -> m.getPath())
+        .containsExactlyInAnyOrder("Work", "Work/Sub");
+    assertThat(
+            jdbc.queryForList(
+                "SELECT file_path FROM file_history WHERE change_type = 'CREATE_FOLDER'",
+                String.class))
+        .containsExactlyInAnyOrder("Work", "Work/Sub");
+  }
+
+  @Test
+  @DisplayName("folders an upload made are removed again if their rows fail to commit")
+  void failedFolderRowsLeaveNoFolders() throws Exception {
+    failAtCommit();
+
+    assertThatThrownBy(() -> upload("Work/Sub", "a.txt", "x")).isInstanceOf(RuntimeException.class);
+
+    assertThat(home.resolve("Work")).doesNotExist();
+    assertThat(metadata.findAll()).isEmpty();
+  }
+
+  @Test
+  @DisplayName("a restore that recreated its file's folder and fails at commit removes both")
+  void failedRestoreRemovesTheFolderItMade() throws Exception {
+    upload("Work", "a.txt", "one");
+    upload("Work", "a.txt", "two");
+    long id = idOf("Work/a.txt");
+    Files.delete(home.resolve("Work/a.txt"));
+    Files.delete(home.resolve("Work"));
+    metadata.deleteById(idOf("Work"));
+    failAtCommit();
+
+    assertThatThrownBy(() -> fileService.restoreVersion(id, 1, RestoreMode.OVERWRITE))
+        .isInstanceOf(RuntimeException.class);
+
+    // The file is undone before the folder it went into, so the folder is empty when its turn
+    // comes.
+    assertThat(home.resolve("Work")).doesNotExist();
+    assertThat(metadata.findByPath(owner.getId(), "Work")).isEmpty();
+  }
+
+  @Test
+  @DisplayName("a copy restore that recreated its file's folder and fails at commit removes both")
+  void failedCopyRestoreRemovesTheFolderItMade() throws Exception {
+    upload("Work", "a.txt", "one");
+    upload("Work", "a.txt", "two");
+    long id = idOf("Work/a.txt");
+    Files.delete(home.resolve("Work/a.txt"));
+    Files.delete(home.resolve("Work"));
+    failAtCommit();
+
+    assertThatThrownBy(() -> fileService.restoreVersion(id, 1, RestoreMode.COPY))
+        .isInstanceOf(RuntimeException.class);
+
+    assertThat(home.resolve("Work")).doesNotExist();
+    assertThat(metadata.findByPath(owner.getId(), "Work/a_v1.txt")).isEmpty();
   }
 
   // --- failures after the disk has changed -------------------------------------
@@ -429,6 +502,19 @@ class FileIntegrityIntegrationTests {
         "CREATE CONSTRAINT TRIGGER fail_at_commit AFTER INSERT ON file_history"
             + " DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.success)"
             + " EXECUTE FUNCTION simulated_failure()");
+  }
+
+  /**
+   * Makes every insert of a folder's row wait a second first, so that requests started together
+   * have all looked at the store before any of them commits.
+   */
+  private void slowDownFolderInserts() {
+    jdbc.execute(
+        "CREATE OR REPLACE FUNCTION slow_insert() RETURNS trigger AS $$ BEGIN"
+            + " PERFORM pg_sleep(1); RETURN NEW; END $$ LANGUAGE plpgsql");
+    jdbc.execute(
+        "CREATE TRIGGER slow_folder_insert BEFORE INSERT ON file_metadata FOR EACH ROW"
+            + " WHEN (NEW.is_directory) EXECUTE FUNCTION slow_insert()");
   }
 
   /** Every stored version file, relative to the version store. */

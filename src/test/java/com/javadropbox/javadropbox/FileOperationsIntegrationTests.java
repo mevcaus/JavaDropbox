@@ -159,6 +159,101 @@ class FileOperationsIntegrationTests {
     assertThat(home.resolve("a.txt")).hasContent("x");
   }
 
+  @Test
+  @DisplayName("folders an upload makes on the way are listed with an id, an owner and history")
+  void foldersMadeByAnUploadHaveRows() throws Exception {
+    upload("Work/Sub", "report.txt", "x");
+
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(jsonPath("$[?(@.name == 'Work')].id").value((int) idOf("Work")))
+        .andExpect(jsonPath("$[?(@.name == 'Work')].ownerName").value("owner"))
+        .andExpect(
+            jsonPath("$[?(@.name == 'Work')].children[?(@.name == 'Sub')].id")
+                .value((int) idOf("Work/Sub")))
+        .andExpect(
+            jsonPath("$[?(@.name == 'Work')].children[?(@.name == 'Sub')].ownerName")
+                .value("owner"));
+    assertThat(metadata.findAll())
+        .extracting(FileMetadata::getPath, FileMetadata::getIsDirectory)
+        .containsExactlyInAnyOrder(
+            Tuple.tuple("Work", true),
+            Tuple.tuple("Work/Sub", true),
+            Tuple.tuple("Work/Sub/report.txt", false));
+    assertThat(history.findAll())
+        .filteredOn(h -> h.getChangeType() == ChangeType.CREATE_FOLDER)
+        .extracting(FileHistory::getFilePath, FileHistory::isSuccess)
+        .containsExactly(Tuple.tuple("Work", true), Tuple.tuple("Work/Sub", true));
+  }
+
+  @Test
+  @DisplayName("uploading into folders that are already there adds no folder rows or history")
+  void uploadIntoExistingFoldersAddsNoFolders() throws Exception {
+    createFolder("", "Work");
+    upload("Work", "a.txt", "x");
+    upload("Work/Sub", "b.txt", "y");
+    upload("Work/Sub", "c.txt", "z");
+
+    assertThat(metadata.findAll()).filteredOn(FileMetadata::getIsDirectory).hasSize(2);
+    assertThat(history.findAll())
+        .filteredOn(h -> h.getChangeType() == ChangeType.CREATE_FOLDER)
+        .extracting(FileHistory::getFilePath)
+        .containsExactly("Work", "Work/Sub");
+  }
+
+  @Test
+  @DisplayName("a row left by an item removed outside the app is started over as the new folder")
+  void leftoverRowBecomesTheNewFolder() throws Exception {
+    upload("", "Work", "one");
+    upload("", "Work", "two");
+    long id = idOf("Work");
+    Files.delete(home.resolve("Work"));
+
+    upload("Work", "a.txt", "x");
+
+    FileMetadata folder = metadata.findByPath(owner.getId(), "Work").orElseThrow();
+    assertThat(folder.getId()).isEqualTo(id);
+    assertThat(folder.getIsDirectory()).isTrue();
+    assertThat(folder.getCurrentVersion()).isEqualTo(1);
+    assertThat(versions.findAll()).isEmpty();
+    assertThat(home.resolve("Work/a.txt")).hasContent("x");
+  }
+
+  @Test
+  @DisplayName("restoring a file whose folder was removed outside the app gives the folder a row")
+  void restoreRecreatesFolderWithRow() throws Exception {
+    upload("Work", "a.txt", "one");
+    upload("Work", "a.txt", "two");
+    long id = idOf("Work/a.txt");
+    deleteFolderByHand(home.resolve("Work"));
+    metadata.deleteById(idOf("Work"));
+
+    restore(id, 1, "OVERWRITE");
+
+    assertThat(home.resolve("Work/a.txt")).hasContent("one");
+    assertThat(metadata.findByPath(owner.getId(), "Work"))
+        .get()
+        .extracting(FileMetadata::getIsDirectory)
+        .isEqualTo(true);
+  }
+
+  @Test
+  @DisplayName("restoring a copy of a file whose folder was removed outside the app recreates it")
+  void restoreAsCopyRecreatesFolderWithRow() throws Exception {
+    upload("Work", "a.txt", "one");
+    upload("Work", "a.txt", "two");
+    long id = idOf("Work/a.txt");
+    deleteFolderByHand(home.resolve("Work"));
+
+    restore(id, 1, "COPY");
+
+    assertThat(home.resolve("Work/a_v1.txt")).hasContent("one");
+    FileMetadata folder = metadata.findByPath(owner.getId(), "Work").orElseThrow();
+    assertThat(folder.getIsDirectory()).isTrue();
+    // The row the folder left behind, started over.
+    assertThat(folder.getCreatedAt()).isAfter(metadata.findById(id).orElseThrow().getCreatedAt());
+  }
+
   // --- deleting --------------------------------------------------------------
 
   @Test
@@ -667,6 +762,14 @@ class FileOperationsIntegrationTests {
                 .param("mode", mode)
                 .with(csrf()))
         .andExpect(status().isOk());
+  }
+
+  private static void deleteFolderByHand(Path folder) throws IOException {
+    try (Stream<Path> walk = Files.walk(folder)) {
+      for (Path path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+        Files.delete(path);
+      }
+    }
   }
 
   // Last modified two hours ago, i.e. not something a request could still be writing.

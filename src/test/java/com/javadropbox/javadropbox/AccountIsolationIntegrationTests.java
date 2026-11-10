@@ -102,6 +102,22 @@ class AccountIsolationIntegrationTests {
   }
 
   @Test
+  @DisplayName("two accounts uploading into the same new folder each get a folder of their own")
+  void sameNewFolderInTwoAccounts() throws Exception {
+    upload(ALICE, "Work", "a.txt", "alice's");
+    upload(BOB, "Work", "b.txt", "bob's");
+
+    JsonNode alicesFolder = node(ALICE, "Work");
+    JsonNode bobsFolder = node(BOB, "Work");
+    assertThat(alicesFolder.get("ownerName").asText()).isEqualTo("alice");
+    assertThat(bobsFolder.get("ownerName").asText()).isEqualTo("bob");
+    assertThat(bobsFolder.get("id").asLong()).isNotEqualTo(alicesFolder.get("id").asLong());
+    mockMvc
+        .perform(get("/api/files/download").param("path", "Work/a.txt").with(BOB))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   @DisplayName("two accounts can each have a file at a path, with its own id, versions and links")
   void samePathInTwoAccounts() throws Exception {
     long alicesId = idOf(ALICE, "secret.txt");
