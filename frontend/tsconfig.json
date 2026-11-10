@@ -15,6 +15,9 @@
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,
+    // Every file is a module of its own, even one with no import or export, so two files can't
+    // clash over a top-level name.
+    "moduleDetection": "force",
     "verbatimModuleSyntax": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,

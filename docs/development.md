@@ -232,3 +232,5 @@ cd frontend && npm run lint && npm run typecheck
 ```
 
 The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones. Those aren't type-checked themselves, but TypeScript infers types from them, and those types count. A component's destructured props without a default become required, for example, so a `.tsx` page that leaves one out fails until that component is converted and says which props are optional. Converting the files that others import first, components before the pages that use them, avoids that. Once a file has been converted, keep it TypeScript.
+
+TypeScript stays on 5.x for now (`~5.9.3`, and Dependabot skips its majors). `openapi-typescript` takes only 5.x, `typescript-eslint` nothing past 6.0, and TypeScript 7, the native compiler, has no JavaScript API for either.
