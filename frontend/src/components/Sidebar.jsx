@@ -52,7 +52,7 @@ const StorageMeter = ({ isCollapsed }) => {
     return (
         <div className="p-4 bg-slate-950" title={summary}>
             <div className={`flex items-center text-xs text-slate-400 ${isCollapsed ? 'justify-center' : ''}`}>
-                <HardDrive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <HardDrive className="h-4 w-4 shrink-0" aria-hidden="true" />
                 {!isCollapsed && <span className="ml-2">{summary}</span>}
             </div>
             {quota && !isCollapsed && (
@@ -83,14 +83,14 @@ const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
 
     return (
         <div className="h-full flex flex-col bg-slate-900 text-white w-full">
-            <div className="flex items-center justify-between h-20 flex-shrink-0 px-4 bg-slate-950 border-b border-slate-800 relative">
+            <div className="flex items-center justify-between h-20 shrink-0 px-4 bg-slate-950 border-b border-slate-800 relative">
                 <div className="flex-1 flex items-center justify-center">
                     <Logo collapsed={isCollapsed} variant="white" />
                 </div>
                 <button
                     onClick={toggleCollapse}
                     aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    className="absolute -right-3 top-8 bg-slate-800 rounded-full p-1 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 hidden lg:block"
+                    className="absolute -right-3 top-8 bg-slate-800 rounded-full p-1 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 hidden lg:block"
                 >
                     {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
                 </button>
@@ -113,7 +113,7 @@ const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
                             title={isCollapsed ? item.name : ''}
                         >
                             <item.icon
-                                className={`${isCollapsed ? 'mr-0' : 'mr-3'} h-5 w-5 flex-shrink-0 text-slate-400 group-hover:text-white transition-colors`}
+                                className={`${isCollapsed ? 'mr-0' : 'mr-3'} h-5 w-5 shrink-0 text-slate-400 group-hover:text-white transition-colors`}
                                 aria-hidden="true"
                             />
                             {!isCollapsed && item.name}

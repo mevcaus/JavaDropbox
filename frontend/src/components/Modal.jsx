@@ -92,19 +92,19 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby={titleId}>
             <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose} />
+                <div className="fixed inset-0 bg-gray-500/75 transition-opacity" aria-hidden="true" onClick={onClose} />
 
                 <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
                 <div
                     ref={panelRef}
                     tabIndex={-1}
-                    className={`relative inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle ${WIDTHS[size]} sm:w-full sm:p-6 focus:outline-none`}
+                    className={`relative inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle ${WIDTHS[size]} sm:w-full sm:p-6 focus:outline-hidden`}
                 >
                     <div className="absolute top-0 right-0 pt-4 pr-4">
                         <button
                             type="button"
-                            className="bg-white rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            className="bg-white rounded-md text-gray-400 hover:text-gray-500 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                             onClick={onClose}
                         >
                             <span className="sr-only">Close</span>
@@ -114,12 +114,12 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
 
                     <div className="sm:flex sm:items-start">
                         {icon && (
-                            <div className={`mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full sm:mx-0 sm:h-10 sm:w-10 ${iconClassName}`}>
+                            <div className={`mx-auto shrink-0 flex items-center justify-center h-12 w-12 rounded-full sm:mx-0 sm:h-10 sm:w-10 ${iconClassName}`}>
                                 {icon}
                             </div>
                         )}
                         <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full min-w-0">
-                            <h3 id={titleId} className="text-lg leading-6 font-medium text-gray-900 pr-8 break-words">
+                            <h3 id={titleId} className="text-lg leading-6 font-medium text-gray-900 pr-8 wrap-break-word">
                                 {title}
                             </h3>
                             {children}

@@ -90,7 +90,7 @@ const TextPreview = ({ src, name }) => {
             <pre
                 tabIndex={0}
                 aria-label={`Contents of ${name}`}
-                className="max-h-[70vh] overflow-auto rounded-md border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-800 whitespace-pre font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="max-h-[70vh] overflow-auto rounded-md border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-800 whitespace-pre font-mono focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
             >
                 {result.content}
             </pre>

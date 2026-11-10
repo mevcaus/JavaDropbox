@@ -38,7 +38,7 @@ const FolderContents = ({ folder }) => {
                                 <button
                                     type="button"
                                     onClick={() => setTrail(trail.slice(0, index))}
-                                    className="rounded-sm hover:text-blue-600 break-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                    className="rounded-xs hover:text-blue-600 break-all focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
                                 >
                                     {name}
                                 </button>
@@ -60,7 +60,7 @@ const FolderContents = ({ folder }) => {
                                     <button
                                         type="button"
                                         onClick={() => setTrail([...trail, entry.name])}
-                                        className="text-left text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline break-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                        className="text-left text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline break-all focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
                                     >
                                         {entry.name}
                                     </button>
@@ -141,7 +141,7 @@ const Shared = () => {
             <>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex min-w-0 items-start gap-3">
-                        <div className="mt-1 flex-shrink-0">
+                        <div className="mt-1 shrink-0">
                             <FileIcon type={item.isDirectory ? 'DIRECTORY' : 'FILE'} name={item.name} />
                         </div>
                         <div className="min-w-0">
@@ -158,7 +158,7 @@ const Shared = () => {
                     <a
                         href={`${link}/download`}
                         download
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-sm"
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-xs"
                     >
                         <Download className="h-4 w-4 mr-2" aria-hidden="true" />
                         {item.isDirectory ? 'Download as .zip' : 'Download'}
@@ -182,13 +182,13 @@ const Shared = () => {
 
     return (
         <div className="min-h-screen bg-gray-50">
-            <header className="bg-white shadow-sm">
+            <header className="bg-white shadow-xs">
                 <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
                     <Logo />
                 </div>
             </header>
             <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-                <div className="rounded-lg bg-white p-4 shadow sm:p-6">{body}</div>
+                <div className="rounded-lg bg-white p-4 shadow-sm sm:p-6">{body}</div>
                 <p className="mt-4 text-center text-xs text-gray-500">
                     Shared with JavaDropbox. Anyone with this link can see and download it until it expires.
                 </p>

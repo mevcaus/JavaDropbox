@@ -18,7 +18,7 @@ const Breadcrumbs = ({ currentPath, onNavigate }) => {
             <button
                 onClick={() => onNavigate('')}
                 aria-current={parts.length === 0 ? 'page' : undefined}
-                className="flex items-center rounded-sm hover:text-blue-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                className="flex items-center rounded-xs hover:text-blue-600 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             >
                 <Home className="h-4 w-4 mr-1" />
                 Home
@@ -38,7 +38,7 @@ const Breadcrumbs = ({ currentPath, onNavigate }) => {
                         ) : (
                             <button
                                 onClick={() => onNavigate(path)}
-                                className="rounded-sm hover:text-blue-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                                className="rounded-xs hover:text-blue-600 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                             >
                                 {part}
                             </button>

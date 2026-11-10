@@ -97,7 +97,7 @@ const InviteDialog = ({ onClose, onInvited }) => {
                             value={username}
                             readOnly={sending}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
+                            className="block w-full rounded-md border-gray-300 shadow-xs focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
                         />
                     </div>
                     <div>
@@ -109,7 +109,7 @@ const InviteDialog = ({ onClose, onInvited }) => {
                             value={role}
                             disabled={sending}
                             onChange={(e) => setRole(e.target.value)}
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
+                            className="block w-full rounded-md border-gray-300 shadow-xs focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
                         >
                             <option value="USER">User: has files of their own</option>
                             <option value="ADMIN">Admin: also manages the accounts</option>

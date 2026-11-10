@@ -14,7 +14,7 @@ const DemoBanner = () => {
 
     return (
         <div className="flex items-start gap-2 bg-blue-50 border-b border-blue-200 px-4 py-2 text-sm text-blue-900">
-            <Info className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <Info className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
             <p>
                 Public demo: everyone shares this account. Uploads are limited to {limits.join(', ')}, and
                 everything is reset daily at {timeFormatter.format(new Date(demo.nextReset))} your time.

@@ -31,10 +31,10 @@ const Snippet = ({ snippet }) => {
     if (at < snippet.text.length) parts.push({ text: snippet.text.slice(at) });
 
     return (
-        <p className="mt-1 max-w-xl whitespace-normal break-words line-clamp-2 text-xs text-gray-600">
+        <p className="mt-1 max-w-xl whitespace-normal wrap-break-word line-clamp-2 text-xs text-gray-600">
             {parts.map((part, i) => (
                 <Fragment key={i}>
-                    {part.match ? <mark className="rounded-sm bg-yellow-100 text-gray-900">{part.text}</mark> : part.text}
+                    {part.match ? <mark className="rounded-xs bg-yellow-100 text-gray-900">{part.text}</mark> : part.text}
                 </Fragment>
             ))}
         </p>
@@ -78,7 +78,7 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
             <button
                 type="button"
                 onClick={() => onSort(sortKey)}
-                className="w-full flex items-center px-6 py-3 uppercase select-none hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-colors"
+                className="w-full flex items-center px-6 py-3 uppercase select-none hover:bg-gray-200 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-colors"
             >
                 {label}
                 {isActive ? (
@@ -123,7 +123,7 @@ const SearchStatus = ({ answer, pending, shown, sortedByRelevance, onSortByRelev
                 <button
                     type="button"
                     onClick={onSortByRelevance}
-                    className="rounded-sm text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    className="rounded-xs text-blue-600 hover:text-blue-800 hover:underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                     Sort by relevance
                 </button>
@@ -205,7 +205,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                     placeholder="Search files..."
                     value={searchQuery}
                     onChange={handleSearchChange}
-                    className="block w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out"
+                    className="block w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-hidden focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out"
                 />
             </div>
 
@@ -221,7 +221,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
 
             {/* Scrolls sideways on a narrow screen, where the unwrapped columns are wider than the
                 viewport; clipping instead would cut off the actions column. */}
-            <div className="bg-white shadow overflow-x-auto sm:rounded-lg">
+            <div className="bg-white shadow-sm overflow-x-auto sm:rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
@@ -255,7 +255,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                 >
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="flex items-center">
-                                            <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center">
+                                            <div className="shrink-0 h-10 w-10 flex items-center justify-center">
                                                 <FileIcon type={file.isDirectory ? 'DIRECTORY' : 'FILE'} name={file.name} />
                                             </div>
                                             <div className="ml-4">
@@ -265,7 +265,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                             e.stopPropagation(); // Prevent double trigger
                                                             onFolderClick(file.relativePath);
                                                         }}
-                                                        className="rounded-sm text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                                                        className="rounded-xs text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                                     >
                                                         {file.name}
                                                     </button>
@@ -279,7 +279,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                                         }}
                                                         title="Preview"
                                                         aria-label={`Preview ${file.name}`}
-                                                        className="rounded-sm text-left text-sm font-medium text-gray-900 hover:text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                                                        className="rounded-xs text-left text-sm font-medium text-gray-900 hover:text-blue-700 hover:underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                                     >
                                                         {file.name}
                                                     </button>
