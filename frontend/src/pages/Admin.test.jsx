@@ -327,6 +327,45 @@ describe('Admin', () => {
         expect(await screen.findByLabelText('Password reset link')).toHaveValue('http://localhost/reset-password/xyz');
     });
 
+    it('imports the files copied into an account\'s folder and says how many', async () => {
+        const user = userEvent.setup();
+        serve();
+        api.post.mockResolvedValue({ data: { files: 3, folders: 1, missing: 0, skipped: 0 } });
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Import files for bob' }));
+
+        expect(api.post).toHaveBeenCalledWith('/api/admin/users/2/import');
+        expect(addToast).toHaveBeenCalledWith('Imported 3 files and 1 folder for bob', 'success');
+    });
+
+    it('says when there was nothing to import, and what is missing or left out', async () => {
+        const user = userEvent.setup();
+        serve();
+        api.post.mockResolvedValue({ data: { files: 0, folders: 0, missing: 2, skipped: 1 } });
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Import files for eve' }));
+
+        expect(addToast).toHaveBeenCalledWith(
+            "Nothing new to import for eve. 2 items are missing from the store. 1 item was left out: names the app doesn't accept.",
+            'info',
+        );
+    });
+
+    it('says why when the server refuses an import', async () => {
+        const user = userEvent.setup();
+        serve();
+        api.post.mockRejectedValue({
+            response: { status: 409, data: { message: 'None of this account\'s files are in the store.' } },
+        });
+        renderAs('ADMIN');
+
+        await user.click(await screen.findByRole('button', { name: 'Import files for bob' }));
+
+        expect(addToast).toHaveBeenCalledWith('None of this account\'s files are in the store.', 'error');
+    });
+
     it('lists open invitations and withdraws one', async () => {
         const user = userEvent.setup();
         serve();

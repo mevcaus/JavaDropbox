@@ -95,6 +95,22 @@ public class StoragePaths {
     this.internalDir = serving.toRealPath().resolve(INTERNAL_DIR);
   }
 
+  /** Whether {@code name} is one path segment a client could have given an item. */
+  static boolean isWellFormedName(String name) {
+    return name != null
+        && !name.isBlank()
+        && !name.equals(".")
+        && !name.equals("..")
+        && !name.contains("/")
+        && !name.contains("\\")
+        && name.indexOf('\0') < 0;
+  }
+
+  /** Like {@link #isWellFormedName}, and short enough to keep. */
+  static boolean isAcceptableName(String name) {
+    return isWellFormedName(name) && name.length() <= MAX_NAME_LENGTH;
+  }
+
   /** Where the app keeps its own state, on the local disk. */
   public Path internalDir() {
     return internalDir;
@@ -218,13 +234,7 @@ public class StoragePaths {
      * created. The name must be one path segment.
      */
     public StoragePath resolveChild(StoragePath parent, String name) {
-      if (name == null
-          || name.isBlank()
-          || name.equals(".")
-          || name.equals("..")
-          || name.contains("/")
-          || name.contains("\\")
-          || name.indexOf('\0') >= 0) {
+      if (!isWellFormedName(name)) {
         throw new BadRequestException("Invalid name: " + name);
       }
       if (name.length() > MAX_NAME_LENGTH) {

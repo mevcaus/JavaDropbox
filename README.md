@@ -85,7 +85,7 @@ flowchart TB
 |-------|----------------|-------------|
 | **Config** | Security chain, first-run setup gate, sign-in throttling, ending sessions of changed accounts, CORS | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `AccountSessionFilter`, `SpaFallbackFilter` |
 | **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `SearchController`, `AdminController`, `AccountLinkController`, `DownloadResponses`, `ApiExceptionHandler` |
-| **Service** | Path validation, file I/O, versioning, audit log, share links, search, accounts and quotas | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor`, `AccountService`, `AccountLinkService`, `StorageQuota` |
+| **Service** | Path validation, file I/O, versioning, audit log, share links, search, accounts and quotas | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor`, `AccountService`, `AccountLinkService`, `ImportService`, `StorageQuota` |
 | **Storage** | Where the bytes are: a folder on disk or an S3 bucket, both behaving like a filesystem | `FileStore`, `LocalFileStore`, `S3FileStore` |
 | **Repository** | Data access, including pessimistic row locks | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `ShareLinkRepository`, `UserRepository`, `AccountLinkRepository` |
 
@@ -320,6 +320,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 - Admins invite people with one-time links (valid for 7 days), choosing their role and quota, and can withdraw an invitation before it is used
 - Per-account quotas, previous versions included, shown in the sidebar as a meter; uploads and restores that would go over are refused with a clear message
 - Disabling an account signs it out everywhere and stops its share links; admins make one-time password reset links
+- Admins import files copied into an account's folder outside the app, giving them ids, owners and versions like anything uploaded
 - Safeguards: admins can't disable themselves or change their own role, and there is always an admin who can sign in
 - Existing installs upgrade with their files, versions and share links intact under the first account
 

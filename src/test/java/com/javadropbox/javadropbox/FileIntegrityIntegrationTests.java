@@ -18,7 +18,9 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileHistoryService;
 import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
+import com.javadropbox.javadropbox.service.ShareLinkService;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import jakarta.persistence.EntityManagerFactory;
@@ -27,6 +29,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,6 +41,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -79,6 +83,8 @@ class FileIntegrityIntegrationTests {
   private Path servingDir;
 
   @Autowired private FileService fileService;
+  @Autowired private ImportService imports;
+  @Autowired private ShareLinkService shareLinks;
   @Autowired private FileMetadataRepository metadata;
   @Autowired private UserRepository users;
   @Autowired private JdbcTemplate jdbc;
@@ -86,7 +92,7 @@ class FileIntegrityIntegrationTests {
   @MockitoSpyBean private FileVersionService versionService;
   @MockitoSpyBean private FileHistoryService historyService;
   @MockitoSpyBean private StoragePaths storagePaths;
-  @Autowired private LocalFileStore localStore;
+  @MockitoSpyBean private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -103,6 +109,7 @@ class FileIntegrityIntegrationTests {
     jdbc.execute("DROP TRIGGER IF EXISTS fail_version_insert ON file_versions");
     jdbc.execute("DROP TRIGGER IF EXISTS fail_at_commit ON file_history");
     jdbc.execute("DROP TRIGGER IF EXISTS slow_folder_insert ON file_metadata");
+    jdbc.execute("DROP TRIGGER IF EXISTS slow_row_insert ON file_metadata");
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
@@ -274,6 +281,160 @@ class FileIntegrityIntegrationTests {
 
     assertThat(home.resolve("Work")).doesNotExist();
     assertThat(metadata.findByPath(owner.getId(), "Work/a_v1.txt")).isEmpty();
+  }
+
+  // --- importing files added outside the app ---------------------------------------
+
+  @Test
+  @DisplayName("an upload over a file copied in by hand, racing an import, makes one row")
+  void uploadRacingImportMakesOneRow() throws Exception {
+    Files.writeString(home.resolve("x.txt"), "by hand");
+    slowDownRowInserts();
+
+    // The import adds its row first; the upload, a moment later, finds it on its way in.
+    List<Throwable> errors =
+        runTogether(
+            () -> imports.importFiles(owner.getId(), "test"),
+            () -> {
+              Thread.sleep(300);
+              upload("x.txt", "uploaded");
+            });
+
+    assertThat(errors).isEmpty();
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("x.txt");
+    long id = idOf("x.txt");
+    assertThat(versionContents(id)).containsExactly(Map.entry(1, "by hand"));
+    assertThat(home.resolve("x.txt")).hasContent("uploaded");
+  }
+
+  @Test
+  @DisplayName("two uploads over a file copied in by hand at once keep one row and every version")
+  void concurrentUploadsOverAnUntrackedFile() throws Exception {
+    Files.writeString(home.resolve("y.txt"), "by hand");
+    slowDownRowInserts();
+
+    List<Throwable> errors = runTogether(() -> upload("y.txt", "A"), () -> upload("y.txt", "B"));
+
+    assertThat(errors).isEmpty();
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("y.txt");
+    long id = idOf("y.txt");
+    assertThat(versionContents(id)).hasSize(2).containsEntry(1, "by hand");
+    // Each version records the size of what it holds, not of what was there before it.
+    for (Map<String, Object> version :
+        jdbc.queryForList(
+            "SELECT size, stored_filename FROM file_versions WHERE file_id = ?", id)) {
+      Path stored =
+          servingDir.resolve(".versions").resolve((String) version.get("stored_filename"));
+      assertThat(((Number) version.get("size")).longValue()).isEqualTo(Files.size(stored));
+    }
+  }
+
+  @Test
+  @DisplayName(
+      "an import racing an upload over a file copied in by hand, the upload first, keeps one row")
+  void importRacingUploadMakesOneRow() throws Exception {
+    Files.writeString(home.resolve("z.txt"), "by hand");
+    slowDownRowInserts();
+
+    List<Throwable> errors =
+        runTogether(
+            () -> upload("z.txt", "uploaded"),
+            () -> {
+              Thread.sleep(300);
+              imports.importFiles(owner.getId(), "test");
+            });
+
+    assertThat(errors).isEmpty();
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("z.txt");
+    assertThat(versionContents(idOf("z.txt"))).containsExactly(Map.entry(1, "by hand"));
+  }
+
+  @Test
+  @DisplayName("an import keeps the row of a file an upload is replacing while the import checks")
+  void importKeepsTheRowOfAFileBeingReplaced() throws Exception {
+    Files.writeString(home.resolve("r.txt"), "by hand");
+    String homeKey = storagePaths.home(owner).key();
+    CountDownLatch rewalking = new CountDownLatch(1);
+    CountDownLatch inTheGap = new CountDownLatch(1);
+    AtomicReference<Thread> importer = new AtomicReference<>();
+    AtomicInteger walks = new AtomicInteger();
+    // The import's second walk, the one looking for what vanished, waits for the upload to have
+    // archived the file and not yet put the new one in its place.
+    doAnswer(
+            invocation -> {
+              if (Thread.currentThread() == importer.get()
+                  && homeKey.equals(invocation.getArgument(0))
+                  && walks.incrementAndGet() == 2) {
+                rewalking.countDown();
+                assertThat(inTheGap.await(20, TimeUnit.SECONDS)).isTrue();
+              }
+              return invocation.callRealMethod();
+            })
+        .when(target(localStore))
+        .walk(anyString(), any());
+    doAnswer(
+            invocation -> {
+              Object archived = invocation.callRealMethod();
+              inTheGap.countDown();
+              Thread.sleep(1000);
+              return archived;
+            })
+        .when(target(versionService))
+        .archive(any(), any(), any());
+
+    List<Throwable> errors =
+        runTogether(
+            () -> {
+              importer.set(Thread.currentThread());
+              imports.importFiles(owner.getId(), "test");
+            },
+            () -> {
+              assertThat(rewalking.await(20, TimeUnit.SECONDS)).isTrue();
+              upload("r.txt", "uploaded");
+            });
+
+    assertThat(errors).isEmpty();
+    long id = idOf("r.txt");
+    assertThat(versionContents(id)).containsExactly(Map.entry(1, "by hand"));
+    assertThat(home.resolve("r.txt")).hasContent("uploaded");
+  }
+
+  @Test
+  @DisplayName("sharing a file copied in by hand while an import adds its row uses that row")
+  void shareRacingImportUsesOneRow() throws Exception {
+    Files.writeString(home.resolve("s.txt"), "by hand");
+    slowDownRowInserts();
+
+    List<Throwable> errors =
+        runTogether(
+            () -> imports.importFiles(owner.getId(), "test"),
+            () -> {
+              Thread.sleep(300);
+              shareLinks.create("s.txt", Duration.ofDays(1));
+            });
+
+    assertThat(errors).isEmpty();
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("s.txt");
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM share_links", Long.class)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("a file deleted while an import adds its row is left without one")
+  void deleteRacingImportLeavesNoRow() throws Exception {
+    Files.writeString(home.resolve("gone.txt"), "by hand");
+    slowDownRowInserts();
+
+    List<Throwable> errors =
+        runTogether(
+            () -> imports.importFiles(owner.getId(), "test"),
+            () -> {
+              Thread.sleep(300);
+              fileService.delete("gone.txt");
+            });
+
+    assertThat(errors).isEmpty();
+    assertThat(home.resolve("gone.txt")).doesNotExist();
+    assertThat(metadata.findPathsOf(owner.getId())).isEmpty();
   }
 
   // --- failures after the disk has changed -------------------------------------
@@ -515,6 +676,16 @@ class FileIntegrityIntegrationTests {
     jdbc.execute(
         "CREATE TRIGGER slow_folder_insert BEFORE INSERT ON file_metadata FOR EACH ROW"
             + " WHEN (NEW.is_directory) EXECUTE FUNCTION slow_insert()");
+  }
+
+  /** Like {@link #slowDownFolderInserts}, for every row. */
+  private void slowDownRowInserts() {
+    jdbc.execute(
+        "CREATE OR REPLACE FUNCTION slow_insert() RETURNS trigger AS $$ BEGIN"
+            + " PERFORM pg_sleep(1); RETURN NEW; END $$ LANGUAGE plpgsql");
+    jdbc.execute(
+        "CREATE TRIGGER slow_row_insert BEFORE INSERT ON file_metadata FOR EACH ROW"
+            + " EXECUTE FUNCTION slow_insert()");
   }
 
   /** Every stored version file, relative to the version store. */

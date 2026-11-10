@@ -72,12 +72,14 @@ public class ShareLinkService {
         store
             .stat(target.storeKey())
             .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
-    FileMetadata file = files.findByPath(user.getId(), target.key()).orElse(null);
-    if (file == null) {
-      file =
-          files.save(
-              new FileMetadata(target.key(), target.name(), item.size(), item.isDirectory(), user));
-    }
+    // An item with no row yet gets one, waiting for an import or upload giving it one meanwhile.
+    Instant added = Instant.now();
+    files.insertIfAbsent(
+        user.getId(), target.key(), target.name(), item.size(), item.isDirectory(), added, added);
+    FileMetadata file =
+        files
+            .findByPath(user.getId(), target.key())
+            .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
 
     String token = Tokens.newToken();
     Instant now = Instant.now();

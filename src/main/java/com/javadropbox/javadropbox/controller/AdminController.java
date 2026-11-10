@@ -1,14 +1,17 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.AccountDto;
+import com.javadropbox.javadropbox.dto.ImportResult;
 import com.javadropbox.javadropbox.dto.InviteDto;
 import com.javadropbox.javadropbox.service.AccountLinkService;
 import com.javadropbox.javadropbox.service.AccountLinkService.CreatedLink;
 import com.javadropbox.javadropbox.service.AccountService;
+import com.javadropbox.javadropbox.service.ImportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -32,10 +35,13 @@ public class AdminController {
 
   private final AccountService accounts;
   private final AccountLinkService accountLinks;
+  private final ImportService imports;
 
-  public AdminController(AccountService accounts, AccountLinkService accountLinks) {
+  public AdminController(
+      AccountService accounts, AccountLinkService accountLinks, ImportService imports) {
     this.accounts = accounts;
     this.accountLinks = accountLinks;
+    this.imports = imports;
   }
 
   @GetMapping("/users")
@@ -94,6 +100,19 @@ public class AdminController {
               + " link replaces the previous one.")
   public Map<String, String> resetPassword(@PathVariable Long id, HttpServletRequest request) {
     return linkResponse(accountLinks.passwordReset(id), "/reset-password/", request);
+  }
+
+  @PostMapping("/users/{id}/import")
+  @Operation(
+      summary = "Import the files added to an account's folder outside the app",
+      description =
+          "Gives every file and folder in the account's folder that has no row one, owned by the"
+              + " account, so it has an id like anything uploaded. Never removes anything: rows"
+              + " whose file is missing from the store are only counted, and items whose names the app"
+              + " wouldn't accept are left out and counted. Returns the counts, not the files. 409 when none of the account's files are in the store, which looks"
+              + " like the wrong serving directory or bucket.")
+  public ImportResult importFiles(@PathVariable Long id, Principal admin) throws IOException {
+    return imports.importFiles(id, admin.getName());
   }
 
   @GetMapping("/invites")

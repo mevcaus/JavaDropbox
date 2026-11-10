@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { signIn } from '../support/account.js';
+import { ACCOUNT, signIn } from '../support/account.js';
 
 // Signed in as the admin setup created (the shared session), inviting someone who uses the link in
 // a browser of their own. Each run invites a new username: accounts are never deleted.
@@ -56,4 +56,23 @@ test('an admin invites someone, who gets files of their own, and disables them',
     expect((await them.request.get('/api/me')).status()).toBe(401);
 
     await theirs.close();
+});
+
+// Files copied into the store by hand can't be put there from the browser, so this checks the
+// round trip: the button, the request and the answer. What gets imported is covered by the
+// backend's tests, on disk and in S3.
+test('an admin imports the files added to an account outside the app', async ({ page }) => {
+    await page.goto('/admin');
+    await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
+
+    await page.getByRole('button', { name: `Import files for ${ACCOUNT.username}` }).click();
+
+    // A fresh stack's welcome file has no row until the first import; later runs find nothing.
+    await expect(
+        page.getByText(
+            new RegExp(`^(Imported \\d+ files? and \\d+ folders?|Nothing new to import) for ${ACCOUNT.username}$`),
+        ),
+    ).toBeVisible();
+    await page.getByRole('button', { name: `Import files for ${ACCOUNT.username}` }).click();
+    await expect(page.getByText(`Nothing new to import for ${ACCOUNT.username}`).last()).toBeVisible();
 });
