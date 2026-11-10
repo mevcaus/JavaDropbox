@@ -73,7 +73,7 @@ flowchart TB
 
     DB[("PostgreSQL<br/>accounts · metadata · versions · history · share links")]
     Files[("Filesystem or S3 bucket<br/>.users/&lt;id&gt;/ · .versions/")]
-    Disk[("Local disk<br/>.javadropbox/search-index")]
+    Disk[("Local disk<br/>.javadropbox/search-index · uploads · tmp")]
 
     Browser -- "JSON over HTTPS<br/>session cookie + CSRF token" --> Security
     Repos -- "JDBC · schema by Flyway" --> DB

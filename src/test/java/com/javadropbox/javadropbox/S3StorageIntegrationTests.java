@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -22,10 +23,13 @@ import com.javadropbox.javadropbox.service.FileStore;
 import com.javadropbox.javadropbox.service.LooseFileAdoption;
 import com.javadropbox.javadropbox.service.S3FileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StorageSweeper;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -95,6 +99,7 @@ class S3StorageIntegrationTests {
   @Autowired private SearchIndex searchIndex;
   @Autowired private LooseFileAdoption adoption;
   @Autowired private StorageSweeper sweeper;
+  @Autowired private StoragePaths storagePaths;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;
 
@@ -337,6 +342,29 @@ class S3StorageIntegrationTests {
         .andExpect(status().isInsufficientStorage());
     // The account's folder, and the one file that fitted.
     assertThat(keys(home)).containsExactlyInAnyOrder(home, home + "fits.txt");
+  }
+
+  @Test
+  @DisplayName("parts wait in .javadropbox/tmp in the serving directory, not in java.io.tmpdir")
+  void partsWaitInTheServingDirectory() throws Exception {
+    Path temp = storagePaths.tempDir();
+    upload("", "first.txt", "one");
+    assertThat(temp).isDirectory().isEmptyDirectory();
+
+    // An upload that cannot make its part there fails, so that is where parts go.
+    assertThat(temp.toFile().setWritable(false, false)).isTrue();
+    try {
+      assumeFalse(Files.isWritable(temp), "running as root, which can write anyway");
+      mockMvc
+          .perform(
+              multipart("/api/files")
+                  .file(file("second.txt", "two"))
+                  .param("path", "")
+                  .with(csrf().asHeader()))
+          .andExpect(status().isInternalServerError());
+    } finally {
+      temp.toFile().setWritable(true, false);
+    }
   }
 
   @Test

@@ -88,7 +88,13 @@ public class S3FileStore implements FileStore, AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(S3FileStore.class);
 
+  /** Starts the name of every temporary file, so {@link StorageSweeper} knows them. */
+  static final String TEMP_PREFIX = "javadropbox-";
+
+  private static final Path DEFAULT_TEMP_DIR = Path.of(System.getProperty("java.io.tmpdir"));
+
   private final S3Client client;
+  private final Path tempDir;
   private final String bucket;
   private final String prefix;
   private final long partSize;
@@ -104,16 +110,29 @@ public class S3FileStore implements FileStore, AutoCloseable {
    * a store that is empty.
    *
    * @param prefix where the store's keys start in the bucket; empty for the whole bucket
+   * @param tempDir where parts wait until S3 has them, and objects are copied to be read locally;
+   *     made when it is needed
    * @throws IllegalStateException if the bucket cannot be reached, or already holds objects that
    *     are not JavaDropbox's, saying why
    */
-  public S3FileStore(S3Client client, String bucket, String prefix) {
-    this(client, bucket, prefix, DEFAULT_PART_SIZE, DEFAULT_PAGE_SIZE);
+  public S3FileStore(S3Client client, String bucket, String prefix, Path tempDir) {
+    this(client, bucket, prefix, tempDir, DEFAULT_PART_SIZE, DEFAULT_PAGE_SIZE);
+  }
+
+  // For tests, with temporary files in java.io.tmpdir.
+  S3FileStore(S3Client client, String bucket, String prefix) {
+    this(client, bucket, prefix, DEFAULT_TEMP_DIR, DEFAULT_PART_SIZE, DEFAULT_PAGE_SIZE);
   }
 
   // For tests, with parts small enough to send a few of, and pages to list a few of.
   S3FileStore(S3Client client, String bucket, String prefix, long partSize, int pageSize) {
+    this(client, bucket, prefix, DEFAULT_TEMP_DIR, partSize, pageSize);
+  }
+
+  private S3FileStore(
+      S3Client client, String bucket, String prefix, Path tempDir, long partSize, int pageSize) {
     this.client = client;
+    this.tempDir = tempDir;
     this.bucket = bucket;
     this.prefix = normalizePrefix(prefix);
     this.partSize = partSize;
@@ -433,7 +452,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
 
   @Override
   public <T> T readLocally(String key, LocalReader<T> reader) throws IOException {
-    Path copy = Files.createTempFile("javadropbox-", ".tmp");
+    Path copy = tempFile(".tmp");
     try {
       try (InputStream in = open(key)) {
         Files.copy(in, copy, StandardCopyOption.REPLACE_EXISTING);
@@ -442,6 +461,11 @@ public class S3FileStore implements FileStore, AutoCloseable {
     } finally {
       Files.deleteIfExists(copy);
     }
+  }
+
+  // Made again if it was deleted while the app runs.
+  private Path tempFile(String suffix) throws IOException {
+    return Files.createTempFile(Files.createDirectories(tempDir), TEMP_PREFIX, suffix);
   }
 
   // Nothing is created until it is written: an object only appears once it is whole.
@@ -459,7 +483,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
   public long write(String key, InputStream content, long length) throws IOException {
     String objectKey = objectKey(key);
     long size = partSizeFor(length);
-    Path part = Files.createTempFile("javadropbox-", ".part");
+    Path part = tempFile(".part");
     try {
       long first = fill(part, content, size);
       if (first < size || first == length) {

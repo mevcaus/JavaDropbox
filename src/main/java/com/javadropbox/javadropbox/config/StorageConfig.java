@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox.config;
 
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.S3FileStore;
+import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
@@ -63,6 +64,7 @@ public class StorageConfig {
    * @param accessKey with {@code secretKey}; without them, the AWS SDK looks for credentials where
    *     it always does, such as {@code AWS_ACCESS_KEY_ID} or the instance's role
    * @param maxConnections each request being served reads or writes at most one object at a time
+   * @param directory the serving directory, where the store keeps its temporary files
    */
   @Bean
   @ConditionalOnProperty(name = TYPE, havingValue = "s3")
@@ -74,7 +76,8 @@ public class StorageConfig {
       @Value("${" + S3 + "path-style-access:false}") boolean pathStyleAccess,
       @Value("${" + S3 + "access-key:}") String accessKey,
       @Value("${" + S3 + "secret-key:}") String secretKey,
-      @Value("${server.tomcat.threads.max:200}") int maxConnections) {
+      @Value("${server.tomcat.threads.max:200}") int maxConnections,
+      @Value("${javadropbox.serving.directory}") String directory) {
     if (bucket.isBlank()) {
       throw new IllegalStateException(
           TYPE + " is s3, so " + S3 + "bucket has to say which bucket to store files in");
@@ -112,7 +115,9 @@ public class StorageConfig {
           e);
     }
     try {
-      S3FileStore store = new S3FileStore(client, bucket.strip(), prefix);
+      S3FileStore store =
+          new S3FileStore(
+              client, bucket.strip(), prefix, StoragePaths.tempDirIn(Path.of(directory)));
       log.info(
           "Storing files in {}{}",
           store.description(),
