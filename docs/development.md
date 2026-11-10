@@ -136,7 +136,7 @@ JavaDropbox/
 │   │   │   ├── SpaController.java       # Serves the built app for client-side routes
 │   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
-│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet, AccountDto, InviteDto, AccountLinkInfo
+│   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet, AccountDto, InviteDto, AccountLinkInfo, ImportResult
 │   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
 │   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink, AccountLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
@@ -148,6 +148,7 @@ JavaDropbox/
 │   │       ├── LooseFileAdoption.java   # Gives an upgraded install's files to the first account
 │   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree
+│   │       ├── ImportService.java       # Gives files copied into an account's folder rows of their own
 │   │       ├── SearchIndex.java         # Lucene index of names and text, kept in step with the store
 │   │       ├── SearchService.java       # Checks searches and their hits against the store
 │   │       ├── TextExtractor.java       # Text of text files, PDFs (PDFBox) and .docx

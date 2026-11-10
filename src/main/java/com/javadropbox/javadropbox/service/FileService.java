@@ -257,11 +257,15 @@ public class FileService {
             // turns and each archives what the one before it left.
             Optional<FileMetadata> row = files.lockByPath(user.getId(), target.key());
             Optional<Entry> current = store.stat(target.storeKey());
+            if (row.isEmpty() && current.isPresent()) {
+              // A file with no row: given one, waiting for an import or another upload giving it
+              // one, and looked at again under that row's lock, since the other may have changed
+              // it meanwhile.
+              row = Optional.of(track(target, size, user));
+              current = store.stat(target.storeKey());
+            }
             boolean replacing = current.isPresent();
-            FileMetadata file =
-                replacing
-                    ? row.orElseGet(() -> track(target, size, user))
-                    : claim(target, row, false, size, user);
+            FileMetadata file = replacing ? row.get() : claim(target, row, false, size, user);
             if (replacing) {
               versions.archive(file, current.get(), user);
             }
@@ -581,9 +585,15 @@ public class FileService {
   }
 
   // A file that is stored but was never tracked, e.g. copied in by hand, gets a row now so its
-  // current content can be kept as a version before it is replaced.
+  // current content can be kept as a version before it is replaced. An import or another upload
+  // adding the row at the same time is waited for, and that row is used.
   private FileMetadata track(StoragePath target, long size, User user) {
-    return files.save(new FileMetadata(target.key(), target.name(), size, false, user));
+    Instant now = Instant.now();
+    files.insertIfAbsent(user.getId(), target.key(), target.name(), size, false, now, now);
+    return files
+        .lockByPath(user.getId(), target.key())
+        .orElseThrow(
+            () -> new ConflictException("\"" + target.name() + "\" changed while it was replaced"));
   }
 
   private static String storeKey(Home home, String key) {

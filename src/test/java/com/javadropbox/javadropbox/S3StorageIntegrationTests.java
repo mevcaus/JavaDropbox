@@ -348,6 +348,85 @@ class S3StorageIntegrationTests {
   }
 
   @Test
+  @DisplayName("an import gives objects another tool put in the bucket rows of the account's")
+  void importTakesInObjectsPutByOtherTools() throws Exception {
+    upload("", "uploaded.txt", "via the app");
+    put(home + "imported/2023/minutes.txt", "minutes of the annual meeting");
+
+    mockMvc
+        .perform(
+            post("/api/admin/users/" + owner.getId() + "/import")
+                .with(user("owner").roles("ADMIN"))
+                .with(csrf()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.files").value(1))
+        .andExpect(jsonPath("$.folders").value(2))
+        .andExpect(jsonPath("$.missing").value(0));
+
+    assertThat(metadata.findPathsOf(owner.getId()))
+        .containsExactlyInAnyOrder(
+            "uploaded.txt", "imported", "imported/2023", "imported/2023/minutes.txt");
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(jsonPath("$[0].name").value("imported"))
+        .andExpect(jsonPath("$[0].ownerName").value("owner"))
+        .andExpect(jsonPath("$[0].children[0].children[0].id").isNotEmpty());
+  }
+
+  @Test
+  @DisplayName("an import against an empty bucket, for an account with rows, changes nothing")
+  void importAgainstAnEmptyBucketIsRefused() throws Exception {
+    upload("docs", "a.txt", "x");
+    for (String key : keys("")) {
+      client.deleteObject(request -> request.bucket(bucket).key(key));
+    }
+
+    mockMvc
+        .perform(
+            post("/api/admin/users/" + owner.getId() + "/import")
+                .with(user("owner").roles("ADMIN"))
+                .with(csrf()))
+        .andExpect(status().isConflict());
+
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactlyInAnyOrder("docs", "docs/a.txt");
+  }
+
+  @Test
+  @DisplayName("an import leaves out and counts an object whose name is too long to keep")
+  void importSkipsNamesTooLongToKeep() throws Exception {
+    put(home + "x".repeat(256) + "/inside.txt", "a name no row can hold");
+    put(home + "fine.txt", "kept");
+
+    mockMvc
+        .perform(
+            post("/api/admin/users/" + owner.getId() + "/import")
+                .with(user("owner").roles("ADMIN"))
+                .with(csrf()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.files").value(1))
+        .andExpect(jsonPath("$.skipped").value(1));
+
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("fine.txt");
+  }
+
+  @Test
+  @DisplayName("an import against a bucket holding none of the account's files changes nothing")
+  void importAgainstTheWrongBucketIsRefused() throws Exception {
+    upload("", "mine.txt", "x");
+    client.deleteObject(request -> request.bucket(bucket).key(home + "mine.txt"));
+    put(home + "theirs.txt", "someone else's");
+
+    mockMvc
+        .perform(
+            post("/api/admin/users/" + owner.getId() + "/import")
+                .with(user("owner").roles("ADMIN"))
+                .with(csrf()))
+        .andExpect(status().isConflict());
+
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("mine.txt");
+  }
+
+  @Test
   @DisplayName("storage use counts the account's objects and their versions")
   void usageCountsObjectsAndVersions() throws Exception {
     upload("", "a.txt", "12345");

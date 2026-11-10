@@ -93,6 +93,21 @@ const usageLabel = (account) =>
         ? `${formatSize(account.usedBytes)} of ${formatSize(account.quotaBytes)}`
         : `${formatSize(account.usedBytes)} (no limit)`;
 
+const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// What an import found, in a sentence: counts only, never the files.
+const importSummary = (account, { files, folders, missing, skipped }) => {
+    const found =
+        files + folders === 0
+            ? `Nothing new to import for ${account.username}`
+            : `Imported ${count(files, 'file', 'files')} and ${count(folders, 'folder', 'folders')} for ${account.username}`;
+    const notes = [
+        missing > 0 && `${count(missing, 'item is', 'items are')} missing from the store.`,
+        skipped > 0 && `${count(skipped, 'item was', 'items were')} left out: names the app doesn't accept.`,
+    ].filter(Boolean);
+    return notes.length ? `${found}. ${notes.join(' ')}` : found;
+};
+
 /**
  * Managing the accounts, for admins: who can sign in, as what, with how much space, and the
  * invitations that have not been used yet. Admins never see other accounts' files here, only how
@@ -209,6 +224,21 @@ const AccountsPage = () => {
         }
     };
 
+    // Gives files copied into the account's folder outside the app rows of their own.
+    const importFiles = async (account) => {
+        setBusy(account.id);
+        try {
+            const { data } = await api.post(`${USERS_ENDPOINT}/${account.id}/import`);
+            // Anything missing or left out is worth a second look, not a plain success.
+            addToast(importSummary(account, data), data.missing > 0 || data.skipped > 0 ? 'info' : 'success');
+            await reload();
+        } catch (err) {
+            addToast(readableError(err, 'Could not import the files.'), 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
     const withdraw = async (invite) => {
         setWithdrawing(invite.id);
         try {
@@ -311,6 +341,16 @@ const AccountsPage = () => {
                                                     className={actionButton}
                                                 >
                                                     Reset password
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={waiting}
+                                                    onClick={() => importFiles(account)}
+                                                    aria-label={`Import files for ${account.username}`}
+                                                    title="Take in files copied into this account's folder outside the app"
+                                                    className={actionButton}
+                                                >
+                                                    Import files
                                                 </button>
                                                 {/* Nobody changes their own role or disables themselves, so nobody
                                                     can lock everyone out; the server refuses it too. */}

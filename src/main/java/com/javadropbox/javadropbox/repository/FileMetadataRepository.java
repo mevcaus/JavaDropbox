@@ -44,12 +44,12 @@ public interface FileMetadataRepository
   }
 
   /**
-   * Adds a row for a folder at {@code path} unless the account already has a row there. A
+   * Adds a row for a file or folder at {@code path} unless the account already has a row there. A
    * concurrent insert of the same path makes this one wait for the other transaction and then add
-   * nothing, so two requests creating the same folder both go on rather than one failing.
+   * nothing, so two requests adding the same item both go on rather than one failing.
    *
-   * <p>The values are those {@code FileMetadata.startOver} gives a new folder; keep the two in
-   * step.
+   * <p>The values are those {@code FileMetadata.startOver} gives a new item, apart from the dates;
+   * keep the two in step.
    *
    * @return 1 if the row was added, 0 if there already was one
    */
@@ -58,10 +58,30 @@ public interface FileMetadataRepository
       value =
           "insert into file_metadata (user_id, path, filename, size, is_directory,"
               + " current_version, created_at, updated_at)"
-              + " values (:ownerId, :path, :filename, 0, true, 1, :now, :now)"
+              + " values (:ownerId, :path, :filename, :size, :isDirectory, 1, :created, :updated)"
               + " on conflict (user_id, path) do nothing",
       nativeQuery = true)
-  int insertFolderIfAbsent(Long ownerId, String path, String filename, Instant now);
+  int insertIfAbsent(
+      Long ownerId,
+      String path,
+      String filename,
+      long size,
+      boolean isDirectory,
+      Instant created,
+      Instant updated);
+
+  /** Like {@link #insertIfAbsent}, for a new, empty folder. */
+  default int insertFolderIfAbsent(Long ownerId, String path, String filename, Instant now) {
+    return insertIfAbsent(ownerId, path, filename, 0, true, now, now);
+  }
+
+  /** The ids of an account's rows at {@code paths}. */
+  @Query("select m.id from FileMetadata m where m.owner.id = :ownerId and m.path in :paths")
+  List<Long> findIdsOf(Long ownerId, List<String> paths);
+
+  /** The path of every row an account owns. */
+  @Query("select m.path from FileMetadata m where m.owner.id = :ownerId")
+  List<String> findPathsOf(Long ownerId);
 
   @Query("select m.id from FileMetadata m")
   List<Long> findAllIds();
