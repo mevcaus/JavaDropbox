@@ -1,13 +1,11 @@
 package com.javadropbox.javadropbox.repository;
 
 import com.javadropbox.javadropbox.model.FileMetadata;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.transaction.annotation.Transactional;
 
 /** Rows are looked up by their owner's id and their path relative to the owner's folder. */
 public interface FileMetadataRepository
@@ -50,11 +48,4 @@ public interface FileMetadataRepository
   /** Every row an account owns, with the owner, in one query, for building its file tree. */
   @Query("select m from FileMetadata m join fetch m.owner o where o.id = :ownerId")
   List<FileMetadata> findAllOf(Long ownerId);
-
-  @Modifying
-  @Transactional
-  @Query(
-      "update FileMetadata m set m.lastAccessed = :time"
-          + " where m.owner.id = :ownerId and m.path = :path")
-  void markAccessed(Long ownerId, String path, Instant time);
 }

@@ -421,7 +421,6 @@ public class FileService {
   /** Like {@link #download(String)}, for an item already resolved, such as a share link's. */
   public Download download(StoragePath target) throws IOException {
     Entry item = find(target);
-    files.markAccessed(target.home().userId(), target.key(), Instant.now());
 
     if (item.isDirectory()) {
       String name = target.name();
@@ -465,7 +464,6 @@ public class FileService {
                 () ->
                     new BadRequestException(
                         "This kind of file cannot be previewed: " + target.key()));
-    files.markAccessed(target.home().userId(), target.key(), Instant.now());
     return new Preview(
         store.resource(item), target.name(), type, PreviewType.contentType(target.name()));
   }
