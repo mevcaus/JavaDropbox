@@ -7,7 +7,7 @@ Running the app from source, how the code is laid out, and the conventions the b
 | Tool | Version | Purpose |
 |------|---------|---------|
 | **JDK** | 17–24 to run Gradle; the build uses JDK 21 and downloads it if missing | [Download](https://adoptium.net/temurin/releases/?version=21) |
-| **Node.js** | 20.19+ or 22.12+ | [Download](https://nodejs.org/) |
+| **Node.js** | 22.22.2+, 24.15+ or 26+ | [Download](https://nodejs.org/) |
 | **Docker** | Latest | [Download](https://www.docker.com/get-started) |
 | **Git LFS** | Any; run `git lfs install` once before cloning | [Download](https://git-lfs.com/) |
 

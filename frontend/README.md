@@ -12,7 +12,7 @@ Boot backend through Vite's dev proxy.
 
 ## Prerequisites
 
-- Node.js 20.19+ or 22.12+ and npm
+- Node.js 22.22.2+, 24.15+ or 26+ and npm
 - The backend running on **http://localhost:8080** (see the [root README](../README.md))
 
 ## Development

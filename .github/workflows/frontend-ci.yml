@@ -31,12 +31,13 @@ jobs:
         # and ship a bundle with every logo broken.
         lfs: true
 
-    # Vite 7 and Vitest 5 only run on Node 20.19+ or 22.12+. Pin the floor here so
-    # CI fails on the version line rather than on a confusing missing-export error.
+    # jsdom and its undici need Node 22.22.2+ (undici calls zlib.createZstdDecompress,
+    # which Node 22.12 lacks). Pin the floor from engines here so CI fails on the
+    # version line rather than on a confusing missing-export error.
     - name: Set up Node.js
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: '22.12'
+        node-version: '22.22.2'
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
