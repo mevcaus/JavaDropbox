@@ -38,7 +38,8 @@ COPY --from=backend /app/build/libs/*.jar app.jar
 
 # Numeric, so runtimes can verify it is not root without reading /etc/passwd.
 USER 10001:10001
-# Stored files, their versions and the generated share-link key all live here.
+# With local storage, the stored files and their versions live here. Either way, so does the
+# app's own state, such as the search index.
 ENV JAVADROPBOX_SERVING_DIRECTORY=/data
 VOLUME /data
 EXPOSE 8080
