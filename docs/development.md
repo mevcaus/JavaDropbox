@@ -71,7 +71,7 @@ Everything else is as above, with the app's own state still in `./JDB/.javadropb
 JavaDropbox/
 ├── .github/workflows/
 │   ├── gradle.yml                  # Backend build + tests, Docker image build, dependency graph
-│   ├── frontend-ci.yml             # Frontend lint, tests, production build
+│   ├── frontend-ci.yml             # Frontend lint, type check, tests, production build
 │   └── deploy-demo.yml             # Deploys the live demo once CI passes on main
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
@@ -105,6 +105,7 @@ JavaDropbox/
 │   │   ├── App.jsx                 # Route definitions
 │   │   └── main.jsx                # Entry point; registers the 401 handler
 │   ├── vite.config.js              # Dev proxy to Spring Boot backend
+│   ├── tsconfig.json               # Strict type check; allowJs while the frontend moves to TypeScript
 │   └── package.json
 ├── src/main/java/
 │   ├── com/javadropbox/javadropbox/
@@ -223,3 +224,11 @@ Every Java file under `src/` is checked. The codebase was reformatted in one com
 ```bash
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
+
+The frontend is checked by ESLint and, for TypeScript files, by the TypeScript compiler with `strict` on. CI runs both:
+
+```bash
+cd frontend && npm run lint && npm run typecheck
+```
+
+The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones, which aren't type-checked themselves. Once a file has been converted, keep it TypeScript.
