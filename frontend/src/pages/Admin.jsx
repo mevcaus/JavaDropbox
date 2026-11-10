@@ -20,9 +20,9 @@ export const USERS_ENDPOINT = '/api/admin/users';
 const headerCell = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
 const cell = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
 const actionButton =
-    'text-xs font-medium px-2 py-1 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
+    'text-xs font-medium px-2 py-1 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500';
 const dangerButton =
-    'text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500';
+    'text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-red-500';
 
 const roleLabel = (role) => (role === 'ADMIN' ? 'Admin' : 'User');
 
@@ -243,7 +243,7 @@ const AccountsPage = () => {
                 <button
                     type="button"
                     onClick={() => setInviting(true)}
-                    className="flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-sm"
+                    className="flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-xs"
                 >
                     <UserPlus className="h-4 w-4 mr-2" aria-hidden="true" />
                     Invite someone
@@ -260,7 +260,7 @@ const AccountsPage = () => {
                 <h2 id="accounts-heading" className="sr-only">
                     Accounts
                 </h2>
-                <div className="bg-white shadow overflow-x-auto sm:rounded-lg">
+                <div className="bg-white shadow-sm overflow-x-auto sm:rounded-lg">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
@@ -362,7 +362,7 @@ const AccountsPage = () => {
                 {invites.length === 0 ? (
                     <p className="text-sm text-gray-500">No invitation is waiting to be used.</p>
                 ) : (
-                    <ul className="divide-y divide-gray-200 bg-white shadow sm:rounded-lg">
+                    <ul className="divide-y divide-gray-200 bg-white shadow-sm sm:rounded-lg">
                         {invites.map((invite) => (
                             <li key={invite.id} className="px-6 py-3 flex flex-wrap items-center justify-between gap-2">
                                 <div className="text-sm">

@@ -89,7 +89,7 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
                             id="expiration"
                             value={minutes}
                             onChange={(e) => setExpirationMinutes(Number(e.target.value))}
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
+                            className="block w-full rounded-md border-gray-300 shadow-xs focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 border"
                         >
                             {options.map((opt) => (
                                 <option key={opt.minutes} value={opt.minutes}>

@@ -70,7 +70,7 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
                         aria-label="Folder name"
                         aria-invalid={error ? true : undefined}
                         aria-describedby={error ? errorId : undefined}
-                        className="shadow-sm focus:ring-green-500 focus:border-green-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                        className="shadow-xs focus:ring-green-500 focus:border-green-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
                         placeholder="Folder Name"
                         maxLength={255}
                         value={folderName}

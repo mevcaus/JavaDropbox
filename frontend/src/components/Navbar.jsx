@@ -18,12 +18,12 @@ const Navbar = ({ onMenuClick }) => {
     };
 
     return (
-        <header className="bg-white shadow-sm z-10">
+        <header className="bg-white shadow-xs z-10">
             <div className="px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
                 <div className="flex items-center">
                     <button
                         type="button"
-                        className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+                        className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-indigo-500"
                         onClick={onMenuClick}
                     >
                         <span className="sr-only">Open sidebar</span>
@@ -41,7 +41,7 @@ const Navbar = ({ onMenuClick }) => {
                     </div>
                     <button
                         onClick={handleLogout}
-                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                     >
                         <LogOut className="h-4 w-4 mr-2" />
                         Logout

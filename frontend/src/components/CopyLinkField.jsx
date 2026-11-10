@@ -31,13 +31,13 @@ const CopyLinkField = ({ url, label }) => {
                 readOnly
                 aria-label={label}
                 value={url}
-                className="block w-full rounded-md border-gray-300 shadow-sm bg-gray-50 text-sm py-2 px-3 border"
+                className="block w-full rounded-md border-gray-300 shadow-xs bg-gray-50 text-sm py-2 px-3 border"
                 onFocus={(e) => e.target.select()}
             />
             <button
                 type="button"
                 onClick={handleCopy}
-                className="flex-shrink-0 inline-flex items-center justify-center p-2 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
+                className="shrink-0 inline-flex items-center justify-center p-2 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
                 title="Copy link"
             >
                 {copied ? <Check className="h-5 w-5 text-green-600" /> : <Copy className="h-5 w-5" />}

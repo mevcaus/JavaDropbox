@@ -29,7 +29,7 @@ export const ToastProvider = ({ children }) => {
                 tends to go unannounced. Errors go in an assertive region so they
                 interrupt; everything else waits its turn.
             */}
-            <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+            <div className="fixed bottom-4 right-4 z-100 flex flex-col gap-2">
                 <div role="alert" aria-atomic="false" className="flex flex-col gap-2">
                     {toasts.filter((toast) => toast.type === 'error').map((toast) => (
                         <Toast key={toast.id} toast={toast} onRemove={removeToast} />
@@ -130,14 +130,14 @@ const Toast = ({ toast, onRemove }) => {
             onFocus={() => setIsFocused(true)}
             onBlur={handleBlur}
         >
-            <div className="flex-shrink-0">{icons[type] || icons.info}</div>
+            <div className="shrink-0">{icons[type] || icons.info}</div>
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">{message}</p>
             </div>
             <button
                 onClick={handleClose}
                 aria-label="Close notification"
-                className="flex-shrink-0 inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="shrink-0 inline-flex text-gray-400 hover:text-gray-500 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
             >
                 <X className="h-4 w-4" />
             </button>

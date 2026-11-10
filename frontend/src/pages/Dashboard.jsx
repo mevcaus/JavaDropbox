@@ -33,7 +33,7 @@ const notUploaded = (names) =>
 // picker. inputProps go to the input, e.g. webkitdirectory to pick a folder.
 const UploadButton = ({ icon: Icon, label, busy, disabled, ...inputProps }) => (
     <label
-        className={`flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 shadow-sm transition-colors ${
+        className={`flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 shadow-xs transition-colors ${
             disabled ? 'opacity-50 cursor-wait' : 'cursor-pointer'
         }`}
     >
@@ -208,7 +208,7 @@ const Dashboard = () => {
 
                     <button
                         onClick={() => setIsCreateFolderModalOpen(true)}
-                        className="flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-sm transition-colors"
+                        className="flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-xs transition-colors"
                     >
                         <FolderPlus className="h-4 w-4 mr-2" aria-hidden="true" />
                         New Folder

@@ -1,6 +1,9 @@
 // A class that draws something visible on focus: a ring with a width, an outline, an underline, or
 // a border, background or shadow change. A ring colour alone draws nothing.
-const REPLACEMENT = /(^|\s)(focus|focus-visible):(ring(-[0-8])?|outline(?!-none)\S*|underline|border-\S+|bg-\S+|shadow\S*)(\s|$)/;
+const REPLACEMENT = /(^|\s)(focus|focus-visible):(ring(-[0-8])?|outline(?!-none|-hidden)\S*|underline|border-\S+|bg-\S+|shadow\S*)(\s|$)/;
+
+// Tailwind 4 calls it outline-hidden; outline-none still exists and also removes the outline.
+const REMOVES_OUTLINE = /(^|\s)focus:outline-(hidden|none)(\s|$)/;
 
 /**
  * The buttons and links in a container that remove the browser's focus outline without drawing
@@ -8,5 +11,5 @@ const REPLACEMENT = /(^|\s)(focus|focus-visible):(ring(-[0-8])?|outline(?!-none)
  */
 export const controlsWithoutFocusIndicator = (container) =>
     [...container.querySelectorAll('button, a[href]')]
-        .filter((el) => el.className.includes('focus:outline-none') && !REPLACEMENT.test(el.className))
+        .filter((el) => REMOVES_OUTLINE.test(el.className) && !REPLACEMENT.test(el.className))
         .map((el) => el.getAttribute('aria-label') || el.textContent.trim());

@@ -21,7 +21,7 @@ const MainLayout = () => {
             {/* Mobile Sidebar Overlay */}
             {isSidebarOpen && (
                 <div
-                    className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+                    className="fixed inset-0 bg-black/50 z-20 lg:hidden"
                     onClick={() => setIsSidebarOpen(false)}
                 />
             )}
@@ -44,7 +44,7 @@ const MainLayout = () => {
                 <Navbar onMenuClick={() => setIsSidebarOpen(true)} />
                 <DemoBanner />
                 {/* Focusable so a dialog can hand focus back here when what opened it is gone. */}
-                <main tabIndex={-1} className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 focus:outline-none">
+                <main tabIndex={-1} className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 focus:outline-hidden">
                     <Outlet />
                 </main>
             </div>
