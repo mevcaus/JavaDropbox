@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -68,6 +68,14 @@ const Dashboard = () => {
     const [uploading, setUploading] = useState(null);
     // Whether files are being dragged over the table.
     const [draggingOver, setDraggingOver] = useState(false);
+    // How many of the table's elements the drag has entered and not yet left. Every move onto a
+    // row enters it before leaving the one before, so the drag has left the table at 0. This also
+    // covers Esc and Safari, whose dragleave says nothing about where the pointer went.
+    const dragDepth = useRef(0);
+    // Whether the drag started on this page, such as the logo being dragged. Chrome lists an
+    // image dragged in the page as carrying files, but nothing should be uploaded from it.
+    const dragFromPage = useRef(false);
+    const isFileDrag = (e) => !dragFromPage.current && carriesFiles(e.dataTransfer);
 
     useEffect(() => {
         dispatch(fetchFiles());
@@ -77,15 +85,25 @@ const Dashboard = () => {
     // app. The table's own handlers run first and claim drops on it.
     useEffect(() => {
         const refuse = (e) => {
-            if (e.defaultPrevented || !carriesFiles(e.dataTransfer)) return;
+            if (e.defaultPrevented || dragFromPage.current || !carriesFiles(e.dataTransfer)) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'none';
         };
+        const startInPage = () => {
+            dragFromPage.current = true;
+        };
+        const endInPage = () => {
+            dragFromPage.current = false;
+        };
         window.addEventListener('dragover', refuse);
         window.addEventListener('drop', refuse);
+        window.addEventListener('dragstart', startInPage);
+        window.addEventListener('dragend', endInPage);
         return () => {
             window.removeEventListener('dragover', refuse);
             window.removeEventListener('drop', refuse);
+            window.removeEventListener('dragstart', startInPage);
+            window.removeEventListener('dragend', endInPage);
         };
     }, []);
 
@@ -127,7 +145,8 @@ const Dashboard = () => {
 
     // Uploads { file, relativePath } pairs below the open folder, keeping their subfolders. Used by
     // the folder picker and by a drop. skipped names the dot-named files and folders left out.
-    const uploadTree = async (files, skipped, kind) => {
+    // The caller marks the page busy around it.
+    const uploadTree = async (files, skipped) => {
         if (skipped.length > 0) {
             addToast(notUploaded(skipped), 'info');
         }
@@ -138,7 +157,6 @@ const Dashboard = () => {
         const tops = new Set(files.map(({ relativePath }) => relativePath.split('/')[0]));
         const folderName = tops.size === 1 && files[0].relativePath.includes('/') ? [...tops][0] : null;
         const count = `${files.length} ${files.length === 1 ? 'file' : 'files'}`;
-        setUploading(kind);
         try {
             await dispatch(uploadFolder({ files, path: currentPath })).unwrap();
             addToast(
@@ -147,8 +165,6 @@ const Dashboard = () => {
             );
         } catch (err) {
             addToast(err, 'error');
-        } finally {
-            setUploading(null);
         }
     };
 
@@ -162,36 +178,40 @@ const Dashboard = () => {
         // name is listed once however many folders it turned up in.
         const dotNameOf = ({ relativePath }) => relativePath.split('/').find(startsWithDot);
         const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
-        await uploadTree(chosen.filter((picked) => !dotNameOf(picked)), skipped, 'folder');
+        setUploading('folder');
+        try {
+            await uploadTree(chosen.filter((picked) => !dotNameOf(picked)), skipped);
+        } finally {
+            setUploading(null);
+        }
     };
 
     // Files and folders dragged onto the table. Drags that carry no files (selected text, a link)
     // are left to the browser, so they show no drop state and cannot be dropped.
-    const handleDragOver = (e) => {
-        if (!carriesFiles(e.dataTransfer)) return;
+    const handleDragEnter = (e) => {
+        if (!isFileDrag(e)) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
+        dragDepth.current += 1;
         setDraggingOver(true);
     };
 
-    // Leaving the table for one of its own rows fires dragleave too, so only a move out of it counts.
-    // Safari gives dragleave no relatedTarget, so there the pointer's position decides.
+    const handleDragOver = (e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = uploading === null ? 'copy' : 'none';
+    };
+
     const handleDragLeave = (e) => {
-        const zone = e.currentTarget;
-        if (e.relatedTarget) {
-            if (!zone.contains(e.relatedTarget)) setDraggingOver(false);
-            return;
-        }
-        const { left, right, top, bottom } = zone.getBoundingClientRect();
-        if (e.clientX <= left || e.clientX >= right || e.clientY <= top || e.clientY >= bottom) {
-            setDraggingOver(false);
-        }
+        if (!isFileDrag(e)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDraggingOver(false);
     };
 
     const handleDrop = async (e) => {
-        if (!carriesFiles(e.dataTransfer)) return;
+        if (!isFileDrag(e)) return;
         // Without this the browser opens the dropped file in place of the app.
         e.preventDefault();
+        dragDepth.current = 0;
         setDraggingOver(false);
         if (uploading !== null) {
             addToast('Wait for the current upload to finish, then drop again.', 'info');
@@ -201,10 +221,19 @@ const Dashboard = () => {
         // must not start alongside it.
         setUploading('drop');
         try {
-            const dropped = await readDrop(e.dataTransfer);
-            await uploadTree(dropped.files, dropped.skipped, 'drop');
-        } catch {
-            addToast('Could not read the dropped files.', 'error');
+            let dropped;
+            try {
+                dropped = await readDrop(e.dataTransfer);
+            } catch (err) {
+                console.error('Could not read the dropped files', err);
+                addToast('Could not read the dropped files.', 'error');
+                return;
+            }
+            if (dropped.files.length === 0 && dropped.skipped.length === 0) {
+                addToast('Nothing was uploaded: empty folders are left out.', 'info');
+                return;
+            }
+            await uploadTree(dropped.files, dropped.skipped);
         } finally {
             setUploading(null);
         }
@@ -294,7 +323,7 @@ const Dashboard = () => {
             {/* min-h keeps an empty folder a target worth aiming at. */}
             <div
                 className="relative min-h-64"
-                onDragEnter={handleDragOver}
+                onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}

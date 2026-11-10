@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
@@ -245,13 +245,6 @@ describe('Dashboard', () => {
         const postedFolders = () =>
             api.post.mock.calls.map(([, form]) => [form.get('path'), form.getAll('files').map((file) => file.name)]);
         const dropHint = () => screen.queryByText(/^Drop to upload to/);
-        // jsdom has no DragEvent, so the plain Event it falls back to would lose relatedTarget and
-        // the pointer's position.
-        const dragLeave = (from, to, { clientX = 0, clientY = 0 } = {}) => {
-            const event = createEvent.dragLeave(from, { dataTransfer: filesDrag() });
-            Object.defineProperties(event, { relatedTarget: { value: to }, clientX: { value: clientX }, clientY: { value: clientY } });
-            fireEvent(from, event);
-        };
 
         it('uploads dropped files and folders below the open folder, keeping their structure', async () => {
             api.get.mockResolvedValue({ data: PHOTOS_TREE });
@@ -293,34 +286,60 @@ describe('Dashboard', () => {
             api.get.mockResolvedValue({ data: TREE });
             renderDashboard();
             const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            const header = screen.getByRole('columnheader', { name: 'Name' });
 
-            fireEvent.dragOver(row, { dataTransfer: filesDrag() });
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
             expect(dropHint()).toHaveTextContent('Drop to upload to My Files');
 
-            // Moving between rows of the table keeps it.
-            dragLeave(row, screen.getByRole('table'));
+            // Moving to another part of the table enters it before leaving the one before.
+            fireEvent.dragEnter(header, { dataTransfer: filesDrag() });
+            fireEvent.dragLeave(row, { dataTransfer: filesDrag() });
             expect(dropHint()).toBeInTheDocument();
 
-            dragLeave(row, document.body);
+            fireEvent.dragLeave(header, { dataTransfer: filesDrag() });
             expect(dropHint()).not.toBeInTheDocument();
         });
 
-        // Safari's dragleave has no relatedTarget, so the pointer's position says whether it left.
-        it('keeps the drop state while the pointer is still over the table when the browser does not say where it went', async () => {
+        // The browser ends a drag cancelled with Esc with a dragleave on what is under the pointer.
+        it('drops the drop state when the drag is cancelled over the table', async () => {
             api.get.mockResolvedValue({ data: TREE });
             renderDashboard();
             const row = await screen.findByRole('button', { name: 'Download report.pdf' });
-            const rect = vi
-                .spyOn(Element.prototype, 'getBoundingClientRect')
-                .mockReturnValue({ left: 0, right: 500, top: 0, bottom: 300, width: 500, height: 300, x: 0, y: 0 });
 
-            fireEvent.dragOver(row, { dataTransfer: filesDrag() });
-            dragLeave(row, null, { clientX: 100, clientY: 100 });
-            expect(dropHint()).toBeInTheDocument();
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            fireEvent.dragLeave(row, { dataTransfer: filesDrag() });
 
-            dragLeave(row, null, { clientX: 600, clientY: 100 });
             expect(dropHint()).not.toBeInTheDocument();
-            rect.mockRestore();
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).toBeInTheDocument();
+        });
+
+        it('takes nothing dragged from the page itself, such as the logo', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.dragStart(row);
+            expect(fireEvent.dragEnter(row, { dataTransfer: filesDrag() })).toBe(true);
+            expect(dropHint()).not.toBeInTheDocument();
+            fireEvent.drop(row, { dataTransfer: filesDrag(fileEntry('logo.png')) });
+            fireEvent.dragEnd(row);
+
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).toBeInTheDocument();
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('says so when a drop holds nothing but empty folders', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(folderEntry('Empty', [])) });
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Nothing was uploaded: empty folders are left out.', 'info'));
+            expect(api.post).not.toHaveBeenCalled();
+            expect(screen.getByLabelText('Upload')).toBeEnabled();
         });
 
         it('stops the browser opening files dropped beside the table, but leaves other drags alone', async () => {
@@ -345,7 +364,7 @@ describe('Dashboard', () => {
             await waitFor(() => expect(screen.getByLabelText('Uploading…')).toBeDisabled());
             expect(screen.getByLabelText('Upload folder')).toBeDisabled();
 
-            fireEvent.dragOver(row, { dataTransfer: filesDrag() });
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
             expect(dropHint()).not.toBeInTheDocument();
             expect(screen.getByText('Wait for the current upload to finish')).toBeInTheDocument();
             fireEvent.drop(row, { dataTransfer: filesDrag(fileEntry('b.txt')) });
