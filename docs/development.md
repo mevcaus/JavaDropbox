@@ -164,7 +164,7 @@ JavaDropbox/
 │   └── db/migration/
 │       └── V3__timestamps_with_time_zone.java  # Java migration (needs the JVM's zone)
 ├── src/main/resources/
-│   ├── db/migration/               # Flyway SQL migrations (V1 to V7)
+│   ├── db/migration/               # Flyway SQL migrations (V1 to V8)
 │   ├── demo/                       # The live demo's sample files
 │   ├── application.properties      # Production defaults
 │   ├── application-dev.properties  # Local development (bootRun)
@@ -195,7 +195,7 @@ Never edit a migration once it has been merged. Flyway checksums applied migrati
 
 **Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
 
-**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`). `V7` gives each account its own files: everything stored so far goes to the first account (made an admin), paths become unique per account, `users` gains `enabled`, `quota_bytes` and `session_version`, and `account_links` holds invitations and password resets.
+**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`). `V7` gives each account its own files: everything stored so far goes to the first account (made an admin), paths become unique per account, `users` gains `enabled`, `quota_bytes` and `session_version`, and `account_links` holds invitations and password resets. `V8` drops `file_metadata.last_accessed`, which downloads and previews wrote and nothing read.
 
 **Tests.** Every test runs on the schema the migrations build. Each Spring context gets an empty database of its own in one Testcontainers PostgreSQL shared by the whole run, which Flyway migrates and Hibernate validates with the production settings unchanged (`TestDatabaseEnvironment`): the tests read `application.properties` as it is, and `src/test/resources/config/application.properties` only adds what they change. The migration tests take a database of their own in the same container, to begin from an older schema, through `PostgresTestSupport`.
 

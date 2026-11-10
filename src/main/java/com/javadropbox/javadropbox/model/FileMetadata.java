@@ -51,7 +51,6 @@ public class FileMetadata {
 
   private Instant createdAt;
   private Instant updatedAt;
-  private Instant lastAccessed;
 
   protected FileMetadata() {}
 
@@ -74,7 +73,6 @@ public class FileMetadata {
     this.currentVersion = 1;
     this.createdAt = now;
     this.updatedAt = now;
-    this.lastAccessed = now;
   }
 
   public Long getId() {
@@ -115,10 +113,6 @@ public class FileMetadata {
 
   public void setUpdatedAt(Instant updatedAt) {
     this.updatedAt = updatedAt;
-  }
-
-  public Instant getLastAccessed() {
-    return lastAccessed;
   }
 
   public Integer getCurrentVersion() {
