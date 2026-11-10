@@ -159,12 +159,8 @@ describe('filesSlice refresh after a mutation', () => {
     });
 });
 
-// A file as the folder picker hands it over: jsdom has no webkitRelativePath of its own.
-const pickedFile = (relativePath) => {
-    const file = new File(['x'], relativePath.split('/').at(-1));
-    Object.defineProperty(file, 'webkitRelativePath', { value: relativePath });
-    return file;
-};
+// A file with its place inside the uploaded folder, as uploadFolder takes it.
+const pickedFile = (relativePath) => ({ file: new File(['x'], relativePath.split('/').at(-1)), relativePath });
 
 const postedFolders = () =>
     api.post.mock.calls.map(([, form]) => [form.get('path'), form.getAll('files').map((file) => file.name)]);
@@ -206,11 +202,11 @@ describe('uploadFolder', () => {
     it('names each file part by the bare file name', async () => {
         api.post.mockResolvedValue({ data: {} });
         const append = vi.spyOn(FormData.prototype, 'append');
-        const file = pickedFile('Trip/Day 1/a.jpg');
+        const picked = pickedFile('Trip/Day 1/a.jpg');
 
-        await store.dispatch(uploadFolder({ files: [file], path: '' }));
+        await store.dispatch(uploadFolder({ files: [picked], path: '' }));
 
-        expect(append).toHaveBeenCalledWith('files', file, 'a.jpg');
+        expect(append).toHaveBeenCalledWith('files', picked.file, 'a.jpg');
         append.mockRestore();
     });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -20,6 +20,7 @@ import VersionHistoryModal from '../components/VersionHistoryModal';
 import PreviewModal from '../components/PreviewModal';
 import { useToast } from '../hooks/useToast';
 import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
+import { carriesFiles, readDrop } from '../utils/droppedFiles';
 import { Loader2, FolderPlus, FolderUp, Upload as UploadIcon } from 'lucide-react';
 
 // Search results carry their own relativePath; a plain row in this folder may not.
@@ -63,12 +64,48 @@ const Dashboard = () => {
     const [itemToShare, setItemToShare] = useState(null);
     const [versionsFile, setVersionsFile] = useState(null);
     const [previewItem, setPreviewItem] = useState(null);
-    // 'files' or 'folder' while an upload is running: one upload at a time.
+    // 'files', 'folder' or 'drop' while an upload is running: one upload at a time.
     const [uploading, setUploading] = useState(null);
+    // Whether files are being dragged over the table.
+    const [draggingOver, setDraggingOver] = useState(false);
+    // How many of the table's elements the drag has entered and not yet left. Every move onto a
+    // row enters it before leaving the one before, so the drag has left the table at 0. This also
+    // covers Esc and Safari, whose dragleave says nothing about where the pointer went.
+    const dragDepth = useRef(0);
+    // Whether the drag started on this page, such as the logo being dragged. Chrome lists an
+    // image dragged in the page as carrying files, but nothing should be uploaded from it.
+    const dragFromPage = useRef(false);
+    const isFileDrag = (e) => !dragFromPage.current && carriesFiles(e.dataTransfer);
 
     useEffect(() => {
         dispatch(fetchFiles());
     }, [dispatch]);
+
+    // A file dropped beside the table would otherwise be opened by the browser in place of the
+    // app. The table's own handlers run first and claim drops on it.
+    useEffect(() => {
+        const refuse = (e) => {
+            if (e.defaultPrevented || dragFromPage.current || !carriesFiles(e.dataTransfer)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'none';
+        };
+        const startInPage = () => {
+            dragFromPage.current = true;
+        };
+        const endInPage = () => {
+            dragFromPage.current = false;
+        };
+        window.addEventListener('dragover', refuse);
+        window.addEventListener('drop', refuse);
+        window.addEventListener('dragstart', startInPage);
+        window.addEventListener('dragend', endInPage);
+        return () => {
+            window.removeEventListener('dragover', refuse);
+            window.removeEventListener('drop', refuse);
+            window.removeEventListener('dragstart', startInPage);
+            window.removeEventListener('dragend', endInPage);
+        };
+    }, []);
 
     // FileTable hands back the folder's full path, which is what search results need: a nested
     // match cannot be located by name alone.
@@ -106,34 +143,97 @@ const Dashboard = () => {
         }
     };
 
-    const handleFolderUpload = async (e) => {
-        const input = e.target;
-        const chosen = Array.from(input.files ?? []);
-        input.value = '';
-
-        // A file is left out if it, or a folder it is in, has a dot name. Inside a folder those are
-        // mostly put there by the system (.DS_Store, .git), so this is news, not an error, and each
-        // name is listed once however many folders it turned up in.
-        const dotNameOf = (file) => relativePathOf(file).split('/').find(startsWithDot);
-        const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
+    // Uploads { file, relativePath } pairs below the open folder, keeping their subfolders. Used by
+    // the folder picker and by a drop. skipped names the dot-named files and folders left out.
+    // The caller marks the page busy around it.
+    const uploadTree = async (files, skipped) => {
         if (skipped.length > 0) {
             addToast(notUploaded(skipped), 'info');
         }
-        const selected = chosen.filter((file) => !dotNameOf(file));
-        if (selected.length === 0) return;
+        if (files.length === 0) return;
 
-        // Empty where the browser cannot pick folders and handed over plain files instead.
-        const folderName = selected[0].webkitRelativePath?.split('/')[0];
-        const count = `${selected.length} ${selected.length === 1 ? 'file' : 'files'}`;
-        setUploading('folder');
+        // The folder's name when everything came from one folder. A drop of loose files, or a
+        // browser that cannot pick folders and handed over plain files, has none.
+        const tops = new Set(files.map(({ relativePath }) => relativePath.split('/')[0]));
+        const folderName = tops.size === 1 && files[0].relativePath.includes('/') ? [...tops][0] : null;
+        const count = `${files.length} ${files.length === 1 ? 'file' : 'files'}`;
         try {
-            await dispatch(uploadFolder({ files: selected, path: currentPath })).unwrap();
+            await dispatch(uploadFolder({ files, path: currentPath })).unwrap();
             addToast(
                 folderName ? `Uploaded folder "${folderName}" (${count}) successfully.` : `Uploaded ${count} successfully.`,
                 'success',
             );
         } catch (err) {
             addToast(err, 'error');
+        }
+    };
+
+    const handleFolderUpload = async (e) => {
+        const input = e.target;
+        const chosen = Array.from(input.files ?? []).map((file) => ({ file, relativePath: relativePathOf(file) }));
+        input.value = '';
+
+        // A file is left out if it, or a folder it is in, has a dot name. Inside a folder those are
+        // mostly put there by the system (.DS_Store, .git), so this is news, not an error, and each
+        // name is listed once however many folders it turned up in.
+        const dotNameOf = ({ relativePath }) => relativePath.split('/').find(startsWithDot);
+        const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
+        setUploading('folder');
+        try {
+            await uploadTree(chosen.filter((picked) => !dotNameOf(picked)), skipped);
+        } finally {
+            setUploading(null);
+        }
+    };
+
+    // Files and folders dragged onto the table. Drags that carry no files (selected text, a link)
+    // are left to the browser, so they show no drop state and cannot be dropped.
+    const handleDragEnter = (e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setDraggingOver(true);
+    };
+
+    const handleDragOver = (e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = uploading === null ? 'copy' : 'none';
+    };
+
+    const handleDragLeave = (e) => {
+        if (!isFileDrag(e)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDraggingOver(false);
+    };
+
+    const handleDrop = async (e) => {
+        if (!isFileDrag(e)) return;
+        // Without this the browser opens the dropped file in place of the app.
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDraggingOver(false);
+        if (uploading !== null) {
+            addToast('Wait for the current upload to finish, then drop again.', 'info');
+            return;
+        }
+        // Busy from the start: walking a large folder takes a while, and a second drop or upload
+        // must not start alongside it.
+        setUploading('drop');
+        try {
+            let dropped;
+            try {
+                dropped = await readDrop(e.dataTransfer);
+            } catch (err) {
+                console.error('Could not read the dropped files', err);
+                addToast('Could not read the dropped files.', 'error');
+                return;
+            }
+            if (dropped.files.length === 0 && dropped.skipped.length === 0) {
+                addToast('Nothing was uploaded: empty folders are left out.', 'info');
+                return;
+            }
+            await uploadTree(dropped.files, dropped.skipped);
         } finally {
             setUploading(null);
         }
@@ -192,7 +292,7 @@ const Dashboard = () => {
                     <UploadButton
                         icon={UploadIcon}
                         label="Upload"
-                        busy={uploading === 'files'}
+                        busy={uploading === 'files' || uploading === 'drop'}
                         disabled={uploading !== null}
                         onChange={handleFileUpload}
                     />
@@ -220,16 +320,37 @@ const Dashboard = () => {
 
             {error && <p className="mb-4 text-sm text-red-500">Could not refresh the file list: {error}</p>}
 
-            <FileTable
-                files={files}
-                currentPath={currentPath}
-                onDelete={setItemToDelete}
-                onDownload={handleDownload}
-                onShare={handleShare}
-                onVersions={setVersionsFile}
-                onPreview={handlePreview}
-                onFolderClick={handleNavigate}
-            />
+            {/* min-h keeps an empty folder a target worth aiming at. */}
+            <div
+                className="relative min-h-64"
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+            >
+                <FileTable
+                    files={files}
+                    currentPath={currentPath}
+                    onDelete={setItemToDelete}
+                    onDownload={handleDownload}
+                    onShare={handleShare}
+                    onVersions={setVersionsFile}
+                    onPreview={handlePreview}
+                    onFolderClick={handleNavigate}
+                />
+                {draggingOver && (
+                    // pointer-events-none so the rows below stay the drag's target and dragleave
+                    // keeps working.
+                    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-500 bg-blue-50/90">
+                        <p className="flex items-center text-sm font-medium text-blue-700">
+                            <UploadIcon className="h-5 w-5 mr-2" aria-hidden="true" />
+                            {uploading !== null
+                                ? 'Wait for the current upload to finish'
+                                : `Drop to upload to ${currentPath ? `"${currentPath.split('/').at(-1)}"` : 'My Files'}`}
+                        </p>
+                    </div>
+                )}
+            </div>
 
             <DeleteConfirmationModal
                 isOpen={itemToDelete !== null}

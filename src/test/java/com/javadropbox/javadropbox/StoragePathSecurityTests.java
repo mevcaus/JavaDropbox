@@ -19,6 +19,7 @@ import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -102,6 +103,29 @@ class StoragePathSecurityTests {
     mockMvc
         .perform(get("/api/files/download").param("path", path))
         .andExpect(status().isBadRequest());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"..", "../..", "a/../..", "../2", "../../.versions", "/tmp"})
+  @DisplayName(
+      "an upload into a folder outside the account's folder is refused, and stores nothing")
+  void uploadFolderTraversalIsRefused(String path) throws Exception {
+    // Unique, so a file of that name left behind by anything else cannot fail the test.
+    String name = "escaped-" + UUID.randomUUID() + ".txt";
+    MockMultipartFile file = new MockMultipartFile("files", name, "text/plain", "x".getBytes());
+
+    // Refused as a way out, not by the dot-name rule that ".." would also break.
+    mockMvc
+        .perform(multipart("/api/files").file(file).param("path", path).with(csrf().asHeader()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("Invalid path"));
+
+    // Where the file would have landed had the path been followed, and anywhere in the store.
+    Path target = path.startsWith("/") ? Path.of(path) : home.resolve(path).normalize();
+    assertThat(target.resolve(name)).doesNotExist();
+    try (var stored = Files.walk(servingDir)) {
+      assertThat(stored.filter(p -> p.endsWith(name))).isEmpty();
+    }
   }
 
   @Test

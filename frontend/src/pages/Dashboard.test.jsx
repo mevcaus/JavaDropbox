@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
@@ -218,6 +218,197 @@ describe('Dashboard', () => {
             await waitFor(() => expect(addToast).toHaveBeenCalledWith('"Trip" is a file, not a folder', 'error'));
             expect(screen.getByLabelText('Upload folder')).toBeEnabled();
             expect(screen.getByLabelText('Upload')).toBeEnabled();
+        });
+    });
+
+    describe('dropping onto the file table', () => {
+        // A drop as the browser hands it over, with FileSystemEntry stand-ins for its items.
+        const fileEntry = (name) => ({ name, isFile: true, isDirectory: false, file: (resolve) => resolve(new File(['x'], name)) });
+        const folderEntry = (name, children) => {
+            let read = false;
+            return {
+                name,
+                isFile: false,
+                isDirectory: true,
+                createReader: () => ({
+                    readEntries: (resolve) => {
+                        resolve(read ? [] : children);
+                        read = true;
+                    },
+                }),
+            };
+        };
+        const filesDrag = (...entries) => ({
+            types: ['Files'],
+            items: entries.map((entry) => ({ kind: 'file', webkitGetAsEntry: () => entry, getAsFile: () => null })),
+        });
+        const postedFolders = () =>
+            api.post.mock.calls.map(([, form]) => [form.get('path'), form.getAll('files').map((file) => file.name)]);
+        const dropHint = () => screen.queryByText(/^Drop to upload to/);
+
+        it('uploads dropped files and folders below the open folder, keeping their structure', async () => {
+            api.get.mockResolvedValue({ data: PHOTOS_TREE });
+            api.post.mockResolvedValue({ data: {} });
+            renderDashboard({ url: '/dashboard?path=Photos' });
+            const row = await screen.findByText('beach.jpg');
+
+            const dataTransfer = filesDrag(
+                folderEntry('Trip', [fileEntry('plan.txt'), folderEntry('Day 1', [fileEntry('arrival.jpg')])]),
+                fileEntry('notes.txt'),
+            );
+            fireEvent.dragEnter(row, { dataTransfer });
+            expect(dropHint()).toHaveTextContent('Drop to upload to "Photos"');
+            fireEvent.drop(row, { dataTransfer });
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Uploaded 3 files successfully.', 'success'));
+            expect(postedFolders()).toEqual([
+                ['Photos', ['notes.txt']],
+                ['Photos/Trip', ['plan.txt']],
+                ['Photos/Trip/Day 1', ['arrival.jpg']],
+            ]);
+            expect(dropHint()).not.toBeInTheDocument();
+        });
+
+        it('names the folder when a single folder is dropped, and reports what it left out', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            api.post.mockResolvedValue({ data: {} });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(folderEntry('Trip', [fileEntry('plan.txt'), fileEntry('.DS_Store')])) });
+
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Uploaded folder "Trip" (1 file) successfully.', 'success'));
+            expect(addToast).toHaveBeenCalledWith('.DS_Store was not uploaded. Names cannot start with a dot.', 'info');
+        });
+
+        it('shows the drop state only while files are over the table', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            const header = screen.getByRole('columnheader', { name: 'Name' });
+
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).toHaveTextContent('Drop to upload to My Files');
+
+            // Moving to another part of the table enters it before leaving the one before.
+            fireEvent.dragEnter(header, { dataTransfer: filesDrag() });
+            fireEvent.dragLeave(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).toBeInTheDocument();
+
+            fireEvent.dragLeave(header, { dataTransfer: filesDrag() });
+            expect(dropHint()).not.toBeInTheDocument();
+        });
+
+        // The browser ends a drag cancelled with Esc with a dragleave on what is under the pointer.
+        it('drops the drop state when the drag is cancelled over the table', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            fireEvent.dragLeave(row, { dataTransfer: filesDrag() });
+
+            expect(dropHint()).not.toBeInTheDocument();
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).toBeInTheDocument();
+        });
+
+        it('takes nothing dragged from the page itself, such as the logo', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.dragStart(row);
+            expect(fireEvent.dragEnter(row, { dataTransfer: filesDrag() })).toBe(true);
+            expect(dropHint()).not.toBeInTheDocument();
+            fireEvent.drop(row, { dataTransfer: filesDrag(fileEntry('logo.png')) });
+            fireEvent.dragEnd(row);
+
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).toBeInTheDocument();
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('says so when a drop holds nothing but empty folders', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(folderEntry('Empty', [])) });
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Nothing was uploaded: empty folders are left out.', 'info'));
+            expect(api.post).not.toHaveBeenCalled();
+            expect(screen.getByLabelText('Upload')).toBeEnabled();
+        });
+
+        it('stops the browser opening files dropped beside the table, but leaves other drags alone', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const heading = await screen.findByRole('heading', { name: 'My Files' });
+
+            expect(fireEvent.dragOver(heading, { dataTransfer: filesDrag() })).toBe(false);
+            expect(fireEvent.drop(heading, { dataTransfer: filesDrag(fileEntry('a.txt')) })).toBe(false);
+            expect(fireEvent.drop(heading, { dataTransfer: { types: ['text/plain'], items: [] } })).toBe(true);
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('is busy while a dropped folder is still being read', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            // A file the browser never finishes handing over.
+            const stuck = { name: 'big.iso', isFile: true, isDirectory: false, file: () => {} };
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(stuck) });
+            await waitFor(() => expect(screen.getByLabelText('Uploading…')).toBeDisabled());
+            expect(screen.getByLabelText('Upload folder')).toBeDisabled();
+
+            fireEvent.dragEnter(row, { dataTransfer: filesDrag() });
+            expect(dropHint()).not.toBeInTheDocument();
+            expect(screen.getByText('Wait for the current upload to finish')).toBeInTheDocument();
+            fireEvent.drop(row, { dataTransfer: filesDrag(fileEntry('b.txt')) });
+            expect(addToast).toHaveBeenCalledWith('Wait for the current upload to finish, then drop again.', 'info');
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('says so when the dropped files cannot be read, and is ready again afterwards', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            const unreadable = { name: 'locked.txt', isFile: true, isDirectory: false, file: (_, reject) => reject(new Error('denied')) };
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(unreadable) });
+
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Could not read the dropped files.', 'error'));
+            expect(screen.getByLabelText('Upload')).toBeEnabled();
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('leaves drags without files to the browser', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            const dataTransfer = { types: ['text/plain'], items: [] };
+
+            expect(fireEvent.dragOver(row, { dataTransfer })).toBe(true);
+            expect(dropHint()).not.toBeInTheDocument();
+            expect(fireEvent.drop(row, { dataTransfer })).toBe(true);
+            expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('turns a drop away while another upload is running', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            api.post.mockReturnValueOnce(new Promise(() => {}));
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(fileEntry('a.txt')) });
+            await waitFor(() => expect(screen.getByLabelText('Uploading…')).toBeDisabled());
+            fireEvent.drop(row, { dataTransfer: filesDrag(fileEntry('b.txt')) });
+
+            expect(addToast).toHaveBeenCalledWith('Wait for the current upload to finish, then drop again.', 'info');
+            expect(api.post).toHaveBeenCalledTimes(1);
         });
     });
 

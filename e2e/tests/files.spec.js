@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test, expect, action, openFolder, row, textFile, upload } from '../support/files.js';
+import { test, expect, action, dropFiles, openFolder, row, textFile, upload } from '../support/files.js';
 
 test('creates a folder and opens it', async ({ page, folder }) => {
     await page.getByRole('button', { name: 'New Folder' }).click();
@@ -51,6 +51,42 @@ test('uploads a folder with its subfolders', async ({ page }, testInfo) => {
     await expect(row(page, 'plan.txt')).toContainText('4 B');
     await openFolder(page, 'Day 1');
     await expect(row(page, 'notes.txt')).toContainText('7 B');
+});
+
+test('uploads files and folders dropped onto the file table', async ({ page }) => {
+    // The open folder is empty, so the drop lands on the empty state.
+    await dropFiles(page.getByText('No files found.'), {
+        'notes.txt': 'Loose',
+        'Trip/plan.txt': 'Pack',
+        'Trip/Day 1/arrival.txt': 'Arrived',
+        'Trip/.DS_Store': 'junk',
+    });
+    await expect(page.getByText('.DS_Store was not uploaded.')).toBeVisible();
+    await expect(page.getByText('Uploaded 3 files successfully.')).toBeVisible();
+
+    await expect(row(page, 'notes.txt')).toContainText('5 B');
+    await openFolder(page, 'Trip');
+    await expect(row(page, 'plan.txt')).toContainText('4 B');
+    await expect(row(page, '.DS_Store')).toHaveCount(0);
+    await openFolder(page, 'Day 1');
+    await expect(row(page, 'arrival.txt')).toContainText('7 B');
+});
+
+test('a dropped file from a plain DataTransfer is uploaded too', async ({ page }) => {
+    // Chromium gives a file added to a DataTransfer in the page no entry, so this takes the
+    // fallback that reads the file itself.
+    const dataTransfer = await page.evaluateHandle(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['Plain'], 'plain.txt', { type: 'text/plain' }));
+        return transfer;
+    });
+    const target = page.getByText('No files found.');
+    await target.dispatchEvent('dragenter', { dataTransfer });
+    await expect(page.getByText('Drop to upload to')).toBeVisible();
+    await target.dispatchEvent('drop', { dataTransfer });
+
+    await expect(page.getByText('Uploaded 1 file successfully.')).toBeVisible();
+    await expect(row(page, 'plain.txt')).toContainText('5 B');
 });
 
 test('downloads a folder as a zip', async ({ page, folder }) => {
