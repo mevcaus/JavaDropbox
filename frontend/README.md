@@ -5,7 +5,7 @@ Boot backend through Vite's dev proxy.
 
 ## Stack
 
-- React 19 + Vite
+- React 19 + Vite, moving from JavaScript to TypeScript (`strict`)
 - Redux Toolkit (state) and React Router (routing)
 - Tailwind CSS (styling)
 - axios (HTTP)
@@ -31,13 +31,14 @@ and packs `dist/` into the jar (`./gradlew bootJar -PbundleFrontend`).
 
 ## Available scripts
 
-| Script            | Description                            |
-| ----------------- | -------------------------------------- |
-| `npm run dev`     | Start the Vite dev server with HMR.    |
-| `npm run build`   | Build production assets into `dist/`.  |
-| `npm run preview` | Preview the production build locally.  |
-| `npm run lint`    | Run ESLint over the project.           |
-| `npm test`        | Run the Vitest suite once.             |
+| Script              | Description                           |
+| ------------------- | ------------------------------------- |
+| `npm run dev`       | Start the Vite dev server with HMR.   |
+| `npm run build`     | Build production assets into `dist/`. |
+| `npm run preview`   | Preview the production build locally. |
+| `npm run lint`      | Run ESLint over the project.          |
+| `npm run typecheck` | Type-check the TypeScript files.      |
+| `npm test`          | Run the Vitest suite once.            |
 
 ## Project structure
 

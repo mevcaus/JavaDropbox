@@ -225,10 +225,10 @@ Every Java file under `src/` is checked. The codebase was reformatted in one com
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-The frontend is checked by ESLint and, for TypeScript files, by the TypeScript compiler with `strict` on. CI runs both:
+ESLint checks every frontend file, JavaScript and TypeScript, with the same hooks rules. The TypeScript compiler, with `strict` on, checks the TypeScript files. CI runs both:
 
 ```bash
 cd frontend && npm run lint && npm run typecheck
 ```
 
-The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones, which aren't type-checked themselves. Once a file has been converted, keep it TypeScript.
+The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones. Those aren't type-checked themselves, but TypeScript infers types from them, and those types count. A component's destructured props without a default become required, for example, so a `.tsx` page that leaves one out fails until that component is converted and says which props are optional. Converting the files that others import first, components before the pages that use them, avoids that. Once a file has been converted, keep it TypeScript.
