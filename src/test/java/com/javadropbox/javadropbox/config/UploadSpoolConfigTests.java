@@ -2,41 +2,46 @@ package com.javadropbox.javadropbox.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.servlet.MultipartConfigElement;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
-import java.time.Duration;
-import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.autoconfigure.web.servlet.MultipartProperties;
+import org.springframework.util.unit.DataSize;
 
-@DisplayName("Abandoned uploads in the spool folder")
+@DisplayName("Where uploads are kept while they arrive")
 class UploadSpoolConfigTests {
 
-  @TempDir Path spool;
+  @TempDir Path dir;
 
   @Test
-  @DisplayName("parts older than the cutoff are deleted, newer ones and anything else are kept")
-  void deletesOnlyOldParts() throws IOException {
-    Instant now = Instant.now();
-    Path old = part("upload_a_00000001.tmp", now.minus(Duration.ofDays(2)));
-    Path fresh = part("upload_b_00000002.tmp", now.minus(Duration.ofMinutes(5)));
-    Path other = part("notes.txt", now.minus(Duration.ofDays(2)));
-    Files.createDirectory(spool.resolve("upload_c_00000003.tmp"));
+  @DisplayName("by default, in the uploads folder, which is made, with the limits kept")
+  void defaultsToTheUploadsFolder() throws IOException {
+    MultipartProperties properties = new MultipartProperties();
+    properties.setMaxFileSize(DataSize.ofMegabytes(5));
+    properties.setMaxRequestSize(DataSize.ofMegabytes(10));
+    Path uploads = dir.resolve(".javadropbox/uploads");
 
-    UploadSpoolConfig.deleteAbandoned(spool, now.minus(UploadSpoolConfig.ABANDONED_AFTER));
+    MultipartConfigElement config = UploadSpoolConfig.spoolIn(properties, uploads);
 
-    assertThat(old).doesNotExist();
-    assertThat(fresh).exists();
-    assertThat(other).exists();
-    assertThat(spool.resolve("upload_c_00000003.tmp")).isDirectory();
+    assertThat(config.getLocation()).isEqualTo(uploads.toString());
+    assertThat(uploads).isDirectory();
+    assertThat(config.getMaxFileSize()).isEqualTo(DataSize.ofMegabytes(5).toBytes());
+    assertThat(config.getMaxRequestSize()).isEqualTo(DataSize.ofMegabytes(10).toBytes());
   }
 
-  private Path part(String name, Instant written) throws IOException {
-    Path file = Files.writeString(spool.resolve(name), "part");
-    Files.setLastModifiedTime(file, FileTime.from(written));
-    return file;
+  @Test
+  @DisplayName("spring.servlet.multipart.location wins when it is set")
+  void configuredLocationWins() throws IOException {
+    MultipartProperties properties = new MultipartProperties();
+    properties.setLocation(dir.resolve("elsewhere").toString());
+    Path uploads = dir.resolve(".javadropbox/uploads");
+
+    MultipartConfigElement config = UploadSpoolConfig.spoolIn(properties, uploads);
+
+    assertThat(config.getLocation()).isEqualTo(dir.resolve("elsewhere").toString());
+    assertThat(uploads).doesNotExist();
   }
 }

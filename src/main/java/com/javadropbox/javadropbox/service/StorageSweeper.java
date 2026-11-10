@@ -4,8 +4,13 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.NotDirectoryException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
@@ -19,7 +24,9 @@ import org.springframework.stereotype.Component;
 /**
  * Clears up what interrupted operations leave in the store once the app has started: upload scratch
  * files, and stored versions of known files that no row refers to (a crash between moving a file
- * and committing, or a clean-up after commit that failed).
+ * and committing, or a clean-up after commit that failed). On the local disk, it also clears the
+ * uploads Tomcat was receiving and the store's temporary files, which a server that stopped
+ * mid-request leaves in {@link StoragePaths#internalDir}.
  *
  * <p>Requests are already being served by then, and other instances may share the storage, so
  * anything modified within the last hour is left alone: a request could be writing it, or be about
@@ -35,18 +42,25 @@ public class StorageSweeper {
   private final FileStore store;
   private final FileMetadataRepository files;
   private final FileVersionRepository versions;
+  private final StoragePaths storagePaths;
 
   public StorageSweeper(
-      FileStore store, FileMetadataRepository files, FileVersionRepository versions) {
+      FileStore store,
+      FileMetadataRepository files,
+      FileVersionRepository versions,
+      StoragePaths storagePaths) {
     this.store = store;
     this.files = files;
     this.versions = versions;
+    this.storagePaths = storagePaths;
   }
 
   /** Removes stale leftovers. Never throws: a failed clean-up must not stop the app. */
   @EventListener(ApplicationReadyEvent.class)
   public void sweep() {
     Instant cutoff = Instant.now().minus(MIN_AGE);
+    removeLocalLeftovers(storagePaths.uploadsDir(), "upload_*.tmp", cutoff);
+    removeLocalLeftovers(storagePaths.tempDir(), S3FileStore.TEMP_PREFIX + "*", cutoff);
     try {
       removeScratchFiles(cutoff);
       if (store.stat(StoragePaths.VERSIONS_DIR).map(Entry::isDirectory).orElse(false)) {
@@ -54,6 +68,23 @@ public class StorageSweeper {
       }
     } catch (IOException | RuntimeException e) {
       log.warn("Could not clean up leftovers in the storage", e);
+    }
+  }
+
+  // Tomcat names the parts it spools upload_<id>_<n>.tmp, and deletes them when the request ends.
+  private static void removeLocalLeftovers(Path dir, String glob, Instant cutoff) {
+    try (DirectoryStream<Path> leftovers = Files.newDirectoryStream(dir, glob)) {
+      for (Path leftover : leftovers) {
+        if (Files.isRegularFile(leftover, LinkOption.NOFOLLOW_LINKS)
+            && Files.getLastModifiedTime(leftover).toInstant().isBefore(cutoff)) {
+          Files.deleteIfExists(leftover);
+          log.info("Removed leftover {}", dir.getFileName() + "/" + leftover.getFileName());
+        }
+      }
+    } catch (NoSuchFileException | NotDirectoryException nothingThere) {
+      // Nothing was ever kept there.
+    } catch (IOException | RuntimeException e) {
+      log.warn("Could not clean up leftovers in {}", dir.getFileName(), e);
     }
   }
 

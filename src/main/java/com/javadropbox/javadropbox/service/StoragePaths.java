@@ -43,6 +43,12 @@ public class StoragePaths {
   /** Where the app keeps its own state. */
   public static final String INTERNAL_DIR = ".javadropbox";
 
+  /** Where Tomcat keeps each upload while it arrives, in {@link #INTERNAL_DIR}. */
+  public static final String UPLOADS_DIR = "uploads";
+
+  /** Where the store keeps temporary copies on the local disk, in {@link #INTERNAL_DIR}. */
+  public static final String TEMP_DIR = "tmp";
+
   /** Where each account's files are kept, in a folder named after the account's id. */
   public static final String HOMES_DIR = ".users";
 
@@ -89,6 +95,25 @@ public class StoragePaths {
   /** Where the app keeps its own state, on the local disk. */
   public Path internalDir() {
     return internalDir;
+  }
+
+  /**
+   * Where Tomcat keeps each upload while it arrives, unless {@code
+   * spring.servlet.multipart.location} says otherwise. On the local disk, beside the app's other
+   * state, not in {@code java.io.tmpdir}, which in the Docker image is the container's own layer.
+   */
+  public Path uploadsDir() {
+    return internalDir.resolve(UPLOADS_DIR);
+  }
+
+  /** Where a store that keeps files elsewhere, such as S3, makes its temporary copies. */
+  public Path tempDir() {
+    return tempDirIn(internalDir.getParent());
+  }
+
+  /** {@link #tempDir()} for the serving directory {@code servingDirectory}. */
+  public static Path tempDirIn(Path servingDirectory) {
+    return servingDirectory.toAbsolutePath().normalize().resolve(INTERNAL_DIR).resolve(TEMP_DIR);
   }
 
   /** The folder of an account's files, which is created if it does not exist yet. */

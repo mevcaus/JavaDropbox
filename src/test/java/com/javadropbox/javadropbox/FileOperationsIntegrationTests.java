@@ -384,6 +384,26 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
+  @DisplayName("stale uploads and temporary files left on the local disk are removed")
+  void startupSweepRemovesLocalLeftovers() throws Exception {
+    Path uploads = Files.createDirectories(storagePaths.uploadsDir());
+    Path temp = Files.createDirectories(storagePaths.tempDir());
+    Path staleUpload = old(Files.writeString(uploads.resolve("upload_a_00000001.tmp"), "x"));
+    Path freshUpload = Files.writeString(uploads.resolve("upload_b_00000002.tmp"), "x");
+    Path stalePart = old(Files.writeString(temp.resolve("javadropbox-1.part"), "x"));
+    Path freshPart = Files.writeString(temp.resolve("javadropbox-2.part"), "x");
+    Path notOurs = old(Files.writeString(uploads.resolve("notes.txt"), "x"));
+
+    sweeper.sweep();
+
+    assertThat(staleUpload).doesNotExist();
+    assertThat(freshUpload).exists();
+    assertThat(stalePart).doesNotExist();
+    assertThat(freshPart).exists();
+    assertThat(notOurs).exists();
+  }
+
+  @Test
   @DisplayName(
       "the sweep leaves alone the versions in a folder whose file the database doesn't know")
   void startupSweepKeepsFoldersOfUnknownFiles() throws Exception {
