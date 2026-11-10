@@ -73,6 +73,22 @@ const Dashboard = () => {
         dispatch(fetchFiles());
     }, [dispatch]);
 
+    // A file dropped beside the table would otherwise be opened by the browser in place of the
+    // app. The table's own handlers run first and claim drops on it.
+    useEffect(() => {
+        const refuse = (e) => {
+            if (e.defaultPrevented || !carriesFiles(e.dataTransfer)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'none';
+        };
+        window.addEventListener('dragover', refuse);
+        window.addEventListener('drop', refuse);
+        return () => {
+            window.removeEventListener('dragover', refuse);
+            window.removeEventListener('drop', refuse);
+        };
+    }, []);
+
     // FileTable hands back the folder's full path, which is what search results need: a nested
     // match cannot be located by name alone.
     const handleNavigate = (path) => {
@@ -159,8 +175,17 @@ const Dashboard = () => {
     };
 
     // Leaving the table for one of its own rows fires dragleave too, so only a move out of it counts.
+    // Safari gives dragleave no relatedTarget, so there the pointer's position decides.
     const handleDragLeave = (e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) setDraggingOver(false);
+        const zone = e.currentTarget;
+        if (e.relatedTarget) {
+            if (!zone.contains(e.relatedTarget)) setDraggingOver(false);
+            return;
+        }
+        const { left, right, top, bottom } = zone.getBoundingClientRect();
+        if (e.clientX <= left || e.clientX >= right || e.clientY <= top || e.clientY >= bottom) {
+            setDraggingOver(false);
+        }
     };
 
     const handleDrop = async (e) => {
@@ -172,14 +197,17 @@ const Dashboard = () => {
             addToast('Wait for the current upload to finish, then drop again.', 'info');
             return;
         }
-        let dropped;
+        // Busy from the start: walking a large folder takes a while, and a second drop or upload
+        // must not start alongside it.
+        setUploading('drop');
         try {
-            dropped = await readDrop(e.dataTransfer);
+            const dropped = await readDrop(e.dataTransfer);
+            await uploadTree(dropped.files, dropped.skipped, 'drop');
         } catch {
             addToast('Could not read the dropped files.', 'error');
-            return;
+        } finally {
+            setUploading(null);
         }
-        await uploadTree(dropped.files, dropped.skipped, 'drop');
     };
 
     const handleDelete = async () => {
@@ -287,7 +315,9 @@ const Dashboard = () => {
                     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-500 bg-blue-50/90">
                         <p className="flex items-center text-sm font-medium text-blue-700">
                             <UploadIcon className="h-5 w-5 mr-2" aria-hidden="true" />
-                            Drop to upload to {currentPath ? `"${currentPath.split('/').at(-1)}"` : 'My Files'}
+                            {uploading !== null
+                                ? 'Wait for the current upload to finish'
+                                : `Drop to upload to ${currentPath ? `"${currentPath.split('/').at(-1)}"` : 'My Files'}`}
                         </p>
                     </div>
                 )}
