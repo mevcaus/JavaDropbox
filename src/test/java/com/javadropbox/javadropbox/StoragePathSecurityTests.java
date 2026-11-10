@@ -132,11 +132,11 @@ class StoragePathSecurityTests {
   @Test
   @DisplayName("the app's internal directory, which holds the search index, is unreachable")
   void internalDirectoryIsUnreachable() throws Exception {
-    Files.createDirectories(servingDir.resolve(".javadropbox"));
-    Files.writeString(servingDir.resolve(".javadropbox/state.txt"), "state");
+    Files.createDirectories(servingDir.resolve(".javadropbox/search-index"));
+    Files.writeString(servingDir.resolve(".javadropbox/search-index/segments_1"), "index");
 
     mockMvc
-        .perform(get("/api/files/download").param("path", ".javadropbox/state.txt"))
+        .perform(get("/api/files/download").param("path", ".javadropbox/search-index/segments_1"))
         .andExpect(status().isBadRequest());
   }
 

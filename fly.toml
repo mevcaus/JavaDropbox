@@ -52,7 +52,8 @@ primary_region = "sjc"
     # going idle (see application-demo.properties).
     path = "/actuator/health/liveness"
 
-# Stored files and their versions (the volume is created in the setup above).
+# Stored files, their versions and the app's own state, such as the search index (the volume is
+# created in the setup above).
 [mounts]
   source = "javadropbox_data"
   destination = "/data"
