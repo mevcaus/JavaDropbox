@@ -303,7 +303,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 ## Features
 
 **Files**
-- Multi-file upload, and whole folders uploaded with their subfolders; folder creation, recursive delete (with the metadata and versions of everything inside)
+- Multi-file upload, and whole folders uploaded with their subfolders, from the picker or by dragging them onto the file list; folder creation, recursive delete (with the metadata and versions of everything inside)
 - Downloads with MIME detection and HTTP range support; folders download as streamed ZIPs
 - In-browser previews of images, PDFs and text or source files; text previews fetch only the first 256 KB by range request
 - Full-text search across the open folder and everything beneath it, of names and of the text in text and source files, PDFs and Word documents, ranked by relevance with the matching words highlighted in a passage of each file
@@ -354,7 +354,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 ## Testing and CI/CD
 
-Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc. All of them run on **PostgreSQL in Testcontainers**, each test context on an empty database of its own built by the Flyway migrations, so the constraints, unique indexes and cascades of a real install are under test everywhere, concurrent replaces and deletes of one file included. Other suites run every Flyway migration on its own and upgrade an install from before accounts had their own files. Storage in S3 is tested on **an S3 server in Testcontainers**: both stores pass one contract suite, and the app's uploads, versions, restores, zips, share links, search and quotas run end to end on a bucket. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
+Most backend tests are Spring Boot integration tests that drive the real HTTP API through MockMvc. All of them run on **PostgreSQL in Testcontainers**, each test context on an empty database of its own built by the Flyway migrations, so the constraints, unique indexes and cascades of a real install are under test everywhere, concurrent replaces and deletes of one file included. Other suites run every Flyway migration on its own and upgrade an install from before accounts had their own files. Storage in S3 is tested on **an S3 server in Testcontainers**: both stores pass one contract suite, and the app's uploads, versions, restores, zips, share links, search and quotas run end to end on a bucket. A few run on a real Tomcat to cover what MockMvc can't, such as cancelled downloads and trusted proxy headers. Filesystem edge cases (case-insensitive filesystems, symlinks swapped in between a check and its use) run on real disks and on Jimfs. Frontend tests render real components and drive them with real user events. **End-to-end tests** in Playwright then drive the real app in Chromium against the Docker Compose stack, frontend, backend and PostgreSQL together, on every pull request: first-run setup, signing in and out, uploads of files and whole folders, by picker and by drag and drop, previews, downloads, searching inside files, share links opened signed out and revoked, restoring versions, deletes, and an admin inviting someone who then has files of their own until the admin disables them. [docs/testing.md](docs/testing.md) lists what every suite covers and how to run them.
 
 ```mermaid
 flowchart LR
@@ -399,7 +399,7 @@ Then open `http://localhost:8080` and create the first account with the setup co
 - [x] **File previews** for images, PDFs and text files
 - [x] **Live demo** deployed on every merge
 - [x] **Full-text search** across file contents and metadata on the server
-- [x] **Folder upload** of whole directory structures
+- [x] **Folder upload** of whole directory structures, by picker or drag and drop
 - [x] **Multi-user support** with role-based access and per-user quotas
 - [x] **S3-compatible storage backend**
 

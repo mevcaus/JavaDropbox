@@ -104,6 +104,24 @@ class StoragePathSecurityTests {
         .andExpect(status().isBadRequest());
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"..", "../..", "a/../..", "../2", "../../.versions", "/tmp"})
+  @DisplayName(
+      "an upload into a folder outside the account's folder is refused, and stores nothing")
+  void uploadFolderTraversalIsRefused(String path) throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile("files", "escaped.txt", "text/plain", "x".getBytes());
+
+    mockMvc
+        .perform(multipart("/api/files").file(file).param("path", path).with(csrf().asHeader()))
+        .andExpect(status().isBadRequest());
+
+    try (var stored = Files.walk(servingDir)) {
+      assertThat(stored.filter(p -> p.endsWith("escaped.txt"))).isEmpty();
+    }
+    assertThat(Path.of("/tmp/escaped.txt")).doesNotExist();
+  }
+
   @Test
   @DisplayName("the version store cannot be downloaded, deleted or shared")
   void versionStoreIsUnreachable() throws Exception {

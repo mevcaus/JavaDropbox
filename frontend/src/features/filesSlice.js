@@ -56,11 +56,11 @@ const postFiles = async (files, path) => {
 /** Where a file from the folder picker sits inside the chosen folder, e.g. "Photos/2024/beach.jpg". */
 export const relativePathOf = (file) => file.webkitRelativePath || file.name;
 
-// The files of a chosen folder grouped by the folder each one goes into below path, parents first.
+// The files of a folder grouped by the folder each one goes into below path, parents first.
 const filesByFolder = (files, path) => {
     const groups = new Map();
-    for (const file of files) {
-        const folder = relativePathOf(file).split('/').slice(0, -1).join('/');
+    for (const { file, relativePath } of files) {
+        const folder = relativePath.split('/').slice(0, -1).join('/');
         const target = [path, folder].filter(Boolean).join('/');
         if (!groups.has(target)) groups.set(target, []);
         groups.get(target).push(file);
@@ -84,10 +84,12 @@ export const uploadFiles = createAsyncThunk(
 );
 
 /**
- * Uploads a folder chosen with the folder picker into the folder at path, subfolders included.
+ * Uploads files into the folder at path, each into the subfolder its relativePath names, so a
+ * folder from the folder picker or dropped on the page keeps its structure. files is a list of
+ * { file, relativePath }, e.g. { file, relativePath: "Trip/Day 1/a.jpg" }.
  * The endpoint stores files in one folder per request, so this sends a request per folder, one
- * after another, and stops at the first that fails. Empty folders are not uploaded: the picker
- * does not report them.
+ * after another, and stops at the first that fails. Empty folders are not uploaded: neither the
+ * picker nor a drop reports them.
  */
 export const uploadFolder = createAsyncThunk(
     'files/uploadFolder',

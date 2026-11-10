@@ -20,6 +20,7 @@ import VersionHistoryModal from '../components/VersionHistoryModal';
 import PreviewModal from '../components/PreviewModal';
 import { useToast } from '../hooks/useToast';
 import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
+import { carriesFiles, readDrop } from '../utils/droppedFiles';
 import { Loader2, FolderPlus, FolderUp, Upload as UploadIcon } from 'lucide-react';
 
 // Search results carry their own relativePath; a plain row in this folder may not.
@@ -63,8 +64,10 @@ const Dashboard = () => {
     const [itemToShare, setItemToShare] = useState(null);
     const [versionsFile, setVersionsFile] = useState(null);
     const [previewItem, setPreviewItem] = useState(null);
-    // 'files' or 'folder' while an upload is running: one upload at a time.
+    // 'files', 'folder' or 'drop' while an upload is running: one upload at a time.
     const [uploading, setUploading] = useState(null);
+    // Whether files are being dragged over the table.
+    const [draggingOver, setDraggingOver] = useState(false);
 
     useEffect(() => {
         dispatch(fetchFiles());
@@ -106,28 +109,22 @@ const Dashboard = () => {
         }
     };
 
-    const handleFolderUpload = async (e) => {
-        const input = e.target;
-        const chosen = Array.from(input.files ?? []);
-        input.value = '';
-
-        // A file is left out if it, or a folder it is in, has a dot name. Inside a folder those are
-        // mostly put there by the system (.DS_Store, .git), so this is news, not an error, and each
-        // name is listed once however many folders it turned up in.
-        const dotNameOf = (file) => relativePathOf(file).split('/').find(startsWithDot);
-        const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
+    // Uploads { file, relativePath } pairs below the open folder, keeping their subfolders. Used by
+    // the folder picker and by a drop. skipped names the dot-named files and folders left out.
+    const uploadTree = async (files, skipped, kind) => {
         if (skipped.length > 0) {
             addToast(notUploaded(skipped), 'info');
         }
-        const selected = chosen.filter((file) => !dotNameOf(file));
-        if (selected.length === 0) return;
+        if (files.length === 0) return;
 
-        // Empty where the browser cannot pick folders and handed over plain files instead.
-        const folderName = selected[0].webkitRelativePath?.split('/')[0];
-        const count = `${selected.length} ${selected.length === 1 ? 'file' : 'files'}`;
-        setUploading('folder');
+        // The folder's name when everything came from one folder. A drop of loose files, or a
+        // browser that cannot pick folders and handed over plain files, has none.
+        const tops = new Set(files.map(({ relativePath }) => relativePath.split('/')[0]));
+        const folderName = tops.size === 1 && files[0].relativePath.includes('/') ? [...tops][0] : null;
+        const count = `${files.length} ${files.length === 1 ? 'file' : 'files'}`;
+        setUploading(kind);
         try {
-            await dispatch(uploadFolder({ files: selected, path: currentPath })).unwrap();
+            await dispatch(uploadFolder({ files, path: currentPath })).unwrap();
             addToast(
                 folderName ? `Uploaded folder "${folderName}" (${count}) successfully.` : `Uploaded ${count} successfully.`,
                 'success',
@@ -137,6 +134,52 @@ const Dashboard = () => {
         } finally {
             setUploading(null);
         }
+    };
+
+    const handleFolderUpload = async (e) => {
+        const input = e.target;
+        const chosen = Array.from(input.files ?? []).map((file) => ({ file, relativePath: relativePathOf(file) }));
+        input.value = '';
+
+        // A file is left out if it, or a folder it is in, has a dot name. Inside a folder those are
+        // mostly put there by the system (.DS_Store, .git), so this is news, not an error, and each
+        // name is listed once however many folders it turned up in.
+        const dotNameOf = ({ relativePath }) => relativePath.split('/').find(startsWithDot);
+        const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
+        await uploadTree(chosen.filter((picked) => !dotNameOf(picked)), skipped, 'folder');
+    };
+
+    // Files and folders dragged onto the table. Drags that carry no files (selected text, a link)
+    // are left to the browser, so they show no drop state and cannot be dropped.
+    const handleDragOver = (e) => {
+        if (!carriesFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDraggingOver(true);
+    };
+
+    // Leaving the table for one of its own rows fires dragleave too, so only a move out of it counts.
+    const handleDragLeave = (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setDraggingOver(false);
+    };
+
+    const handleDrop = async (e) => {
+        if (!carriesFiles(e.dataTransfer)) return;
+        // Without this the browser opens the dropped file in place of the app.
+        e.preventDefault();
+        setDraggingOver(false);
+        if (uploading !== null) {
+            addToast('Wait for the current upload to finish, then drop again.', 'info');
+            return;
+        }
+        let dropped;
+        try {
+            dropped = await readDrop(e.dataTransfer);
+        } catch {
+            addToast('Could not read the dropped files.', 'error');
+            return;
+        }
+        await uploadTree(dropped.files, dropped.skipped, 'drop');
     };
 
     const handleDelete = async () => {
@@ -192,7 +235,7 @@ const Dashboard = () => {
                     <UploadButton
                         icon={UploadIcon}
                         label="Upload"
-                        busy={uploading === 'files'}
+                        busy={uploading === 'files' || uploading === 'drop'}
                         disabled={uploading !== null}
                         onChange={handleFileUpload}
                     />
@@ -220,16 +263,35 @@ const Dashboard = () => {
 
             {error && <p className="mb-4 text-sm text-red-500">Could not refresh the file list: {error}</p>}
 
-            <FileTable
-                files={files}
-                currentPath={currentPath}
-                onDelete={setItemToDelete}
-                onDownload={handleDownload}
-                onShare={handleShare}
-                onVersions={setVersionsFile}
-                onPreview={handlePreview}
-                onFolderClick={handleNavigate}
-            />
+            {/* min-h keeps an empty folder a target worth aiming at. */}
+            <div
+                className="relative min-h-64"
+                onDragEnter={handleDragOver}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+            >
+                <FileTable
+                    files={files}
+                    currentPath={currentPath}
+                    onDelete={setItemToDelete}
+                    onDownload={handleDownload}
+                    onShare={handleShare}
+                    onVersions={setVersionsFile}
+                    onPreview={handlePreview}
+                    onFolderClick={handleNavigate}
+                />
+                {draggingOver && (
+                    // pointer-events-none so the rows below stay the drag's target and dragleave
+                    // keeps working.
+                    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-500 bg-blue-50/90">
+                        <p className="flex items-center text-sm font-medium text-blue-700">
+                            <UploadIcon className="h-5 w-5 mr-2" aria-hidden="true" />
+                            Drop to upload to {currentPath ? `"${currentPath.split('/').at(-1)}"` : 'My Files'}
+                        </p>
+                    </div>
+                )}
+            </div>
 
             <DeleteConfirmationModal
                 isOpen={itemToDelete !== null}

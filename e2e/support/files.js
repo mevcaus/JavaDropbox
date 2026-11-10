@@ -66,3 +66,58 @@ export const upload = async (page, ...files) => {
 
 /** The table's action button for an item, such as "Download" or "Share". */
 export const action = (page, label, name) => page.getByRole('button', { name: `${label} ${name}`, exact: true });
+
+/**
+ * Drags files over target and drops them, the way a folder dragged in from the desktop arrives.
+ * tree maps each file's path inside the drop to its content, e.g. { 'Trip/Day 1/a.txt': 'x' }; the
+ * first segments become the dropped folders. Playwright cannot drag from the desktop, and a
+ * DataTransfer built in the page has no folder entries, so the folders are FileSystemEntry
+ * stand-ins around real File objects, dispatched with the same drag events a browser fires.
+ */
+export const dropFiles = async (target, tree) => {
+    await target.evaluate((element, files) => {
+        const folder = (name) => ({ name, isFile: false, isDirectory: true, children: new Map() });
+        const root = folder('');
+        for (const [path, content] of Object.entries(files)) {
+            const parts = path.split('/');
+            let parent = root;
+            for (const name of parts.slice(0, -1)) {
+                if (!parent.children.has(name)) parent.children.set(name, folder(name));
+                parent = parent.children.get(name);
+            }
+            const file = new File([content], parts.at(-1), { type: 'text/plain' });
+            parent.children.set(file.name, { name: file.name, isFile: true, isDirectory: false, file: (resolve) => resolve(file) });
+        }
+        const asEntry = (node) => {
+            if (node.isFile) return node;
+            const children = [...node.children.values()].map(asEntry);
+            return {
+                ...node,
+                createReader: () => {
+                    let done = false;
+                    return {
+                        readEntries: (resolve) => {
+                            const batch = done ? [] : children;
+                            done = true;
+                            setTimeout(() => resolve(batch));
+                        },
+                    };
+                },
+            };
+        };
+        const dataTransfer = {
+            types: ['Files'],
+            dropEffect: 'none',
+            items: [...root.children.values()].map((node) => ({
+                kind: 'file',
+                webkitGetAsEntry: () => asEntry(node),
+                getAsFile: () => null,
+            })),
+        };
+        for (const type of ['dragenter', 'dragover', 'drop']) {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+            element.dispatchEvent(event);
+        }
+    }, tree);
+};
