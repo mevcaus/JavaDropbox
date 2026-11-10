@@ -8,7 +8,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,7 +26,14 @@ class TextExtractorTests {
 
   @TempDir Path dir;
 
-  private final TextExtractor extractor = new TextExtractor("50MB");
+  private Path scratch;
+  private TextExtractor extractor;
+
+  @BeforeEach
+  void setUp() {
+    scratch = dir.resolve("serving/.javadropbox/tmp");
+    extractor = new TextExtractor("50MB", scratch);
+  }
 
   @Test
   @DisplayName("reads text and source files as UTF-8, replacing what does not decode")
@@ -49,6 +64,41 @@ class TextExtractorTests {
     assertThat(extract("report.PDF", TestDocuments.pdf("First page", "Second page")))
         .hasValueSatisfying(
             text -> assertThat(text).contains("First page").contains("Second page"));
+  }
+
+  @Test
+  @DisplayName("keeps PDFBox's scratch files in the folder it is given, and removes them after")
+  void keepsPdfScratchFilesInTheServingDirectory() throws Exception {
+    // PDFBox makes a scratch file when it decrypts a stream of a protected PDF, and deletes it on
+    // close, so the test watches the folder to see it come and go.
+    Files.createDirectories(scratch);
+    List<String> created = new ArrayList<>();
+    try (WatchService watcher = scratch.getFileSystem().newWatchService()) {
+      scratch.register(watcher, StandardWatchEventKinds.ENTRY_CREATE);
+
+      assertThat(extract("protected.pdf", TestDocuments.protectedPdf("Scratch page")))
+          .hasValueSatisfying(text -> assertThat(text).contains("Scratch page"));
+
+      WatchKey key = watcher.poll(5, TimeUnit.SECONDS);
+      assertThat(key).as("a scratch file was made in %s", scratch).isNotNull();
+      key.pollEvents().forEach(event -> created.add(event.context().toString()));
+    }
+    assertThat(created)
+        .isNotEmpty()
+        .allSatisfy(name -> assertThat(name).startsWith("PDFBox").endsWith(".tmp"));
+    try (Stream<Path> left = Files.list(scratch)) {
+      assertThat(left).isEmpty();
+    }
+  }
+
+  @Test
+  @DisplayName("makes the scratch folder again if it was removed")
+  void makesTheScratchFolder() throws IOException {
+    assertThat(scratch).doesNotExist();
+
+    assertThat(extract("report.pdf", TestDocuments.pdf("Page"))).isPresent();
+
+    assertThat(scratch).isDirectory();
   }
 
   @Test
@@ -92,11 +142,11 @@ class TextExtractorTests {
     assertThat(extract("archive.zip", new byte[] {'P', 'K', 3, 4})).isEmpty();
     assertThat(extract("no-extension", "plain words".getBytes(StandardCharsets.UTF_8))).isEmpty();
 
-    TextExtractor small = new TextExtractor("10B");
+    TextExtractor small = new TextExtractor("10B", scratch);
     Path file = Files.writeString(dir.resolve("big.txt"), "more than ten bytes");
     assertThat(small.extract(file, "big.txt", Files.size(file))).isEmpty();
 
-    TextExtractor namesOnly = new TextExtractor("0");
+    TextExtractor namesOnly = new TextExtractor("0", scratch);
     Path tiny = Files.writeString(dir.resolve("tiny.txt"), "x");
     assertThat(namesOnly.extract(tiny, "tiny.txt", Files.size(tiny))).isEmpty();
   }
@@ -116,7 +166,8 @@ class TextExtractorTests {
   @Test
   @DisplayName("a negative size limit stops startup")
   void negativeLimitIsRefused() {
-    assertThatThrownBy(() -> new TextExtractor("-1MB")).isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> new TextExtractor("-1MB", scratch))
+        .isInstanceOf(IllegalStateException.class);
   }
 
   private Optional<String> extract(String name, byte[] content) throws IOException {

@@ -45,7 +45,7 @@ class SearchIndexTests {
 
   // Counts the files whose text is read.
   private final TextExtractor extractor =
-      new TextExtractor("50MB") {
+      new TextExtractor("50MB", Path.of(System.getProperty("java.io.tmpdir"))) {
         @Override
         public Optional<String> extract(Path file, String name, long size) throws IOException {
           extracted.incrementAndGet();

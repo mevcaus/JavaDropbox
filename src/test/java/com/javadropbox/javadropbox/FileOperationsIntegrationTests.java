@@ -487,6 +487,8 @@ class FileOperationsIntegrationTests {
     Path freshUpload = Files.writeString(uploads.resolve("upload_b_00000002.tmp"), "x");
     Path stalePart = old(Files.writeString(temp.resolve("javadropbox-1.part"), "x"));
     Path freshPart = Files.writeString(temp.resolve("javadropbox-2.part"), "x");
+    Path staleScratch = old(Files.writeString(temp.resolve("PDFBox123.tmp"), "x"));
+    Path freshScratch = Files.writeString(temp.resolve("PDFBox456.tmp"), "x");
     Path notOurs = old(Files.writeString(uploads.resolve("notes.txt"), "x"));
 
     sweeper.sweep();
@@ -495,6 +497,8 @@ class FileOperationsIntegrationTests {
     assertThat(freshUpload).exists();
     assertThat(stalePart).doesNotExist();
     assertThat(freshPart).exists();
+    assertThat(staleScratch).doesNotExist();
+    assertThat(freshScratch).exists();
     assertThat(notOurs).exists();
   }
 

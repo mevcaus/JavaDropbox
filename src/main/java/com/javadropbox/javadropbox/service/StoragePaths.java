@@ -46,7 +46,10 @@ public class StoragePaths {
   /** Where Tomcat keeps each upload while it arrives, in {@link #INTERNAL_DIR}. */
   public static final String UPLOADS_DIR = "uploads";
 
-  /** Where the store keeps temporary copies on the local disk, in {@link #INTERNAL_DIR}. */
+  /**
+   * Where the store keeps temporary copies on the local disk, and PDFBox its scratch files, in
+   * {@link #INTERNAL_DIR}.
+   */
   public static final String TEMP_DIR = "tmp";
 
   /** Where each account's files are kept, in a folder named after the account's id. */
@@ -106,7 +109,10 @@ public class StoragePaths {
     return internalDir.resolve(UPLOADS_DIR);
   }
 
-  /** Where a store that keeps files elsewhere, such as S3, makes its temporary copies. */
+  /**
+   * Where a store that keeps files elsewhere, such as S3, makes its temporary copies, and PDFBox
+   * keeps its scratch files while the search index reads a PDF.
+   */
   public Path tempDir() {
     return tempDirIn(internalDir.getParent());
   }

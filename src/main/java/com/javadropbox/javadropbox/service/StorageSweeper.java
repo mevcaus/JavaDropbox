@@ -61,6 +61,7 @@ public class StorageSweeper {
     Instant cutoff = Instant.now().minus(MIN_AGE);
     removeLocalLeftovers(storagePaths.uploadsDir(), "upload_*.tmp", cutoff);
     removeLocalLeftovers(storagePaths.tempDir(), S3FileStore.TEMP_PREFIX + "*", cutoff);
+    removeLocalLeftovers(storagePaths.tempDir(), TextExtractor.PDF_SCRATCH_GLOB, cutoff);
     try {
       removeScratchFiles(cutoff);
       if (store.stat(StoragePaths.VERSIONS_DIR).map(Entry::isDirectory).orElse(false)) {

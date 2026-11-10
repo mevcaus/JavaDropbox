@@ -20,9 +20,10 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.io.IOUtils;
+import org.apache.pdfbox.io.MemoryUsageSetting;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
@@ -35,6 +36,10 @@ import org.springframework.util.unit.DataSize;
  * <p>Only the first {@link #MAX_CHARS} characters are kept, and files larger than {@code
  * javadropbox.search.max-file-size} are not opened at all, so one huge file can neither hold up
  * indexing for long nor fill the heap.
+ *
+ * <p>PDFBox keeps a PDF's streams in scratch files while it reads it. They go in {@link
+ * StoragePaths#tempDir()}, on the local disk beside the app's other state, rather than {@code
+ * java.io.tmpdir}, which in the Docker image is the container's own layer.
  */
 @Component
 public class TextExtractor {
@@ -54,14 +59,27 @@ public class TextExtractor {
     XML.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
   }
 
-  private final long maxFileSize;
+  /** What PDFBox names its scratch files, in {@link StoragePaths#tempDir()}. */
+  static final String PDF_SCRATCH_GLOB = "PDFBox*.tmp";
 
-  public TextExtractor(@Value("${javadropbox.search.max-file-size:50MB}") String maxFileSize) {
+  private final long maxFileSize;
+  private final Path scratchDir;
+
+  @Autowired
+  public TextExtractor(
+      @Value("${javadropbox.search.max-file-size:50MB}") String maxFileSize,
+      StoragePaths storagePaths) {
+    this(maxFileSize, storagePaths.tempDir());
+  }
+
+  /** Reads files up to {@code maxFileSize}, with PDFBox's scratch files in {@code scratchDir}. */
+  TextExtractor(String maxFileSize, Path scratchDir) {
     this.maxFileSize = DataSize.parse(maxFileSize.trim()).toBytes();
     if (this.maxFileSize < 0) {
       throw new IllegalStateException(
           "javadropbox.search.max-file-size must be 0 or more, not " + maxFileSize);
     }
+    this.scratchDir = scratchDir;
   }
 
   /**
@@ -131,11 +149,14 @@ public class TextExtractor {
     }
   }
 
-  // A page at a time, so reading stops once there is enough. Streams are cached in temporary files
-  // rather than the heap, which a large PDF could otherwise fill.
-  private static String pdf(Path file) throws IOException {
-    try (PDDocument document =
-        Loader.loadPDF(file.toFile(), IOUtils.createTempFileOnlyStreamCache())) {
+  // A page at a time, so reading stops once there is enough. Streams are cached in scratch files
+  // rather than the heap, which a large PDF could otherwise fill. The folder is made again each
+  // time, since PDFBox fails if it is missing and something may have removed it.
+  private String pdf(Path file) throws IOException {
+    MemoryUsageSetting scratch =
+        MemoryUsageSetting.setupTempFileOnly()
+            .setTempDir(Files.createDirectories(scratchDir).toFile());
+    try (PDDocument document = Loader.loadPDF(file.toFile(), scratch.streamCache)) {
       PDFTextStripper stripper = new PDFTextStripper();
       StringBuilder text = new StringBuilder();
       for (int page = 1; page <= document.getNumberOfPages() && text.length() < MAX_CHARS; page++) {

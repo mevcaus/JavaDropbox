@@ -63,7 +63,7 @@ JAVADROPBOX_STORAGE_S3_ACCESS_KEY=any JAVADROPBOX_STORAGE_S3_SECRET_KEY=any \
 ./gradlew bootRun
 ```
 
-Everything else is as above, with the app's own state still in `./JDB/.javadropbox`: the search index, uploads while they arrive, and the store's temporary files. [self-hosting.md](self-hosting.md#storing-files-in-s3) has every S3 setting.
+Everything else is as above, with the app's own state still in `./JDB/.javadropbox`: the search index, uploads while they arrive, and temporary files (the store's, and PDFBox's while it reads a PDF). [self-hosting.md](self-hosting.md#storing-files-in-s3) has every S3 setting.
 
 ## Project structure
 
