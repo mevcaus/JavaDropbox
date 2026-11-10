@@ -90,7 +90,6 @@ class UploadSpoolIntegrationTests {
   @Test
   @DisplayName("a spool folder deleted while the app runs is made again by the next upload")
   void deletedSpoolIsRecreated() throws Exception {
-    // As when .javadropbox is deleted to have the search index rebuilt.
     Path spool = Path.of(multipartConfig.getLocation());
     Files.delete(spool);
 

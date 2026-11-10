@@ -110,12 +110,10 @@ public class S3FileStore implements FileStore, AutoCloseable {
    * a store that is empty.
    *
    * @param prefix where the store's keys start in the bucket; empty for the whole bucket
-   * @throws IllegalStateException if the bucket cannot be reached, or already holds objects that
-   *     are not JavaDropbox's, saying why
-   */
-  /**
    * @param tempDir where parts wait until S3 has them, and objects are copied to be read locally;
    *     made when it is needed
+   * @throws IllegalStateException if the bucket cannot be reached, or already holds objects that
+   *     are not JavaDropbox's, saying why
    */
   public S3FileStore(S3Client client, String bucket, String prefix, Path tempDir) {
     this(client, bucket, prefix, tempDir, DEFAULT_PART_SIZE, DEFAULT_PAGE_SIZE);
@@ -465,7 +463,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
     }
   }
 
-  // Made again if it was deleted, as when .javadropbox is deleted to have the search index rebuilt.
+  // Made again if it was deleted while the app runs.
   private Path tempFile(String suffix) throws IOException {
     return Files.createTempFile(Files.createDirectories(tempDir), TEMP_PREFIX, suffix);
   }
