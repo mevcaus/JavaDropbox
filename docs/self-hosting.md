@@ -140,7 +140,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 
 ## Search
 
-The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a protected PDF, PDFBox keeps the decrypted parts in scratch files in `.javadropbox/tmp`, up to about the PDF's own size, and deletes them when it is done.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a PDF, PDFBox may keep parts of it in scratch files in `.javadropbox/tmp`, up to about the PDF's own size (mostly for protected PDFs, which it decrypts there), and deletes them when it is done.
 
 The files stored are the source of truth, and the index only mirrors them:
 

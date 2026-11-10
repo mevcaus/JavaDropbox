@@ -2,19 +2,14 @@ package com.javadropbox.javadropbox.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.javadropbox.javadropbox.TestDocuments;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardWatchEventKinds;
-import java.nio.file.WatchKey;
-import java.nio.file.WatchService;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -68,26 +63,22 @@ class TextExtractorTests {
 
   @Test
   @DisplayName("keeps PDFBox's scratch files in the folder it is given, and removes them after")
-  void keepsPdfScratchFilesInTheServingDirectory() throws Exception {
-    // PDFBox makes a scratch file when it decrypts a stream of a protected PDF, and deletes it on
-    // close, so the test watches the folder to see it come and go.
-    Files.createDirectories(scratch);
-    List<String> created = new ArrayList<>();
-    try (WatchService watcher = scratch.getFileSystem().newWatchService()) {
-      scratch.register(watcher, StandardWatchEventKinds.ENTRY_CREATE);
-
-      assertThat(extract("protected.pdf", TestDocuments.protectedPdf("Scratch page")))
-          .hasValueSatisfying(text -> assertThat(text).contains("Scratch page"));
-
-      WatchKey key = watcher.poll(5, TimeUnit.SECONDS);
-      assertThat(key).as("a scratch file was made in %s", scratch).isNotNull();
-      key.pollEvents().forEach(event -> created.add(event.context().toString()));
-    }
-    assertThat(created)
-        .isNotEmpty()
-        .allSatisfy(name -> assertThat(name).startsWith("PDFBox").endsWith(".tmp"));
+  void keepsPdfScratchFilesInTheServingDirectory() throws IOException {
+    // PDFBox decrypts each stream of a protected PDF into a scratch file, and deletes it on close.
+    assertThat(extract("protected.pdf", TestDocuments.protectedPdf("Scratch page")))
+        .hasValueSatisfying(text -> assertThat(text).contains("Scratch page"));
     try (Stream<Path> left = Files.list(scratch)) {
       assertThat(left).isEmpty();
+    }
+
+    // With nothing to be written there, reading it fails, so that is where they go.
+    assertThat(scratch.toFile().setWritable(false, false)).isTrue();
+    try {
+      assumeFalse(Files.isWritable(scratch), "running as root, which can write anyway");
+      assertThatThrownBy(() -> extract("protected.pdf", TestDocuments.protectedPdf("Scratch page")))
+          .isInstanceOf(IOException.class);
+    } finally {
+      scratch.toFile().setWritable(true, false);
     }
   }
 
