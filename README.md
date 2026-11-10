@@ -233,8 +233,22 @@ Every word has to appear in the item's name or in its text. Case and accents don
 
 ## Design decisions
 
-### Why a dual storage strategy (filesystem + database)?
-Files are stored on the **filesystem** or in **S3** for performance and simplicity (no BLOB overhead), while **metadata, version history, and audit logs** live in PostgreSQL. The database is the source of truth for relationships and history, and the store handles raw bytes. Keeping the two consistent is what the upload flow above is about.
+### Why does the database list what exists, and the store hold blobs?
+File contents go on the **filesystem** or in **S3**, not into PostgreSQL, where large objects would swell the database and its backups. Everything else lives in PostgreSQL: accounts, metadata, versions, history and share links. The two have different jobs ([#228], [#198]):
+
+- **The database is the list of what exists.** Every file, folder and version has a row, and the tree, the storage an account uses and search all come from rows, not from walking the store.
+- **The store only holds bytes**, each distinct content once, as a blob named by its SHA-256 at `blobs/<first 2 hex digits>/<hash>`. A file or a version is a row that points at a blob, and a blob is removed once nothing points at it.
+
+The other option was to keep each account's files laid out as folders in the store and use blobs for versions only ([#340]). Blobs for everything won:
+
+- **Replacing a file copies nothing.** It writes a new blob and points the row at it. With files at their paths, a replace on S3 is two server-side copies made while the file's row is locked ([#333]).
+- **Move and rename are updates of rows.** Nothing in the store moves. With files at their paths, moving a folder in S3 copies every object below it.
+- **Identical content is stored once**, whether it is two uploads of the same file, an unchanged re-upload or a restored version.
+- **Client paths never reach the store**, so the symlink and letter-case checks stop guarding every request.
+
+What self-hosters lose is a store that looks like their files. The serving directory or bucket holds blobs named by hash, not a folder per account, so browsing it with ordinary tools shows nothing useful, and a backup has to include the database to mean anything. Files copied in by hand no longer show up by themselves: an admin runs an import job that takes them in ([#256]). Blobs are shared between accounts, so what a row can reach is decided by its owner, never by a hash, and the server never tells an account that it already has some content unless that account holds it itself.
+
+This is being built in steps. Until new uploads are blobs ([#316]) and existing files are moved into blobs on upgrade ([#319]), files are still stored at their paths in `.users/<id>/`, as the rest of this README describes.
 
 ### Why a storage interface rather than an S3 filesystem library?
 The services were written against `java.nio.file`, and there are libraries that make an S3 bucket look like a `java.nio` filesystem. Using one would have left the code as it was and quietly broken what it relies on: a rename that S3 cannot do atomically, symlink checks with nothing to check, a call to S3 for every `Files.exists`, and directories that S3 does not have. So the services talk to `FileStore`, an interface of the dozen operations they actually use, and each store implements them in the way its storage allows:
@@ -259,7 +273,7 @@ Folder downloads write a `ZipOutputStream` straight to the HTTP response (`Folde
 ### Why a folder per account?
 Every account's files live in `.users/<id>/` inside the serving directory, and `StoragePaths` resolves each request's paths inside the signed-in account's folder only: whatever a path says, normalized and with symlinks refused, it can't leave that folder. So isolation doesn't depend on every query remembering a `WHERE owner = ?`; a path simply has nowhere else to go. Rows that are reached by id instead (versions, restores, share links) are checked against their owner, and another account's item is a `404`, as if it did not exist. Paths in the database are relative to the owner's folder and unique per owner, so two accounts can each have a `report.txt`, and the search index keys each item by its owner's id and path, so every search is confined to one account's files.
 
-The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. A folder per account also maps directly onto a prefix per account in S3, which is how the S3 store keeps them. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
+The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. Once files are blobs ([see above](#why-does-the-database-list-what-exists-and-the-store-hold-blobs)), the folder per account moves out of the store and into the database: an account's tree is its own rows, and `StoragePaths` stays the one place a client path is turned into an item, looked up among the signed-in account's rows only. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
 
 Sessions are checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
 
@@ -430,6 +444,11 @@ What a sync client needs from the server comes first, so that each step is usefu
 [#234]: https://github.com/mevcaus/JavaDropbox/issues/234
 [#235]: https://github.com/mevcaus/JavaDropbox/issues/235
 [#236]: https://github.com/mevcaus/JavaDropbox/issues/236
+[#256]: https://github.com/mevcaus/JavaDropbox/issues/256
+[#316]: https://github.com/mevcaus/JavaDropbox/issues/316
+[#319]: https://github.com/mevcaus/JavaDropbox/issues/319
+[#333]: https://github.com/mevcaus/JavaDropbox/issues/333
+[#340]: https://github.com/mevcaus/JavaDropbox/issues/340
 
 ## License
 
