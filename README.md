@@ -237,16 +237,18 @@ Every word has to appear in the item's name or in its text. Case and accents don
 File contents go on the **filesystem** or in **S3**, not into PostgreSQL, where large objects would swell the database and its backups. Everything else lives in PostgreSQL: accounts, metadata, versions, history and share links. The two have different jobs ([#228], [#198]):
 
 - **The database is the list of what exists.** Every file, folder and version has a row, and the tree, the storage an account uses and search all come from rows, not from walking the store.
-- **The store only holds bytes**, each distinct content once, as a blob named by its SHA-256 at `blobs/<first 2 hex digits>/<hash>`. A file or a version is a row that points at a blob, and a blob is removed once nothing points at it.
+- **The store only holds bytes**, each distinct content once, as a blob named by its SHA-256. A file or a version is a row that points at a blob, and a blob is removed once nothing points at it ([#317], [#318]).
 
 The other option was to keep each account's files laid out as folders in the store and use blobs for versions only ([#340]). Blobs for everything won:
 
 - **Replacing a file copies nothing.** It writes a new blob and points the row at it. With files at their paths, a replace on S3 is two server-side copies made while the file's row is locked ([#333]).
-- **Move and rename are updates of rows.** Nothing in the store moves. With files at their paths, moving a folder in S3 copies every object below it.
+- **Move and rename are updates of rows** ([#335]). Nothing in the store moves. With files at their paths, moving a folder in S3 copies every object below it.
 - **Identical content is stored once**, whether it is two uploads of the same file, an unchanged re-upload or a restored version.
-- **Client paths never reach the store**, so the symlink and letter-case checks stop guarding every request.
+- **Client paths never reach the store**, so the symlink checks stop guarding every request.
 
-What self-hosters lose is a store that looks like their files. The serving directory or bucket holds blobs named by hash, not a folder per account, so browsing it with ordinary tools shows nothing useful, and a backup has to include the database to mean anything. Files copied in by hand no longer show up by themselves: an admin runs an import job that takes them in ([#256]). Blobs are shared between accounts, so what a row can reach is decided by its owner, never by a hash, and the server never tells an account that it already has some content unless that account holds it itself.
+What self-hosters lose is a store that looks like their files. The serving directory or bucket holds blobs named by hash, not a folder per account, so browsing it with ordinary tools shows nothing useful. A backup has to take the database and the store together, with the app stopped, so that they agree. Files copied in by hand no longer show up by themselves: an admin runs an import job that takes them in ([#256]). That job also replaces `LooseFileAdoption`, running once after an upgrade ([#257]), and search catches up against the database instead of walking the store every ten minutes ([#260]).
+
+Blobs are shared between accounts, so nothing may reveal that content exists outside the account asking. What a request can reach is decided by the rows it owns, never by a hash. Each account's storage counts the full size of every file and version it holds, however many accounts hold the same content. And the server never tells an account that it already has some content unless that account holds it itself.
 
 This is being built in steps. Until new uploads are blobs ([#316]) and existing files are moved into blobs on upgrade ([#319]), files are still stored at their paths in `.users/<id>/`, as the rest of this README describes.
 
@@ -273,7 +275,9 @@ Folder downloads write a `ZipOutputStream` straight to the HTTP response (`Folde
 ### Why a folder per account?
 Every account's files live in `.users/<id>/` inside the serving directory, and `StoragePaths` resolves each request's paths inside the signed-in account's folder only: whatever a path says, normalized and with symlinks refused, it can't leave that folder. So isolation doesn't depend on every query remembering a `WHERE owner = ?`; a path simply has nowhere else to go. Rows that are reached by id instead (versions, restores, share links) are checked against their owner, and another account's item is a `404`, as if it did not exist. Paths in the database are relative to the owner's folder and unique per owner, so two accounts can each have a `report.txt`, and the search index keys each item by its owner's id and path, so every search is confined to one account's files.
 
-The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. Once files are blobs ([see above](#why-does-the-database-list-what-exists-and-the-store-hold-blobs)), the folder per account moves out of the store and into the database: an account's tree is its own rows, and `StoragePaths` stays the one place a client path is turned into an item, looked up among the signed-in account's rows only. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
+The alternative was one shared tree with ownership checks on every row. That would let accounts share folders with each other, but each check forgotten would leak a file, and files copied in by hand would belong to nobody. Upgrading needed no rewrite of paths: an install's existing rows become the first account's in the V7 migration, and its files are moved into that account's folder at startup, one rename each, where the paths they already hold are still right.
+
+Storing files as blobs ([above](#why-does-the-database-list-what-exists-and-the-store-hold-blobs)) takes this folder out of the store, and with it the guarantee that a path has nowhere else to go. Each account keeps a tree of its own, but the tree is its rows, so isolation rests on the queries instead: every lookup by path takes the signed-in account and finds only its rows, every lookup by id checks the owner, and each endpoint has a test that another account's items are a `404`. `StoragePaths` stays the one place a client path is turned into an item, so that check lives in one place rather than in every caller.
 
 Sessions are checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
 
@@ -403,13 +407,14 @@ What a sync client needs from the server comes first, so that each step is usefu
 
 - [ ] **Change feed**: `GET /api/changes?cursor=…` returns everything that changed since a cursor, so a client catches up without listing every file again ([#234])
 - [ ] **Conflict-safe writes**: each file carries a version tag, and a replace sent with `If-Match` fails with `412` if someone else changed the file first, rather than overwriting their change ([#235])
-- [ ] **Resumable uploads** in chunks named by their SHA-256, so a large upload survives a dropped connection and content the server already has is never sent twice ([#202], [#198])
+- [ ] **Resumable uploads** in chunks named by their SHA-256, so a large upload survives a dropped connection and content the account already has is never sent twice ([#202], [#198])
 - [ ] **Sync client** that keeps a local folder in sync both ways, a command-line tool first, keeping both copies when a file changed on both sides ([#26], [#30])
 
 ### Scale and operations
 
 - [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared, with the end-to-end tests run against two instances
 - [ ] **The database as the list of what exists** ([#228]), with folders listed a page at a time rather than the whole tree in one response
+- [ ] **Each content stored once**, as a blob named by its SHA-256, so identical files and versions take no extra space and replacing, moving or renaming a file copies nothing in the store ([#198])
 - [ ] **Load tests with published numbers** ([#195]): uploads a second, and how long a folder of 10,000 files takes to list, on disk and in S3
 - [ ] **Observability**: structured logs carrying a request id, OpenTelemetry traces, and Prometheus metrics with a Grafana dashboard ([#203], [#204])
 - [ ] **Releases**: tagged versions with a changelog, and multi-architecture images on GitHub Container Registry ([#201])
@@ -445,9 +450,14 @@ What a sync client needs from the server comes first, so that each step is usefu
 [#235]: https://github.com/mevcaus/JavaDropbox/issues/235
 [#236]: https://github.com/mevcaus/JavaDropbox/issues/236
 [#256]: https://github.com/mevcaus/JavaDropbox/issues/256
+[#257]: https://github.com/mevcaus/JavaDropbox/issues/257
+[#260]: https://github.com/mevcaus/JavaDropbox/issues/260
 [#316]: https://github.com/mevcaus/JavaDropbox/issues/316
+[#317]: https://github.com/mevcaus/JavaDropbox/issues/317
+[#318]: https://github.com/mevcaus/JavaDropbox/issues/318
 [#319]: https://github.com/mevcaus/JavaDropbox/issues/319
 [#333]: https://github.com/mevcaus/JavaDropbox/issues/333
+[#335]: https://github.com/mevcaus/JavaDropbox/issues/335
 [#340]: https://github.com/mevcaus/JavaDropbox/issues/340
 
 ## License
