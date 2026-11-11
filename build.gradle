@@ -163,6 +163,11 @@ tasks.named('check') {
 	dependsOn 'jacocoTestReport', 'jacocoTestCoverageVerification'
 }
 
+// So the report is there to look at when the minimums fail (CI uploads it either way).
+tasks.named('jacocoTestCoverageVerification') {
+	mustRunAfter 'jacocoTestReport'
+}
+
 // Local runs use the dev profile (application-dev.properties) unless told otherwise.
 bootRun {
 	environment 'SPRING_PROFILES_ACTIVE', System.getenv('SPRING_PROFILES_ACTIVE') ?: 'dev'
