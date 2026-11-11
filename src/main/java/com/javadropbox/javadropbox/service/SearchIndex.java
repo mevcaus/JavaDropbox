@@ -26,10 +26,9 @@ import java.util.List;
  *
  * <p>Items are keyed by their account and their path in its folder, and an implementation must only
  * ever index what is inside an account's folder: not the accounts' folders themselves, not files
- * beside them, not the app's own folder, hidden names or anything behind a symbolic link. The tests
- * in SearchIndexContractTests check this and the rest, for every implementation.
- *
- * <p>{@link LuceneSearchIndex}, inside the app, is the one there is.
+ * beside them, not the app's own folder, hidden names or anything behind a symbolic link. Each
+ * implementation is checked by the tests in SearchIndexContractTests, and by SearchIntegrationTests
+ * run against it, which cover what is hidden and what a search returns.
  */
 public interface SearchIndex {
 
@@ -73,11 +72,22 @@ public interface SearchIndex {
 
   /**
    * The items below the folder at {@code folderKey} in an account's folder (the account's whole
-   * folder when empty) that match {@code text}, best first. Every word in it has to be in the
-   * item's name or in its text, the last word also as the start of a longer one; wildcard
-   * characters match only themselves. The folder itself is not a hit. Each hit's path is relative
-   * to the account's folder. At most {@code limit} hits are returned, while {@link Hits#total}
-   * counts every match.
+   * folder when empty) that match {@code text}, best first. The folder itself is not a hit.
+   *
+   * <p>Every word typed has to be found, in the item's name or in its text:
+   *
+   * <ul>
+   *   <li>in the name, anywhere within it, ignoring case and accents;
+   *   <li>in the text, as a whole word, or as a phrase when the word holds several, such as
+   *       "e-mail"; the last word typed, if it is one of three letters or more, also as the start
+   *       of a longer one, so results come up while it is being typed.
+   * </ul>
+   *
+   * Wildcard characters match only themselves. Name matches rank above text matches, and text with
+   * the words together above text with them apart. A hit found by its name alone has no snippet.
+   *
+   * <p>Each hit's path is relative to the account's folder. At most {@code limit} hits are
+   * returned, while {@link Hits#total} counts every match.
    *
    * @throws IOException if the index can't be read
    */

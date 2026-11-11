@@ -128,7 +128,7 @@ abstract class SearchIndexContractTests {
 
   // SearchService reports a hit it could not resolve, which may be gone or behind a symlink now.
   @Test
-  @DisplayName("an item reported changed that is no longer there is dropped, without failing")
+  @DisplayName("an item reported changed that is no longer there is dropped, and indexing goes on")
   void changedItemThatIsGoneIsDropped() throws Exception {
     Path gone = Files.writeString(files.resolve("gone.txt"), "vanishing");
     SearchIndex index = open();
@@ -139,33 +139,78 @@ abstract class SearchIndexContractTests {
     index.changed(home, "gone.txt");
     index.changed(home, "never-was.txt");
     index.awaitIdle(INDEXING);
+    Files.writeString(files.resolve("after.txt"), "afterwards");
+    index.changed(home, "after.txt");
+    index.awaitIdle(INDEXING);
 
     assertThat(paths(index, "vanishing")).isEmpty();
+    assertThat(paths(index, "afterwards")).containsExactly("after.txt");
+  }
+
+  // A key that climbs out of the account's folder names nothing in it, so it can't reach another
+  // account's items: neither reading nor dropping them.
+  @Test
+  @DisplayName("a key reported changed that leads out of the account's folder reaches nothing")
+  void keyOutOfTheFolderReachesNothing() throws Exception {
+    Home other = storagePaths.home(2);
+    Files.writeString(store.path(other.key()).resolve("theirs.txt"), "untouchable");
+    SearchIndex index = open();
+    reconcile(index);
+
+    index.changed(home, "../2/theirs.txt");
+    index.changed(home, "..");
+    index.awaitIdle(INDEXING);
+
+    assertThat(index.search(other, "", "untouchable", 10).hits())
+        .extracting(SearchIndex.Hit::path)
+        .containsExactly("theirs.txt");
+    assertThat(paths(index, "untouchable")).isEmpty();
   }
 
   // A change made inside a transaction is indexed once the transaction has finished, whichever way
   // it did: a rollback has put the store back, and the index then matches that.
   @Test
-  @DisplayName("a change reported inside a transaction is indexed when it ends, even rolled back")
+  @DisplayName("a change reported inside a transaction is indexed when it ends, either way")
   void changeInsideATransactionWaitsForIt() throws Exception {
     SearchIndex index = open();
     reconcile(index);
-    Files.writeString(files.resolve("late.txt"), "patience");
 
+    Files.writeString(files.resolve("rolled-back.txt"), "patience");
+    List<TransactionSynchronization> rolledBack = changedInATransaction(index, "rolled-back.txt");
+    index.awaitIdle(INDEXING);
+    assertThat(paths(index, "patience")).isEmpty();
+    end(rolledBack, TransactionSynchronization.STATUS_ROLLED_BACK);
+    index.awaitIdle(INDEXING);
+    assertThat(paths(index, "patience")).containsExactly("rolled-back.txt");
+
+    Files.writeString(files.resolve("committed.txt"), "persistence");
+    List<TransactionSynchronization> committed = changedInATransaction(index, "committed.txt");
+    index.awaitIdle(INDEXING);
+    assertThat(paths(index, "persistence")).isEmpty();
+    end(committed, TransactionSynchronization.STATUS_COMMITTED);
+    index.awaitIdle(INDEXING);
+    assertThat(paths(index, "persistence")).containsExactly("committed.txt");
+  }
+
+  // Reports a change as code running in a transaction would, and returns what it registered to
+  // run when the transaction ends, which the caller then ends.
+  private List<TransactionSynchronization> changedInATransaction(SearchIndex index, String key) {
     TransactionSynchronizationManager.initSynchronization();
-    List<TransactionSynchronization> registered;
     try {
-      index.changed(home, "late.txt");
-      registered = TransactionSynchronizationManager.getSynchronizations();
+      index.changed(home, key);
+      return TransactionSynchronizationManager.getSynchronizations();
     } finally {
       TransactionSynchronizationManager.clearSynchronization();
     }
-    index.awaitIdle(INDEXING);
-    assertThat(paths(index, "patience")).isEmpty();
+  }
 
-    registered.forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
-    index.awaitIdle(INDEXING);
-    assertThat(paths(index, "patience")).containsExactly("late.txt");
+  private static void end(List<TransactionSynchronization> registered, int status) {
+    for (TransactionSynchronization synchronization : registered) {
+      if (status == TransactionSynchronization.STATUS_COMMITTED) {
+        synchronization.afterCommit();
+      }
+      synchronization.afterCompletion(status);
+    }
   }
 
   SearchIndex open() throws IOException {
