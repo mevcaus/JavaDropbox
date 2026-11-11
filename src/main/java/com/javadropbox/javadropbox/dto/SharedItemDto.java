@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.dto;
 
 import com.javadropbox.javadropbox.model.PreviewType;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
@@ -23,7 +24,11 @@ public record SharedItemDto(
     Instant expiresAt,
     @Nullable List<Entry> contents) {
 
-  /** One item inside a shared folder. {@code children} is null for a file. */
+  /**
+   * One item inside a shared folder. {@code children} is null for a file. SharedEntry in the API
+   * spec, where Entry alone would say nothing.
+   */
+  @Schema(name = "SharedEntry")
   public record Entry(
       String name,
       boolean isDirectory,

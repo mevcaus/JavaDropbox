@@ -18,16 +18,12 @@ public class FileTreeNode {
   private PreviewType previewType; // null for folders and files that can only be downloaded
   private List<FileTreeNode> children;
 
-  public FileTreeNode(String name, boolean isDirectory, long size) {
+  public FileTreeNode(String name, boolean isDirectory, long size, String relativePath) {
     this.name = name;
     this.isDirectory = isDirectory;
     this.size = size;
-    this.children = new ArrayList<>();
-  }
-
-  public FileTreeNode(String name, boolean isDirectory, long size, String relativePath) {
-    this(name, isDirectory, size);
     this.relativePath = relativePath;
+    this.children = new ArrayList<>();
   }
 
   public String getName() {

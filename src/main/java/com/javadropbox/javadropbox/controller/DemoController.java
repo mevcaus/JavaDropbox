@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.Duration;
 import java.time.Instant;
+import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DemoController {
 
   /** The demo's account and limits. Sizes are in bytes. */
+  @NullMarked
   public record DemoInfo(
       String username,
       String password,

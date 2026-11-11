@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.javadropbox.javadropbox.dto.AccountDto;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,6 +48,7 @@ class OpenApiSpecTests {
   private static final boolean UPDATE = Boolean.getBoolean("javadropbox.openapi.update");
 
   @Autowired private MockMvc mockMvc;
+  @Autowired private ObjectMapper objectMapper;
 
   @Test
   @DisplayName("matches the spec the controllers describe")
@@ -95,10 +97,10 @@ class OpenApiSpecTests {
     assertThat(isOrNull(node.path("properties").path("children"))).isFalse();
 
     // A field that refers back to its own type, which swagger-core drops on its own.
-    JsonNode children = schemas.path("Entry").path("properties").path("children");
+    JsonNode children = schemas.path("SharedEntry").path("properties").path("children");
     assertThat(isOrNull(children)).isTrue();
-    assertThat(children.toString()).contains("#/components/schemas/Entry");
-    assertThat(names(schemas.path("Entry").path("required"))).contains("children");
+    assertThat(children.toString()).contains("#/components/schemas/SharedEntry");
+    assertThat(names(schemas.path("SharedEntry").path("required"))).contains("children");
 
     // No schema is left with a field a client would have to treat as maybe missing.
     List<String> optional = new ArrayList<>();
@@ -119,6 +121,41 @@ class OpenApiSpecTests {
     assertThat(optional).isEmpty();
   }
 
+  // Required means always there, which holds only while Jackson writes null fields too.
+  @Test
+  @DisplayName("is built on responses that carry their null fields")
+  void responsesCarryNullFields() throws Exception {
+    String json =
+        objectMapper.writeValueAsString(new AccountDto(1L, "someone", "USER", true, null, 0));
+
+    assertThat(json).contains("\"quotaBytes\":null");
+  }
+
+  // Every field of a schema is required, so a client would have to send all of them.
+  @Test
+  @DisplayName("uses none of its schemas for a request body")
+  void noSchemaIsARequestBody() throws Exception {
+    List<String> bodies = new ArrayList<>();
+    liveSpec()
+        .path("paths")
+        .properties()
+        .forEach(
+            path ->
+                path.getValue()
+                    .properties()
+                    .forEach(
+                        operation -> {
+                          JsonNode body = operation.getValue().path("requestBody");
+                          if (body.toString().contains("#/components/schemas/")) {
+                            bodies.add(operation.getKey() + " " + path.getKey());
+                          }
+                        }));
+
+    assertThat(bodies)
+        .as("ResponseFieldsConverter marks every field required, which is wrong for a request")
+        .isEmpty();
+  }
+
   private JsonNode liveSpec() throws Exception {
     return new ObjectMapper()
         .readTree(
@@ -136,8 +173,11 @@ class OpenApiSpecTests {
     return names;
   }
 
-  // Nullable fields are written as anyOf the field's own schema and {"type": "null"}.
+  // A plain field has "null" among its types; a reference is anyOf itself and {"type": "null"}.
   private static boolean isOrNull(JsonNode property) {
+    if (property.path("type").toString().contains("\"null\"")) {
+      return true;
+    }
     for (JsonNode option : property.path("anyOf")) {
       if (option.path("type").toString().contains("\"null\"")) {
         return true;

@@ -593,6 +593,7 @@ export interface components {
             enabled: boolean;
             /** Format: int64 */
             id: number;
+            /** Format: int64 */
             quotaBytes: number | null;
             role: string;
             /** Format: int64 */
@@ -612,19 +613,13 @@ export interface components {
             /** Format: date-time */
             nextReset: string;
             password: string;
+            /** Format: int64 */
             storageLimitBytes: number | null;
             username: string;
         };
-        Entry: {
-            children: components["schemas"]["Entry"][] | null;
-            isDirectory: boolean;
-            lastModified: string | null;
-            name: string;
-            /** Format: int64 */
-            size: number;
-        };
         FileHistoryDto: {
-            changeType: ("UPLOAD" | "DELETE" | "CREATE_FOLDER" | "RESTORE") | null;
+            /** @enum {string|null} */
+            changeType: "UPLOAD" | "DELETE" | "CREATE_FOLDER" | "RESTORE" | null;
             details: string | null;
             errorMessage: string | null;
             filePath: string | null;
@@ -632,27 +627,34 @@ export interface components {
             /** Format: int64 */
             id: number;
             success: boolean;
+            /** Format: date-time */
             timestamp: string | null;
             username: string;
         };
         FileTreeNode: {
             children: components["schemas"]["FileTreeNode"][];
+            /** Format: date-time */
             createdDate: string | null;
+            /** Format: int64 */
             id: number | null;
             isDirectory: boolean;
+            /** Format: date-time */
             lastModified: string | null;
             name: string;
             ownerName: string;
-            previewType: ("image" | "pdf" | "text") | null;
+            /** @enum {string|null} */
+            previewType: "image" | "pdf" | "text" | null;
             relativePath: string;
             /** Format: int64 */
             size: number;
         };
         FileVersionDto: {
+            /** Format: date-time */
             createdAt: string | null;
             createdBy: string;
             /** Format: int64 */
             id: number;
+            /** Format: int64 */
             size: number | null;
             /** Format: int32 */
             version: number;
@@ -692,16 +694,20 @@ export interface components {
             expiresAt: string;
             /** Format: int64 */
             id: number;
+            /** Format: int64 */
             quotaBytes: number | null;
             role: string;
             username: string;
         };
         SearchResult: {
             isDirectory: boolean;
+            /** Format: date-time */
             lastModified: string | null;
             name: string;
-            previewType: ("image" | "pdf" | "text") | null;
+            /** @enum {string|null} */
+            previewType: "image" | "pdf" | "text" | null;
             relativePath: string;
+            /** Format: int64 */
             size: number | null;
             snippet: components["schemas"]["Snippet"] | null;
         };
@@ -720,14 +726,25 @@ export interface components {
             /** Format: int64 */
             id: number;
         };
+        SharedEntry: {
+            children: components["schemas"]["SharedEntry"][] | null;
+            isDirectory: boolean;
+            /** Format: date-time */
+            lastModified: string | null;
+            name: string;
+            /** Format: int64 */
+            size: number;
+        };
         SharedItemDto: {
-            contents: components["schemas"]["Entry"][] | null;
+            contents: components["schemas"]["SharedEntry"][] | null;
             /** Format: date-time */
             expiresAt: string;
             isDirectory: boolean;
+            /** Format: date-time */
             lastModified: string | null;
             name: string;
-            previewType: ("image" | "pdf" | "text") | null;
+            /** @enum {string|null} */
+            previewType: "image" | "pdf" | "text" | null;
             /** Format: int64 */
             size: number;
         };
@@ -736,6 +753,7 @@ export interface components {
             text: string;
         };
         Usage: {
+            /** Format: int64 */
             quotaBytes: number | null;
             /** Format: int64 */
             usedBytes: number;

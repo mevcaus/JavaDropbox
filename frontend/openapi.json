@@ -1161,12 +1161,8 @@
             "format" : "int64"
           },
           "quotaBytes" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "role" : {
             "type" : "string"
@@ -1213,12 +1209,8 @@
             "type" : "string"
           },
           "storageLimitBytes" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "username" : {
             "type" : "string"
@@ -1226,78 +1218,24 @@
         },
         "required" : [ "maxShareMinutes", "maxUploadBytes", "nextReset", "password", "storageLimitBytes", "username" ]
       },
-      "Entry" : {
-        "type" : "object",
-        "properties" : {
-          "children" : {
-            "anyOf" : [ {
-              "type" : "array",
-              "items" : {
-                "$ref" : "#/components/schemas/Entry"
-              }
-            }, {
-              "type" : "null"
-            } ]
-          },
-          "isDirectory" : {
-            "type" : "boolean"
-          },
-          "lastModified" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
-          },
-          "name" : {
-            "type" : "string"
-          },
-          "size" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        },
-        "required" : [ "children", "isDirectory", "lastModified", "name", "size" ]
-      },
       "FileHistoryDto" : {
         "type" : "object",
         "properties" : {
           "changeType" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "enum" : [ "UPLOAD", "DELETE", "CREATE_FOLDER", "RESTORE" ]
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "enum" : [ "UPLOAD", "DELETE", "CREATE_FOLDER", "RESTORE", null ]
           },
           "details" : {
-            "anyOf" : [ {
-              "type" : "string"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ]
           },
           "errorMessage" : {
-            "anyOf" : [ {
-              "type" : "string"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ]
           },
           "filePath" : {
-            "anyOf" : [ {
-              "type" : "string"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ]
           },
           "filename" : {
-            "anyOf" : [ {
-              "type" : "string"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ]
           },
           "id" : {
             "type" : "integer",
@@ -1307,12 +1245,8 @@
             "type" : "boolean"
           },
           "timestamp" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
           },
           "username" : {
             "type" : "string"
@@ -1330,31 +1264,19 @@
             }
           },
           "createdDate" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
           },
           "id" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "isDirectory" : {
             "type" : "boolean"
           },
           "lastModified" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
           },
           "name" : {
             "type" : "string"
@@ -1363,12 +1285,8 @@
             "type" : "string"
           },
           "previewType" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "enum" : [ "image", "pdf", "text" ]
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "enum" : [ "image", "pdf", "text", null ]
           },
           "relativePath" : {
             "type" : "string"
@@ -1384,12 +1302,8 @@
         "type" : "object",
         "properties" : {
           "createdAt" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
           },
           "createdBy" : {
             "type" : "string"
@@ -1399,12 +1313,8 @@
             "format" : "int64"
           },
           "size" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "version" : {
             "type" : "integer",
@@ -1485,11 +1395,7 @@
             "format" : "date-time"
           },
           "createdBy" : {
-            "anyOf" : [ {
-              "type" : "string"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ]
           },
           "expiresAt" : {
             "type" : "string",
@@ -1500,12 +1406,8 @@
             "format" : "int64"
           },
           "quotaBytes" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "role" : {
             "type" : "string"
@@ -1523,34 +1425,22 @@
             "type" : "boolean"
           },
           "lastModified" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
           },
           "name" : {
             "type" : "string"
           },
           "previewType" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "enum" : [ "image", "pdf", "text" ]
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "enum" : [ "image", "pdf", "text", null ]
           },
           "relativePath" : {
             "type" : "string"
           },
           "size" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "snippet" : {
             "anyOf" : [ {
@@ -1602,18 +1492,40 @@
         },
         "required" : [ "createdAt", "createdBy", "expiresAt", "id" ]
       },
+      "SharedEntry" : {
+        "type" : "object",
+        "properties" : {
+          "children" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/SharedEntry"
+            }
+          },
+          "isDirectory" : {
+            "type" : "boolean"
+          },
+          "lastModified" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        },
+        "required" : [ "children", "isDirectory", "lastModified", "name", "size" ]
+      },
       "SharedItemDto" : {
         "type" : "object",
         "properties" : {
           "contents" : {
-            "anyOf" : [ {
-              "type" : "array",
-              "items" : {
-                "$ref" : "#/components/schemas/Entry"
-              }
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/SharedEntry"
+            }
           },
           "expiresAt" : {
             "type" : "string",
@@ -1623,23 +1535,15 @@
             "type" : "boolean"
           },
           "lastModified" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "format" : "date-time"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
           },
           "name" : {
             "type" : "string"
           },
           "previewType" : {
-            "anyOf" : [ {
-              "type" : "string",
-              "enum" : [ "image", "pdf", "text" ]
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "string", "null" ],
+            "enum" : [ "image", "pdf", "text", null ]
           },
           "size" : {
             "type" : "integer",
@@ -1667,12 +1571,8 @@
         "type" : "object",
         "properties" : {
           "quotaBytes" : {
-            "anyOf" : [ {
-              "type" : "integer",
-              "format" : "int64"
-            }, {
-              "type" : "null"
-            } ]
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
           },
           "usedBytes" : {
             "type" : "integer",

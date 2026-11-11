@@ -255,6 +255,14 @@ cd frontend && npm run api:types           # writes src/services/apiSchema.ts
 
 Do the same when updating springdoc or `openapi-typescript`, whose output can change with the version. Dependabot bumps `openapi-typescript` in a pull request of its own. If the new version writes different output, that pull request fails the frontend CI until `npm run api:types` is run and committed on its branch.
 
-`./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while `apiSchema.ts` doesn't match `openapi.json`. **Null in responses.** Jackson writes every field of a response, nulls included, so every field is required in the spec. A field that can be null is marked with JSpecify's `@Nullable` on its type, on a record component (`@Nullable Long quotaBytes`) or on a getter's return type, and comes out as `number | null` in the types. An unmarked field is promised never to be null, so mark one whenever the code or a nullable column can leave it empty. Rows from older releases count, too. `ResponseFieldsConverter` puts this in the spec.
+`./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while `apiSchema.ts` doesn't match `openapi.json`.
 
-One gap remains. Endpoints that return a `Map` show up as a bare map, so renaming one of their keys doesn't fail anything. Form and multipart requests are described as query parameters: renaming one fails the check, but a client generated from the spec would send them the wrong way ([#359](https://github.com/mevcaus/JavaDropbox/issues/359)).
+**Null in responses.** Jackson writes every field of a response, nulls included, so every field is required in the spec. Whether a field can be null comes from JSpecify's annotations, which `ResponseFieldsConverter` puts in the spec:
+
+- Every response type is `@NullMarked`: the `dto` package is, through its `package-info.java`, and a response record kept elsewhere needs the annotation itself. In a `@NullMarked` type, an unmarked field is never null.
+- A field that can be null is marked `@Nullable` on its type: on a record component (`@Nullable Long quotaBytes`) or on a getter's return type. For a nested type the annotation goes before the inner name, as in `FileHistory.@Nullable ChangeType`. It comes out as `number | null` in the types.
+- Mark one whenever the code or a nullable column can leave the field empty. Rows from older releases count, too.
+
+Only JSpecify's `@Nullable` counts. Building the spec fails, with a message saying what to fix, when a response type isn't `@NullMarked`, when a field is marked with another `@Nullable` (Spring's or Jakarta's, which an IDE often imports instead), or when two types would share a schema name. The schemas are for responses only: `OpenApiSpecTests` fails if one is used as a request body, since a client need not send every field of a request.
+
+Two gaps remain, both in [#359](https://github.com/mevcaus/JavaDropbox/issues/359). Endpoints that return a `Map` show up as a bare map, so renaming one of their keys doesn't fail anything. And form and multipart requests are described as query parameters: renaming one fails the check, but a client generated from the spec would send them the wrong way.
