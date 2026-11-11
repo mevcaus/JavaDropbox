@@ -1,11 +1,11 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.AccountLinkInfo;
+import com.javadropbox.javadropbox.dto.Message;
 import com.javadropbox.javadropbox.model.AccountLink.Purpose;
 import com.javadropbox.javadropbox.service.AccountLinkService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,10 +47,10 @@ public class AccountLinkController {
       description =
           "Creates the invited account with this password (at least 8 characters), then the"
               + " invitation is used up. Publicly accessible.")
-  public Map<String, String> acceptInvite(
+  public Message acceptInvite(
       @PathVariable String token, @RequestParam(required = false) String password) {
     accountLinks.redeem(Purpose.INVITE, token, password);
-    return Map.of("message", "Account created");
+    return new Message("Account created");
   }
 
   @GetMapping("/api/reset-password/{token}")
@@ -71,9 +71,9 @@ public class AccountLinkController {
       description =
           "Sets the account's new password (at least 8 characters) and ends its sessions, then the"
               + " link is used up. Publicly accessible.")
-  public Map<String, String> resetPassword(
+  public Message resetPassword(
       @PathVariable String token, @RequestParam(required = false) String password) {
     accountLinks.redeem(Purpose.PASSWORD_RESET, token, password);
-    return Map.of("message", "Password changed");
+    return new Message("Password changed");
   }
 }

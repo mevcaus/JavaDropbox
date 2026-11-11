@@ -211,6 +211,39 @@ class OpenApiSpecTests {
     assertThat(ids).noneMatch(id -> id.matches(".*_\\d+$"));
   }
 
+  // A map's keys aren't in the spec, so renaming one would change nothing the drift check sees.
+  @Test
+  @DisplayName("describes every successful response's fields, with no bare map")
+  void noResponseIsABareMap() throws Exception {
+    List<String> maps = new ArrayList<>();
+    liveSpec()
+        .path("paths")
+        .properties()
+        .forEach(
+            path ->
+                path.getValue()
+                    .properties()
+                    .forEach(
+                        operation ->
+                            operation
+                                .getValue()
+                                .path("responses")
+                                .properties()
+                                .forEach(
+                                    response -> {
+                                      if (response.getKey().startsWith("2")
+                                          && response
+                                              .getValue()
+                                              .toString()
+                                              .contains("\"additionalProperties\"")) {
+                                        maps.add(
+                                            operation.getKey().toUpperCase() + " " + path.getKey());
+                                      }
+                                    })));
+
+    assertThat(maps).as("responses described as a bare map").isEmpty();
+  }
+
   private JsonNode liveSpec() throws Exception {
     return new ObjectMapper()
         .readTree(
