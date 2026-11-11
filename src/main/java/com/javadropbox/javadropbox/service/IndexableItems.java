@@ -5,6 +5,7 @@ import com.javadropbox.javadropbox.service.FileStore.Entry;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.NoSuchFileException;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
@@ -35,21 +36,47 @@ class IndexableItems {
     this.extractor = extractor;
   }
 
-  interface Visitor {
+  interface ItemVisitor {
     void visit(String key, Entry entry) throws IOException;
   }
 
-  /** Visits every item there is, until {@code stop} says to stop. */
-  void walkAll(BooleanSupplier stop, Visitor visitor) throws IOException {
-    walk(HOMES, stop, visitor);
+  interface GoneVisitor {
+    void gone(String key) throws IOException;
+  }
+
+  /**
+   * Compares what is indexed, each item's key and {@link Stamp}, with what is stored. Calls {@code
+   * changed} for each item that is new or differs, and then {@code gone} for each indexed key that
+   * is no longer stored. A walk {@code stop} cuts short has not seen everything that is still
+   * there, so nothing is then reported gone: deleting it would empty the index of what the walk did
+   * not reach. Takes {@code indexed} over, and leaves in it what was reported gone.
+   */
+  void reconcile(
+      Map<String, Stamp> indexed, BooleanSupplier stop, ItemVisitor changed, GoneVisitor gone)
+      throws IOException {
+    walk(
+        HOMES,
+        stop,
+        (key, entry) -> {
+          if (!Stamp.of(entry).equals(indexed.remove(key))) {
+            changed.visit(key, entry);
+          }
+        });
+    if (stop.getAsBoolean()) {
+      return;
+    }
+    for (String key : indexed.keySet()) {
+      gone.gone(key);
+    }
   }
 
   /**
    * Visits the item at {@code key}, and everything below it; every item there is for the empty key.
-   * A key that names nothing an account could hold, such as one with {@code ..} in it, or whose way
-   * passes through a symbolic link, visits nothing.
+   * The key is an account's id and a path in its folder, as {@link StoragePaths.Home#indexKey}
+   * makes it: what is above it is not checked again. One with {@code ..} or an empty part in it, or
+   * whose way passes through a symbolic link, visits nothing.
    */
-  void walkUnder(String key, BooleanSupplier stop, Visitor visitor) throws IOException {
+  void walkUnder(String key, BooleanSupplier stop, ItemVisitor visitor) throws IOException {
     if (!isKey(key)) {
       return;
     }
@@ -60,7 +87,7 @@ class IndexableItems {
     }
   }
 
-  static boolean isKey(String key) {
+  private static boolean isKey(String key) {
     if (key.isEmpty()) {
       return true;
     }
@@ -74,7 +101,7 @@ class IndexableItems {
 
   // The items the file tree lists: no hidden names (the app's own folders among them). The store
   // leaves out symlinks, and special files such as FIFOs, which reading would block on.
-  private void walk(String start, BooleanSupplier stop, Visitor visitor) throws IOException {
+  private void walk(String start, BooleanSupplier stop, ItemVisitor visitor) throws IOException {
     store.walk(
         start,
         entry -> {
@@ -129,8 +156,8 @@ class IndexableItems {
   }
 
   /**
-   * What a reconcile compares to tell whether an item changed since it was indexed: whether it is a
-   * folder, and a file's size and modification time.
+   * What a reconcile compares to tell whether an item changed. A folder has nothing to compare: its
+   * name is all that is indexed of it, and that is part of its key.
    */
   record Stamp(boolean directory, long size, long modified) {
 

@@ -190,7 +190,7 @@ public class LuceneSearchIndex implements SearchIndex {
   // Whether the next batch starts the index over. Only the worker touches it once it is running.
   private boolean rebuild;
 
-  public LuceneSearchIndex(
+  LuceneSearchIndex(
       StoragePaths storagePaths,
       IndexableItems items,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
@@ -432,23 +432,17 @@ public class LuceneSearchIndex implements SearchIndex {
 
   // Compares what is indexed with what is stored, item by item, and indexes what differs.
   private void reconcileAll(IndexWriter writer, Counts counts) throws IOException {
-    Map<String, Stamp> indexed = indexedStamps(writer);
-    items.walkAll(
+    items.reconcile(
+        indexedStamps(writer),
         () -> closing,
         (key, entry) -> {
-          if (!Stamp.of(entry).equals(indexed.remove(key))) {
-            writer.updateDocument(new Term(PATH, key), document(key, entry));
-            counts.indexed++;
-          }
+          writer.updateDocument(new Term(PATH, key), document(key, entry));
+          counts.indexed++;
+        },
+        gone -> {
+          writer.deleteDocuments(new Term(PATH, gone));
+          counts.removed++;
         });
-    // A walk cut short has not seen everything that is still there.
-    if (closing) {
-      return;
-    }
-    for (String gone : indexed.keySet()) {
-      writer.deleteDocuments(new Term(PATH, gone));
-      counts.removed++;
-    }
   }
 
   // Includes what this batch has written so far, which is not committed yet.
