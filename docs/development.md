@@ -156,6 +156,7 @@ JavaDropbox/
 │   │       ├── FileTreeService.java     # The browsable tree, from the account's rows
 │   │       ├── ImportService.java       # Gives files copied into an account's folder rows of their own
 │   │       ├── SearchIndex.java         # What a search index does: changes, reconciles, searches
+│   │       ├── BackgroundSearchIndex.java # Keeps any search index in step: a background worker, reconciles
 │   │       ├── LuceneSearchIndex.java   # Lucene index of names and text, kept in step with the store
 │   │       ├── IndexableItems.java      # What any search index may index: the accounts' items, and their text
 │   │       ├── SearchService.java       # Checks searches and their hits against the store
