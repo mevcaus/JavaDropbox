@@ -24,6 +24,9 @@ updates:
       npm-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+        # Its own PR: a new version can change the generated API types, and
+        # that PR then needs npm run api:types committed (docs/development.md).
+        exclude-patterns: ["openapi-typescript"]
     ignore:
       # Pinned to 5.x: openapi-typescript needs typescript ^5.x as a peer, and
       # typescript-eslint takes nothing past 6.0. TypeScript 7, the native

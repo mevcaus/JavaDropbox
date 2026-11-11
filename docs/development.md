@@ -241,7 +241,7 @@ TypeScript stays on 5.x for now (`~5.9.3`, and Dependabot skips its majors). `op
 
 The frontend's types for requests and responses are generated from the backend, so the two can't drift apart unnoticed. Two files are committed for it:
 
-- `frontend/openapi.json`, the OpenAPI spec springdoc builds from the controllers, with the `demo` profile's endpoint included.
+- `frontend/openapi.json`, the OpenAPI spec springdoc builds from the controllers. It's built with the `demo` profile, so the demo's endpoint is in it. An endpoint switched off for the demo (`@Profile("!demo")`) would drop out of it, and out of the frontend's types.
 - `frontend/src/services/apiSchema.ts`, the types `openapi-typescript` generates from that spec. Import them as types, which `verbatimModuleSyntax` requires (`import type { components } from './apiSchema'`), e.g. `components['schemas']['FileTreeNode']`. Never edit the file by hand.
 
 After changing an endpoint, a request or a response, write both again and commit them:
@@ -251,6 +251,6 @@ After changing an endpoint, a request or a response, write both again and commit
 cd frontend && npm run api:types           # writes src/services/apiSchema.ts
 ```
 
-Do the same when updating springdoc or `openapi-typescript`, whose output can change with the version. A Dependabot pull request that bumps `openapi-typescript` fails the frontend CI until `npm run api:types` is run and committed on its branch.
+Do the same when updating springdoc or `openapi-typescript`, whose output can change with the version. Dependabot bumps `openapi-typescript` in a pull request of its own. If the new version writes different output, that pull request fails the frontend CI until `npm run api:types` is run and committed on its branch.
 
-`./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while `apiSchema.ts` doesn't match `openapi.json`. Two gaps remain. Every response field is optional in the spec for now, because the DTOs don't say which fields are always there ([#357](https://github.com/mevcaus/JavaDropbox/issues/357)). And endpoints that return a `Map` show up as a bare map, so renaming one of their keys doesn't fail anything; neither do form and multipart requests, which are described as query parameters ([#359](https://github.com/mevcaus/JavaDropbox/issues/359)).
+`./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while `apiSchema.ts` doesn't match `openapi.json`. Two gaps remain. Every response field is optional in the spec for now, because the DTOs don't say which fields are always there ([#357](https://github.com/mevcaus/JavaDropbox/issues/357)). And endpoints that return a `Map` show up as a bare map, so renaming one of their keys doesn't fail anything. Form and multipart requests are described as query parameters: renaming one fails the check, but a client generated from the spec would send them the wrong way ([#359](https://github.com/mevcaus/JavaDropbox/issues/359)).
