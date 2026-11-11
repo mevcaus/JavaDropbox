@@ -9,6 +9,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
+import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -83,7 +84,7 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
   }
 
   @Test
-  @DisplayName("a change after the index was deleted makes it again rather than letting it be made")
+  @DisplayName("a change after the index was deleted makes it again, with the app's own mapping")
   void writeAfterDeletionMakesItAgain() throws Exception {
     SearchIndex index = open();
     reconcile(index);
@@ -142,12 +143,42 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
         new ElasticsearchSearchIndex(items(), "http://127.0.0.1:1", "someone", "secret", alias);
     try {
       index.changed(home, "a.txt");
-      index.reconcile();
-      Thread.sleep(500);
+      // Still waiting to try again, rather than given up.
+      assertThatThrownBy(() -> index.awaitIdle(Duration.ofSeconds(2)))
+          .isInstanceOf(IllegalStateException.class);
       assertThat(index.search(home, "", "a", 10).complete()).isFalse();
     } finally {
       close(index);
     }
+  }
+
+  // Stamps are read a page at a time: past the first page, a reconcile must still know what is
+  // indexed, or it reads every file again.
+  @Test
+  @DisplayName("a reconcile past a page of stamps reads again only what changed")
+  void reconcilePastAPage() throws Exception {
+    for (int i = 0; i <= ElasticsearchSearchIndex.PAGE; i++) {
+      Files.writeString(files.resolve("f" + i + ".txt"), "x");
+    }
+    SearchIndex index = open();
+    reconcile(index);
+    int read = extracted.get();
+    assertThat(read).isGreaterThan(ElasticsearchSearchIndex.PAGE);
+
+    reconcile(index);
+
+    assertThat(extracted).hasValue(read);
+  }
+
+  @Test
+  @DisplayName("an index name Elasticsearch wouldn't take stops the app from starting")
+  void badIndexName() {
+    assertThatThrownBy(
+            () ->
+                new ElasticsearchSearchIndex(
+                    items(), ElasticsearchTestSupport.url(), "", "", "Uppercase*"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Uppercase*");
   }
 
   @Test

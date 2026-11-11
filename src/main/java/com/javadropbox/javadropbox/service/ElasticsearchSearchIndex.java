@@ -12,13 +12,14 @@ import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryResponse;
 import co.elastic.clients.elasticsearch.core.MgetResponse;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
-import co.elastic.clients.elasticsearch.core.bulk.OperationType;
 import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.json.JsonData;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
+import co.elastic.clients.util.ObjectBuilder;
 import com.javadropbox.javadropbox.config.SearchConfig;
 import com.javadropbox.javadropbox.dto.Snippet;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
@@ -37,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -58,15 +61,17 @@ import org.springframework.stereotype.Service;
  * same way (the folded name is worked out here, with Lucene's own analyser), and the same query,
  * clause for clause and boost for boost, in one shard so that every item is scored against the same
  * statistics. Snippets are cut from each hit's stored text by Lucene's highlighter, so they come
- * out exactly as Lucene's own do. Each item's size and modification time are kept with it, so a
- * reconcile reads again only the files that differ.
+ * out as Lucene's own do. (Elasticsearch 8 splits the text with the Lucene it ships, 9.12, and the
+ * app splits searches with its own, 10; the two split text by the same Unicode rules.) Each item's
+ * size and modification time are kept with it, so a reconcile reads again only the files that
+ * differ.
  *
  * <p>The index is named after its format, {@code <index>-<format>}, and reached through an alias,
  * {@code <index>}, which writes require: an index the app didn't make, under that name, is left
  * alone, and one deleted behind its back isn't made again by a write in Elasticsearch's own way,
  * but by the app in its. When a newer version of the app changes the format, it makes its own
- * index, moves the alias to it and deletes the old one; an older version never touches a newer
- * one's.
+ * index, moves the alias to it and deletes the old one. An older version that finds the alias moved
+ * stops writing.
  */
 @Service
 @ConditionalOnProperty(name = SearchConfig.BACKEND, havingValue = "elasticsearch")
@@ -83,14 +88,18 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   private static final int BULK_ITEMS = 500;
   private static final long BULK_CHARS = 5_000_000;
   // Items read back at a time, to compare their stamps with the store.
-  private static final int PAGE = 1000;
+  static final int PAGE = 1000;
   // Changed items deleted by one request, and hits' texts fetched by one, for snippets: each text
-  // can be up to 200,000 characters, so a search's are fetched a few at a time.
+  // can be up to 200,000 characters, so a search's are fetched, and cut, a few at a time.
   private static final int KEYS_PER_DELETE = 200;
   private static final int TEXTS_PER_FETCH = 10;
 
   // Failures that pass: too many requests, a node unavailable or the service behind a gateway.
   private static final Set<Integer> TRANSIENT = Set.of(429, 502, 503, 504);
+
+  // What Elasticsearch takes as an index's name: lower case, without its separators and wildcards,
+  // not starting with -, _ or +.
+  private static final Pattern NAME_PATTERN = Pattern.compile("[a-z0-9][a-z0-9._-]{0,199}");
 
   private static final String PATH = "path";
   private static final String NAME = "name";
@@ -117,9 +126,13 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   // Whether the alias is known to point at this version's index. Written by the worker, and by a
   // search that finds the index gone.
   private volatile boolean ready;
-  // So that a problem logged once isn't logged again every batch until it is over.
-  private volatile boolean unreachable;
-  private volatile boolean refusedLogged;
+  // Whether the index was made, and has yet to be filled with everything there is. Only the
+  // worker touches it: it lasts until a batch that fills it has finished, retries and all.
+  private boolean fill;
+  // What has gone wrong and been logged, so that it isn't logged again every batch until it is
+  // over: Elasticsearch out of reach, refusing the app's requests, or holding an index or alias
+  // under the app's name that the app won't write to.
+  private volatile String failing;
 
   /**
    * @param url the service, such as {@code http://localhost:9200}; a path after it is a prefix of
@@ -134,6 +147,14 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       @Value("${" + SETTING + "password:}") String password,
       @Value("${" + SETTING + "index:javadropbox}") String alias) {
     super(RETRY_DELAY);
+    if (!NAME_PATTERN.matcher(alias).matches() || alias.equals(".") || alias.equals("..")) {
+      throw new IllegalStateException(
+          SETTING
+              + "index must be lower case letters, digits, '.', '_' or '-', starting with a letter"
+              + " or digit, not \""
+              + alias
+              + "\"");
+    }
     this.items = items;
     this.alias = alias;
     this.index = alias + "-" + FORMAT;
@@ -185,54 +206,53 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   @Override
   Outcome write(boolean reconcileAll, List<String> changed) throws IOException {
     try {
-      Outcome outcome = writeBatch(reconcileAll, changed);
-      if (unreachable) {
-        unreachable = false;
-        log.info("Elasticsearch at {} can be reached again", location);
+      writeBatch(reconcileAll, changed);
+      if (failing != null) {
+        failing = null;
+        log.info("Elasticsearch at {} takes the search index's changes again", location);
       }
-      return outcome;
+      return Outcome.DONE;
+    } catch (Unreachable e) {
+      fail("can't be reached (" + e.getCause() + "); trying again every " + RETRY_DELAY);
+      return Outcome.RETRY;
     } catch (NotOurs e) {
-      if (!refusedLogged) {
-        refusedLogged = true;
-        log.error("Search is off: {}", e.getMessage());
-      }
+      // Nothing to write to until someone renames or removes it.
+      fail("won't be written to: " + e.getMessage());
       return Outcome.DONE;
     } catch (IndexGone e) {
       log.warn("The search index {} has gone; making it again", index);
       ready = false;
       markBehind();
-      reconcile();
-      return Outcome.DONE;
+      // After the retry delay, not at once, in case something keeps deleting it.
+      return Outcome.RETRY;
     } catch (ElasticsearchException e) {
       if (TRANSIENT.contains(e.status())) {
-        return tryAgain(e);
+        fail("is too busy (" + e.getMessage() + "); trying again every " + RETRY_DELAY);
+        return Outcome.RETRY;
       }
-      throw new IOException(e.getMessage(), e);
-    } catch (Refused e) {
-      throw e;
-    } catch (IOException e) {
-      // The client throws these for the connection: refused, reset or timed out.
-      return tryAgain(e);
+      // Such as a refusal for want of a permission: the batch is given up, and the next reconcile
+      // tries again.
+      fail("refused the search index's changes: " + e.getMessage());
+      return Outcome.DONE;
     }
   }
 
-  private Outcome tryAgain(Exception e) {
-    if (!unreachable) {
-      unreachable = true;
-      log.warn(
-          "Elasticsearch at {} can't take the search index's changes ({}); trying again every {}",
-          location,
-          e.toString(),
-          RETRY_DELAY);
+  private void fail(String what) {
+    String message = "Elasticsearch at " + location + " " + what;
+    if (!message.equals(failing)) {
+      failing = message;
+      log.warn(message);
     } else {
-      log.debug("Elasticsearch still can't take the search index's changes: {}", e.toString());
+      log.debug(message);
     }
-    return Outcome.RETRY;
   }
 
-  private Outcome writeBatch(boolean reconcileAll, List<String> changed) throws IOException {
+  private void writeBatch(boolean reconcileAll, List<String> changed) throws IOException {
+    if (prepare()) {
+      fill = true;
+    }
     // An index made afresh has to be filled with everything there is.
-    boolean full = prepare() || reconcileAll;
+    boolean full = fill || reconcileAll;
     long started = System.nanoTime();
     Bulk bulk = new Bulk();
     if (full) {
@@ -251,8 +271,11 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       }
     }
     bulk.flush();
-    refresh();
+    if (bulk.indexed + bulk.removed > 0) {
+      refresh();
+    }
     if (full && !closing()) {
+      fill = false;
       markCaughtUp();
     }
 
@@ -263,56 +286,69 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     } else {
       log.debug(message, bulk.indexed, bulk.removed, millis);
     }
-    return Outcome.DONE;
   }
 
-  // Makes this version's index and points the alias at it, if it doesn't already. Whether it did.
+  /**
+   * Makes this version's index and points the alias at it, if it doesn't already. Whether it did.
+   * Once ready, only checks that the alias still points at it, which a newer version moving it
+   * would change.
+   */
   private boolean prepare() throws IOException {
-    if (ready) {
+    Set<String> current =
+        call(() -> client.indices().existsAlias(e -> e.name(alias)).value())
+            ? call(() -> client.indices().getAlias(g -> g.name(alias)).result().keySet())
+            : Set.of();
+    if (current.contains(index)) {
+      if (!ready) {
+        deleteOlder(current);
+        ready = true;
+      }
       return false;
     }
-    boolean made;
-    if (client.indices().existsAlias(e -> e.name(alias)).value()) {
-      Set<String> current = client.indices().getAlias(g -> g.name(alias)).result().keySet();
-      if (current.contains(index)) {
-        made = false;
-      } else if (current.size() == 1 && olderFormat(current.iterator().next())) {
-        String old = current.iterator().next();
-        log.info("Rebuilding the search index as {}, in place of {}", index, old);
-        create();
-        client
-            .indices()
-            .updateAliases(
-                u ->
-                    u.actions(a -> a.remove(r -> r.index(old).alias(alias)))
-                        .actions(a -> a.add(ad -> ad.index(index).alias(alias))));
-        client.indices().delete(d -> d.index(old));
-        made = true;
-      } else {
-        throw new NotOurs(
-            "the Elasticsearch alias "
-                + alias
-                + " points at "
-                + current
-                + ", which a newer version of the app or something else made");
+    if (ready) {
+      ready = false;
+      markBehind();
+      if (current.isEmpty()) {
+        throw new IndexGone();
       }
-    } else if (client.indices().exists(e -> e.index(alias)).value()) {
+    }
+    boolean made;
+    if (current.size() == 1 && olderFormat(current.iterator().next())) {
+      String old = current.iterator().next();
+      log.info("Rebuilding the search index as {}, in place of {}", index, old);
+      create();
+      call(
+          () ->
+              client
+                  .indices()
+                  .updateAliases(
+                      u ->
+                          u.actions(a -> a.remove(r -> r.index(old).alias(alias)))
+                              .actions(a -> a.add(ad -> ad.index(index).alias(alias)))));
+      deleteOlder(Set.of(index));
+      made = true;
+    } else if (!current.isEmpty()) {
       throw new NotOurs(
-          "there is already an Elasticsearch index called "
+          "the alias " + alias + " points at " + current + ", which this version didn't make");
+    } else if (call(() -> client.indices().exists(e -> e.index(alias)).value())) {
+      throw new NotOurs(
+          "there is an index called "
               + alias
-              + ", which the app didn't make; set "
+              + " that the app didn't make; set "
               + SETTING
               + "index to a name of its own");
     } else {
       log.info("Building the search index {}", index);
       create();
       try {
-        client.indices().putAlias(p -> p.index(index).name(alias));
+        // Pointing it at the index again, should another server have done so already, is fine.
+        call(() -> client.indices().putAlias(p -> p.index(index).name(alias)));
       } catch (ElasticsearchException e) {
-        if (e.status() != 400) {
-          throw e;
+        if (e.status() == 400) {
+          // An index under the alias's name appeared meanwhile.
+          throw new NotOurs("an index called " + alias + " appeared that the app didn't make");
         }
-        // Another server made it at the same moment.
+        throw e;
       }
       made = true;
     }
@@ -320,51 +356,66 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     return made;
   }
 
+  // Older versions' indexes the alias no longer points at: what a change of format left, should
+  // deleting them have failed, or another server have moved the alias at the same moment.
+  private void deleteOlder(Set<String> current) throws IOException {
+    Set<String> ours =
+        call(() -> client.indices().get(g -> g.index(alias + "-*")).result().keySet());
+    for (String other : ours) {
+      if (!current.contains(other) && olderFormat(other)) {
+        try {
+          call(() -> client.indices().delete(d -> d.index(other)));
+        } catch (ElasticsearchException e) {
+          if (e.status() != 404) {
+            throw e;
+          }
+        }
+      }
+    }
+  }
+
   private boolean olderFormat(String other) {
-    String prefix = alias + "-";
-    if (!other.startsWith(prefix)) {
-      return false;
-    }
-    try {
-      return Integer.parseInt(other.substring(prefix.length())) < FORMAT;
-    } catch (NumberFormatException e) {
-      return false;
-    }
+    String suffix = other.startsWith(alias + "-") ? other.substring(alias.length() + 1) : "";
+    return suffix.matches("[0-9]{1,9}") && Integer.parseInt(suffix) < FORMAT;
   }
 
   // Words as Unicode splits text into them, lower-cased and without accents, as in Lucene's index.
   // Another server may make it at the same moment, which is just as good.
   private void create() throws IOException {
     try {
-      client
-          .indices()
-          .create(
-              c ->
-                  c.index(index)
-                      .settings(
-                          s ->
-                              s.numberOfShards("1")
-                                  // A replica wherever there is a second node to put it on.
-                                  .autoExpandReplicas("0-1")
-                                  .analysis(
-                                      a ->
-                                          a.analyzer(
-                                              ANALYZER,
-                                              an ->
-                                                  an.custom(
-                                                      cu ->
-                                                          cu.tokenizer("standard")
-                                                              .filter(
-                                                                  "lowercase", "asciifolding")))))
-                      .mappings(
-                          m ->
-                              m.dynamic(DynamicMapping.Strict)
-                                  .properties(PATH, p -> p.keyword(k -> k))
-                                  .properties(NAME, p -> p.keyword(k -> k))
-                                  .properties(CONTENT, p -> p.text(t -> t.analyzer(ANALYZER)))
-                                  .properties(DIRECTORY, p -> p.boolean_(b -> b))
-                                  .properties(SIZE, p -> p.long_(l -> l))
-                                  .properties(MODIFIED, p -> p.long_(l -> l))));
+      call(
+          () ->
+              client
+                  .indices()
+                  .create(
+                      c ->
+                          c.index(index)
+                              .settings(
+                                  s ->
+                                      s.numberOfShards("1")
+                                          // A replica wherever there is a second node to put it on.
+                                          .autoExpandReplicas("0-1")
+                                          .analysis(
+                                              a ->
+                                                  a.analyzer(
+                                                      ANALYZER,
+                                                      an ->
+                                                          an.custom(
+                                                              cu ->
+                                                                  cu.tokenizer("standard")
+                                                                      .filter(
+                                                                          "lowercase",
+                                                                          "asciifolding")))))
+                              .mappings(
+                                  m ->
+                                      m.dynamic(DynamicMapping.Strict)
+                                          .properties(PATH, p -> p.keyword(k -> k))
+                                          .properties(NAME, p -> p.keyword(k -> k))
+                                          .properties(
+                                              CONTENT, p -> p.text(t -> t.analyzer(ANALYZER)))
+                                          .properties(DIRECTORY, p -> p.boolean_(b -> b))
+                                          .properties(SIZE, p -> p.long_(l -> l))
+                                          .properties(MODIFIED, p -> p.long_(l -> l)))));
     } catch (ElasticsearchException e) {
       if (!"resource_already_exists_exception".equals(e.error().type())) {
         throw e;
@@ -384,6 +435,7 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
               s -> {
                 s.index(alias)
                     .size(PAGE)
+                    .trackTotalHits(t -> t.enabled(false))
                     .query(q -> q.matchAll(m -> m))
                     .sort(o -> o.field(f -> f.field(PATH).order(SortOrder.Asc)))
                     .source(src -> src.fetch(false))
@@ -433,7 +485,8 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     return type.cast(value);
   }
 
-  // Drops everything at and below each changed key, a few hundred keys a request.
+  // Drops everything at and below each changed key, a few hundred keys a request. What the walk
+  // then finds is written by id, and made searchable at the end of the batch.
   private void deleteUnder(List<String> keys, Bulk bulk) throws IOException {
     for (int from = 0; from < keys.size(); from += KEYS_PER_DELETE) {
       List<String> some = keys.subList(from, Math.min(keys.size(), from + KEYS_PER_DELETE));
@@ -446,18 +499,14 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
           any.should(s -> s.prefix(p -> p.field(PATH).value(key + "/")));
         }
       }
-      DeleteByQueryResponse response;
-      try {
-        response =
-            client.deleteByQuery(
-                d ->
-                    d.index(alias)
-                        .query(q -> q.bool(any.build()))
-                        .conflicts(Conflicts.Proceed)
-                        .refresh(true));
-      } catch (ElasticsearchException e) {
-        throw gone(e);
-      }
+      DeleteByQueryResponse response =
+          gone(
+              () ->
+                  client.deleteByQuery(
+                      d ->
+                          d.index(alias)
+                              .query(q -> q.bool(any.build()))
+                              .conflicts(Conflicts.Proceed)));
       if (!response.failures().isEmpty()) {
         throw new IOException(
             "Elasticsearch could not delete some search items: "
@@ -468,34 +517,13 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   }
 
   private void refresh() throws IOException {
-    try {
-      client.indices().refresh(r -> r.index(alias));
-    } catch (ElasticsearchException e) {
-      throw gone(e);
-    }
+    gone(() -> client.indices().refresh(r -> r.index(alias)));
   }
 
   private <T> SearchResponse<T> search(
-      java.util.function.Function<
-              co.elastic.clients.elasticsearch.core.SearchRequest.Builder,
-              co.elastic.clients.util.ObjectBuilder<
-                  co.elastic.clients.elasticsearch.core.SearchRequest>>
-          request,
-      Class<T> type)
+      Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>> request, Class<T> type)
       throws IOException {
-    try {
-      return client.search(request, type);
-    } catch (ElasticsearchException e) {
-      throw gone(e);
-    }
-  }
-
-  // An index or alias not found means it went behind the app's back.
-  private static RuntimeException gone(ElasticsearchException e) {
-    if (e.status() == 404) {
-      return new IndexGone();
-    }
-    return e;
+    return gone(() -> client.search(request, type));
   }
 
   @Override
@@ -504,7 +532,7 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       return new Hits(List.of(), 0, false);
     }
     String homeKey = home.indexKey("");
-    SearchResponse<Document> response;
+    SearchResponse<Void> response;
     try {
       response =
           search(
@@ -513,8 +541,9 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
                       .size(limit)
                       .trackTotalHits(t -> t.enabled(true))
                       .query(query(home.indexKey(folderKey), text))
-                      .source(src -> src.filter(f -> f.includes(PATH))),
-              Document.class);
+                      .source(src -> src.fetch(false))
+                      .docvalueFields(f -> f.field(PATH)),
+              Void.class);
     } catch (IndexGone e) {
       ready = false;
       markBehind();
@@ -525,25 +554,23 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     }
     List<String> paths = new ArrayList<>();
     for (var hit : response.hits().hits()) {
-      paths.add(hit.source().path());
+      paths.add(first(hit.fields(), PATH, String.class));
     }
-    Map<String, String> texts = texts(paths);
-    // The same query as Lucene's, to cut each hit's snippet from its text. Without the folder: the
-    // highlighter, given only the text, would find nothing that matches a filter on the path.
-    org.apache.lucene.search.Query highlight = LuceneSearchIndex.query("", text);
+    Map<String, Snippet> snippets = snippets(paths, text);
     List<SearchIndex.Hit> hits = new ArrayList<>();
     for (String path : paths) {
-      String content = texts.get(path);
-      Snippet snippet = content == null ? null : LuceneSearchIndex.snippet(highlight, content);
-      hits.add(new SearchIndex.Hit(path.substring(homeKey.length() + 1), snippet));
+      hits.add(new SearchIndex.Hit(path.substring(homeKey.length() + 1), snippets.get(path)));
     }
     long total = response.hits().total() != null ? response.hits().total().value() : hits.size();
     return new Hits(hits, total, isCaughtUp());
   }
 
-  // The hits' texts, fetched a few at a time.
-  private Map<String, String> texts(List<String> paths) throws IOException {
-    Map<String, String> texts = new HashMap<>();
+  // Each hit's snippet, cut from its text a few hits at a time, so that no more than a few texts
+  // are held at once. The query is Lucene's, without the folder: the highlighter, given only the
+  // text, would find nothing that matches a filter on the path.
+  private Map<String, Snippet> snippets(List<String> paths, String text) throws IOException {
+    org.apache.lucene.search.Query highlight = LuceneSearchIndex.query("", text);
+    Map<String, Snippet> snippets = new HashMap<>();
     for (int from = 0; from < paths.size(); from += TEXTS_PER_FETCH) {
       List<String> ids =
           paths.subList(from, Math.min(paths.size(), from + TEXTS_PER_FETCH)).stream()
@@ -552,7 +579,11 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       MgetResponse<Document> response;
       try {
         response =
-            client.mget(m -> m.index(alias).ids(ids).sourceIncludes(PATH, CONTENT), Document.class);
+            call(
+                () ->
+                    client.mget(
+                        m -> m.index(alias).ids(ids).sourceIncludes(PATH, CONTENT),
+                        Document.class));
       } catch (ElasticsearchException e) {
         throw new IOException(e.getMessage(), e);
       }
@@ -560,12 +591,12 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
         if (item.isResult() && item.result().found() && item.result().source() != null) {
           Document document = item.result().source();
           if (document.content() != null) {
-            texts.put(document.path(), document.content());
+            snippets.put(document.path(), LuceneSearchIndex.snippet(highlight, document.content()));
           }
         }
       }
     }
-    return texts;
+    return snippets;
   }
 
   /**
@@ -634,7 +665,41 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     }
   }
 
-  /** The alias names something the app won't write to. */
+  private interface Call<T> {
+    T run() throws IOException;
+  }
+
+  // A request to Elasticsearch, whose IOExceptions are its connection's: refused, reset or timed
+  // out. Told apart from the store's, which give a batch up rather than having it tried again.
+  private static <T> T call(Call<T> request) throws Unreachable {
+    try {
+      return request.run();
+    } catch (IOException e) {
+      throw new Unreachable(e);
+    }
+  }
+
+  // Like call, for a request on the index, which not being found means it went behind the app's
+  // back.
+  private static <T> T gone(Call<T> request) throws Unreachable {
+    try {
+      return call(request);
+    } catch (ElasticsearchException e) {
+      if (e.status() == 404) {
+        throw new IndexGone();
+      }
+      throw e;
+    }
+  }
+
+  /** Elasticsearch could not be reached. */
+  private static final class Unreachable extends IOException {
+    Unreachable(IOException cause) {
+      super(cause.getMessage(), cause);
+    }
+  }
+
+  /** The alias or the index's name is taken by something the app won't write to. */
   private static final class NotOurs extends IOException {
     NotOurs(String message) {
       super(message);
@@ -645,13 +710,6 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   private static final class IndexGone extends RuntimeException {
     IndexGone() {
       super(null, null, false, false);
-    }
-  }
-
-  /** Elasticsearch refused an item, which trying again won't change. */
-  private static final class Refused extends IOException {
-    Refused(String message) {
-      super(message);
     }
   }
 
@@ -698,33 +756,28 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       if (pending == 0) {
         return;
       }
-      BulkResponse response;
-      try {
-        response = client.bulk(request.build());
-      } catch (ElasticsearchException e) {
-        throw gone(e);
-      }
+      BulkRequest sent = request.build();
       request = new BulkRequest.Builder().requireAlias(true);
       pending = 0;
       chars = 0;
+      BulkResponse response = gone(() -> client.bulk(sent));
       if (!response.errors()) {
         return;
       }
+      // A deletion of something already gone comes back without an error.
       for (BulkResponseItem item : response.items()) {
         if (item.error() == null) {
-          continue;
-        }
-        // A deletion of something already gone needs nothing more.
-        if (item.operationType() == OperationType.Delete && item.status() == 404) {
           continue;
         }
         if ("index_not_found_exception".equals(item.error().type())) {
           throw new IndexGone();
         }
         if (TRANSIENT.contains(item.status())) {
-          throw new IOException("Elasticsearch is too busy: " + item.error().reason());
+          throw new Unreachable(new IOException("too busy: " + item.error().reason()));
         }
-        throw new Refused("Elasticsearch refused a search item: " + item.error().reason());
+        // One item refused, which trying again won't change, mustn't stop the rest: it is left
+        // out, and the next reconcile tries it again.
+        log.warn("Elasticsearch refused a search item: {}", item.error().reason());
       }
     }
   }

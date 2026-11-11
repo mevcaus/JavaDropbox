@@ -175,9 +175,9 @@ With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearc
 
 - The app makes its index the first time it writes, as `javadropbox-1` (the setting's name and the format of the index), and reads and writes it through an alias called `javadropbox`. It won't touch an index called `javadropbox` that it didn't make, and turns search off with an error in the log instead. A newer version that changes the format makes `javadropbox-2`, moves the alias and deletes the old index; until it is filled, searches may miss files.
 - To rebuild the index, delete it (`DELETE /javadropbox-1`). The app makes it again and fills it, at the next search or change.
-- The index holds the text of every account's files, so reach the service over `https`, and give the app an account that can only use its own index: `create_index`, `delete_index`, `manage` (refresh and aliases), `read` and `write` on `javadropbox*`. Snapshots of the service keep deleted files' text.
-- While the service can't be reached, changes wait and are tried again every five seconds, logged once; searches fail.
-- A cluster with `search.allow_expensive_queries: false` refuses every search: finding a word anywhere in a name, or as the start of one, needs those queries.
+- The index holds every account's paths, file names, sizes and times, and the text of their files, so reach the service over `https`, and give the app an account that can only use its own index: `create_index`, `delete_index`, `manage` (refresh and aliases), `read` and `write` on `javadropbox*`. Snapshots of the service keep deleted files' text. A service with a certificate of its own, as Elasticsearch 8 makes by default, has to be trusted by the JVM: add its CA to the truststore the app runs with (`-Djavax.net.ssl.trustStore=…`).
+- While the service can't be reached, changes wait and are tried again every five seconds, logged once, and logged again when they get through. Searches fail with an error, or, if the service couldn't be reached since the app started, find nothing and say the index is still being built. A refusal, such as for want of a permission, is logged once and the changes wait for the next reconcile.
+- A cluster with `search.allow_expensive_queries: false` refuses every search, and every change: finding a word anywhere in a name or as the start of one, and dropping a folder's items, need those queries.
 
 ## Observability
 

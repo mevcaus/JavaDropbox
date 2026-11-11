@@ -26,6 +26,8 @@ public final class ElasticsearchTestSupport {
           new ElasticsearchContainer(IMAGE)
               .withEnv("xpack.security.enabled", "false")
               .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m")
+              // A nearly full disk would otherwise stop it taking writes, which the app waits out.
+              .withEnv("cluster.routing.allocation.disk.threshold_enabled", "false")
               .withStartupTimeout(Duration.ofMinutes(3));
       elasticsearch.start();
       shared = elasticsearch;

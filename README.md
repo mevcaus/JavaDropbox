@@ -43,7 +43,7 @@ A **self-hosted cloud storage platform** built from scratch, inspired by Dropbox
 - **Defense against path attacks.** Every client-supplied path goes through one class that rejects `..` traversal out of the account's folder, symlinks (rechecked right before each disk operation), reserved folders in any letter case, and hidden names.
 - **Revocable share links** that open as a page previewing the file, or listing the folder, before anything is downloaded. Links carry a random 256-bit token; only its SHA-256 hash is stored, so a database leak hands out nothing usable. Links can expire, be revoked, and die with the file they were made for.
 - **Streaming downloads.** Folders are zipped straight into the HTTP response, so memory use is flat however big the folder is. Files support range requests for resumable downloads.
-- **Full-text search** inside text files, PDFs and Word documents, ranked by relevance with the matching passage highlighted. An embedded Lucene index follows every change on a background thread, and catches up with files changed outside the app.
+- **Full-text search** inside text files, PDFs and Word documents, ranked by relevance with the matching passage highlighted. An embedded Lucene index, or Elasticsearch for several servers, follows every change on a background thread, and catches up with files changed outside the app.
 - **On disk or in S3.** Files live in a folder on the server or in a bucket in S3, MinIO, R2 or any other service with the S3 API, behind one storage interface whose two implementations pass the same contract tests. Uploads stream on to S3, large ones in parts, and downloads fetch only the byte range a client asked for.
 - **Tested against the real thing.** About 500 backend tests, all on PostgreSQL via Testcontainers with the schema the migrations build, including concurrency, migration and upgrade tests, the app run on an S3 server, cross-account isolation tests for every endpoint, and symlink-swap tests, plus about 270 frontend component tests. CI builds and smoke-tests the Docker image, and every merge to `main` deploys the [live demo](https://javadropbox.mevcaus.dev).
 
@@ -60,7 +60,7 @@ flowchart TB
         Security["Security filter chain<br/>setup gate · sign-in throttle · CSRF · sessions · roles"]
         Controllers["REST controllers<br/>files · versions · shares · history · search · admin"]
         Services["Services<br/>FileService · FileVersionService · ShareLinkService · SearchService · AccountService"]
-        Index["SearchIndex<br/>Lucene (LuceneSearchIndex), written on a background thread"]
+        Index["SearchIndex<br/>Lucene, or Elasticsearch, written on a background thread"]
         Paths["StoragePaths<br/>the only way a client path reaches the store,<br/>inside the account's own folder"]
         Store["FileStore<br/>LocalFileStore or S3FileStore"]
         Repos["Spring Data JPA repositories"]
@@ -363,7 +363,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 | **Backend** | Java 21, Spring Boot 3.5, Spring Security 6, Spring Session JDBC, Spring Data JPA / Hibernate |
 | **Database** | PostgreSQL, Flyway migrations |
 | **Storage** | The local filesystem, or S3 and compatible services through the AWS SDK for Java 2 |
-| **Search** | Apache Lucene (embedded), Apache PDFBox for the text of PDFs |
+| **Search** | Apache Lucene (embedded), or Elasticsearch through its Java client; Apache PDFBox for the text of PDFs |
 | **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
 | **Testing** | JUnit 5, MockMvc, Testcontainers (PostgreSQL, S3Mock), Jimfs; Vitest, Testing Library |
 | **Build and style** | Gradle, JaCoCo, Spotless with google-java-format, ESLint, the TypeScript compiler (`strict`) |
