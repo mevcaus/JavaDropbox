@@ -91,11 +91,11 @@ public class SecurityConfig {
         PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/login");
 
     LoginThrottleFilter throttle = new LoginThrottleFilter(limiter, loginRequest);
-    AccountSessionFilter accountSessions = new AccountSessionFilter(userRepository);
+    AccountSessionFilter accountSessionFilter = new AccountSessionFilter(userRepository);
 
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(throttle, UsernamePasswordAuthenticationFilter.class)
-        .addFilterBefore(accountSessions, AnonymousAuthenticationFilter.class)
+        .addFilterBefore(accountSessionFilter, AnonymousAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
@@ -155,7 +155,7 @@ public class SecurityConfig {
                     .successHandler(
                         (req, res, auth) -> {
                           throttle.recordSuccess(req);
-                          accountSessions.signedIn(req, auth);
+                          accountSessionFilter.signedIn(req, auth);
                           res.setStatus(200);
                           res.setContentType(MediaType.APPLICATION_JSON_VALUE);
                           json.writeValue(res.getWriter(), AuthController.describe(auth));

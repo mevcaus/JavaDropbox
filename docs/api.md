@@ -16,9 +16,9 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | `POST` | `/api/invite/{token}` | ❌ | Accept an invitation: creates the account with `password` (at least 8 characters); the link is then used up |
 | `GET` | `/api/reset-password/{token}` | ❌ | Whose password a reset link sets: `{username, expiresAt}`; `404` once used or expired |
 | `POST` | `/api/reset-password/{token}` | ❌ | Set the account's new `password` and sign it out everywhere; the link is then used up |
-
-A session ends on its next request once its account is disabled, or its role or password changes.
 | `GET` | `/api/demo` | ❌ | Only in the `demo` profile: the shared account and the limits, for the sign-in page (`404` elsewhere) |
+
+An account's sessions end at once when it is disabled, or its role or password changes: they are deleted from the database, and the next request with one is a `401`.
 
 ### Files and Folders
 

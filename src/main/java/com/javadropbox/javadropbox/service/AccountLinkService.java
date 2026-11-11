@@ -37,16 +37,19 @@ public class AccountLinkService {
   private final UserRepository users;
   private final PasswordEncoder passwordEncoder;
   private final AuthService authService;
+  private final AccountSessions sessions;
 
   public AccountLinkService(
       AccountLinkRepository links,
       UserRepository users,
       PasswordEncoder passwordEncoder,
-      AuthService authService) {
+      AuthService authService,
+      AccountSessions sessions) {
     this.links = links;
     this.users = users;
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
+    this.sessions = sessions;
   }
 
   /** A newly made link. The token is only ever available here, when the link is made. */
@@ -172,7 +175,7 @@ public class AccountLinkService {
     } else {
       User account = link.getUser();
       account.setPassword(passwordEncoder.encode(password));
-      account.endSessions();
+      sessions.end(account);
       log.info("Set a new password for \"{}\" from a reset link", account.getUsername());
     }
     links.delete(link);

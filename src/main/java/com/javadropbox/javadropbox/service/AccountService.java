@@ -33,16 +33,19 @@ public class AccountService {
   private final AccountLinkRepository links;
   private final AuthService authService;
   private final StorageQuota quota;
+  private final AccountSessions sessions;
 
   public AccountService(
       UserRepository users,
       AccountLinkRepository links,
       AuthService authService,
-      StorageQuota quota) {
+      StorageQuota quota,
+      AccountSessions sessions) {
     this.users = users;
     this.links = links;
     this.authService = authService;
     this.quota = quota;
+    this.sessions = sessions;
   }
 
   /** Every account, by username, with what it stores. */
@@ -79,7 +82,7 @@ public class AccountService {
       keepAnotherAdmin(account);
     }
     account.setEnabled(enabled);
-    account.endSessions();
+    sessions.end(account);
     int withdrawn = enabled ? 0 : links.deleteCreatedBy(account);
     log.info(
         "{} {} the account \"{}\"{}",
@@ -107,7 +110,7 @@ public class AccountService {
       keepAnotherAdmin(account);
     }
     account.setRole(newRole);
-    account.endSessions();
+    sessions.end(account);
     log.info(
         "{} made \"{}\" {}",
         authService.requireCurrentUser().getUsername(),

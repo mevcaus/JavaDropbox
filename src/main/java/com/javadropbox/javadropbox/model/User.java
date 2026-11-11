@@ -46,8 +46,9 @@ public class User {
 
   /**
    * Recorded in each session at sign-in and bumped whenever the account changes in a way that has
-   * to end its sessions: disabled, its role changed or its password reset. A session holding an
-   * older value is signed out on its next request.
+   * to end its sessions: disabled, its role changed or its password reset. Those sessions are
+   * deleted along with the change; this catches a session that signed in while the change was being
+   * made, which holds the older value and is signed out on its next request.
    */
   @Column(nullable = false)
   private int sessionVersion;
@@ -116,8 +117,12 @@ public class User {
     return sessionVersion;
   }
 
-  /** Ends every session the account has; see {@link #getSessionVersion}. */
-  public void endSessions() {
+  /**
+   * Signs every session the account has out on its next request. {@link
+   * com.javadropbox.javadropbox.service.AccountSessions#end} calls this and also deletes the
+   * sessions; use that rather than this alone.
+   */
+  public void bumpSessionVersion() {
     sessionVersion++;
   }
 }

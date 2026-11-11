@@ -162,6 +162,7 @@ JavaDropbox/
 │   │       ├── SetupService.java        # Setup code + first account
 │   │       ├── AccountService.java      # Admins: list, disable, roles, quotas
 │   │       ├── AccountLinkService.java  # Invitations and password resets: one-time links
+│   │       ├── AccountSessions.java     # Deletes an account's sessions when it changes
 │   │       ├── ShareLinkService.java    # Share links: random tokens, stored hashed, bound to their item
 │   │       ├── StorageQuota.java        # Account quotas, previous versions included
 │   │       ├── DemoService.java         # Live demo: shared account, daily reset, sample files

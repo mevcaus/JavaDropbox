@@ -18,8 +18,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Ends a session its account may no longer use: the account was disabled, or its role changed or
  * its password was reset since the session signed in (see {@link User#getSessionVersion}). The
- * request carries on as anonymous, so it gets a 401 wherever a session is needed. Checking on every
- * request makes such a change take effect at once, rather than whenever the session would expire.
+ * request carries on as anonymous, so it gets a 401 wherever a session is needed. Such a change
+ * deletes the account's sessions as it commits (AccountSessions); this catches the one that signed
+ * in while the change was being made, after the deletion, with the account as it was before.
  *
  * <p>Created by SecurityConfig, ahead of the filter that makes requests without a session
  * anonymous, so it only runs inside the security chain.

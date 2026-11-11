@@ -356,6 +356,8 @@ class AdminIntegrationTests {
 
     setEnabled(bob, false).andExpect(status().isOk());
 
+    // Deleted already, not just turned away on the next request.
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isZero();
     mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     signIn("bob", PASSWORD).andExpect(status().isUnauthorized());
     mockMvc
@@ -502,6 +504,7 @@ class AdminIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
 
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isZero();
     mockMvc.perform(get("/api/me").cookie(session)).andExpect(status().isUnauthorized());
     Cookie again = session("bob");
     mockMvc.perform(get("/api/admin/users").cookie(again)).andExpect(status().isOk());
@@ -516,6 +519,7 @@ class AdminIntegrationTests {
 
     setRole(dana, "USER").andExpect(status().isOk());
 
+    assertThat(TestDatabase.sessionsOf(jdbc, "dana")).isZero();
     assertThat(users.findById(dana.getId()).orElseThrow().getRole()).isEqualTo(User.ROLE_USER);
     mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isUnauthorized());
     Cookie again = session("dana");
@@ -566,6 +570,7 @@ class AdminIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
 
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isZero();
     mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     signIn("bob", PASSWORD).andExpect(status().isUnauthorized());
     signIn("bob", "a brand new password").andExpect(status().isOk());

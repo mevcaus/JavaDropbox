@@ -74,6 +74,7 @@ public class DemoService implements ApplicationRunner {
   private final SearchIndex searchIndex;
   private final JdbcTemplate jdbc;
   private final TransactionTemplate transactions;
+  private final AccountSessions sessions;
   private final Clock clock;
   private final String username;
   private final String password;
@@ -94,6 +95,7 @@ public class DemoService implements ApplicationRunner {
       SearchIndex searchIndex,
       JdbcTemplate jdbc,
       PlatformTransactionManager transactionManager,
+      AccountSessions sessions,
       @Value("${javadropbox.demo.username}") String username,
       @Value("${javadropbox.demo.password}") String password,
       @Value("${javadropbox.demo.reset-at}") LocalTime resetAt,
@@ -107,6 +109,7 @@ public class DemoService implements ApplicationRunner {
         searchIndex,
         jdbc,
         transactionManager,
+        sessions,
         Clock.systemUTC(),
         username,
         password,
@@ -123,6 +126,7 @@ public class DemoService implements ApplicationRunner {
       SearchIndex searchIndex,
       JdbcTemplate jdbc,
       PlatformTransactionManager transactionManager,
+      AccountSessions sessions,
       Clock clock,
       String username,
       String password,
@@ -136,6 +140,7 @@ public class DemoService implements ApplicationRunner {
     this.searchIndex = searchIndex;
     this.jdbc = jdbc;
     this.transactions = new TransactionTemplate(transactionManager);
+    this.sessions = sessions;
     this.clock = clock;
     this.username = username;
     this.password = password;
@@ -165,7 +170,8 @@ public class DemoService implements ApplicationRunner {
   // and no setup code is ever printed.
   @Override
   public void run(ApplicationArguments args) throws IOException {
-    ensureAccount();
+    // In one transaction, so the account's sessions end along with the change that ends them.
+    transactions.executeWithoutResult(status -> ensureAccount());
     nextReset = resetTimeAfter(lastReset());
     resetIfDue();
   }
@@ -206,6 +212,8 @@ public class DemoService implements ApplicationRunner {
       return;
     }
     boolean changed = false;
+    // Unlike a reset link, this leaves the sessions alone: everyone shares the account, and its
+    // password is on the sign-in page, so a new one keeps nobody out who was in.
     if (!passwordEncoder.matches(password, user.getPassword())) {
       user.setPassword(passwordEncoder.encode(password));
       changed = true;
@@ -219,7 +227,7 @@ public class DemoService implements ApplicationRunner {
     if (user.isAdmin() || !user.isEnabled()) {
       user.setRole(User.ROLE_USER);
       user.setEnabled(true);
-      user.endSessions();
+      sessions.end(user);
       changed = true;
       log.info("Made the demo account an ordinary account that can sign in");
     }
