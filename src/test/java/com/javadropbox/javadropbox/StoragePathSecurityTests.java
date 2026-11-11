@@ -107,7 +107,8 @@ class StoragePathSecurityTests {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"..", "../..", "a/../..", "../2", "../../.versions", "/tmp"})
+  @ValueSource(
+      strings = {"..", "../..", "a/../..", "../2", "../../.versions", "../../.blobs", "/tmp"})
   @DisplayName(
       "an upload into a folder outside the account's folder is refused, and stores nothing")
   void uploadFolderTraversalIsRefused(String path) throws Exception {

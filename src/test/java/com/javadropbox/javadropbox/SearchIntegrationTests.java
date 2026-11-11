@@ -322,7 +322,7 @@ class SearchIntegrationTests {
   }
 
   @ParameterizedTest(name = "path=\"{0}\" is refused")
-  @ValueSource(strings = {"..", "../outside", ".versions", ".javadropbox", "a/../../etc"})
+  @ValueSource(strings = {"..", "../outside", ".versions", ".javadropbox", ".blobs", "a/../../etc"})
   void foldersOutsideTheServingDirectoryAreRefused(String path) throws Exception {
     mockMvc
         .perform(get("/api/search").param("q", "secret").param("path", path))

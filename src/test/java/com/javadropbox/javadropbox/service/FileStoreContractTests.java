@@ -455,6 +455,172 @@ abstract class FileStoreContractTests {
     return store().write(key, new ByteArrayInputStream(bytes), bytes.length);
   }
 
+  // --- blobs, kept once by hash on top of the store ------------------------------------------
+
+  private static final String ABC_SHA256 =
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+  @Test
+  @DisplayName("staged content is placed as its blob, under its SHA-256, and read back")
+  void stagedContentBecomesItsBlob() throws IOException {
+    BlobStore blobs = new BlobStore(store());
+
+    BlobStore.Staged staged = blobs.stage(stream("abc"), 3);
+    blobs.place(staged);
+    blobs.discard(staged);
+
+    assertThat(staged.hash()).isEqualTo(ABC_SHA256);
+    assertThat(staged.size()).isEqualTo(3);
+    assertThat(BlobStore.key(ABC_SHA256)).isEqualTo(".blobs/ba/" + ABC_SHA256);
+    try (InputStream in = blobs.open(ABC_SHA256)) {
+      assertThat(new String(in.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("abc");
+    }
+    assertThat(blobs.stat(ABC_SHA256)).get().extracting(Entry::size).isEqualTo(3L);
+    assertThat(blobFiles()).containsExactly(BlobStore.key(ABC_SHA256));
+  }
+
+  @Test
+  @DisplayName("the same content again leaves its blob as it is, and nothing beside it")
+  void sameContentIsKeptOnce() throws IOException {
+    BlobStore blobs = new BlobStore(store());
+    BlobStore.Staged first = blobs.stage(stream("abc"), 3);
+    blobs.place(first);
+    blobs.discard(first);
+
+    BlobStore.Staged second = blobs.stage(stream("abc"), -1);
+    blobs.place(second);
+    blobs.discard(second);
+
+    assertThat(second.hash()).isEqualTo(ABC_SHA256);
+    assertThat(read(BlobStore.key(ABC_SHA256))).isEqualTo("abc");
+    assertThat(blobFiles()).containsExactly(BlobStore.key(ABC_SHA256));
+  }
+
+  @Test
+  @DisplayName("a blob left torn, of another size than its content, is replaced when placed again")
+  void tornBlobIsReplaced() throws IOException {
+    BlobStore blobs = new BlobStore(store());
+    write(BlobStore.key(ABC_SHA256), "a");
+
+    BlobStore.Staged staged = blobs.stage(stream("abc"), 3);
+    blobs.place(staged);
+    blobs.discard(staged);
+
+    assertThat(read(BlobStore.key(ABC_SHA256))).isEqualTo("abc");
+  }
+
+  @Test
+  @DisplayName("different contents are different blobs")
+  void differentContentsAreDifferentBlobs() throws IOException {
+    BlobStore blobs = new BlobStore(store());
+
+    BlobStore.Staged a = blobs.stage(stream("one"), 3);
+    BlobStore.Staged b = blobs.stage(stream("two"), -1);
+    blobs.place(a);
+    blobs.place(b);
+    blobs.discard(a);
+    blobs.discard(b);
+
+    assertThat(a.hash()).isNotEqualTo(b.hash());
+    assertThat(read(BlobStore.key(a.hash()))).isEqualTo("one");
+    assertThat(read(BlobStore.key(b.hash()))).isEqualTo("two");
+    assertThat(blobFiles())
+        .containsExactlyInAnyOrder(BlobStore.key(a.hash()), BlobStore.key(b.hash()));
+  }
+
+  @Test
+  @DisplayName("an empty content is a blob too, with the SHA-256 of nothing, and reads back empty")
+  void emptyContentIsABlob() throws IOException {
+    BlobStore blobs = new BlobStore(store());
+
+    BlobStore.Staged empty = blobs.stage(stream(""), 0);
+    blobs.place(empty);
+    blobs.discard(empty);
+
+    assertThat(empty.hash())
+        .isEqualTo("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    assertThat(read(BlobStore.key(empty.hash()))).isEmpty();
+    assertThat(blobs.stat(empty.hash())).get().extracting(Entry::size).isEqualTo(0L);
+  }
+
+  @Test
+  @DisplayName("content that fails partway leaves no scratch file behind")
+  void failedStagingLeavesNothing() {
+    BlobStore blobs = new BlobStore(store());
+    InputStream failing =
+        new InputStream() {
+          private int left = 10;
+
+          @Override
+          public int read() throws IOException {
+            if (left <= 0) {
+              throw new IOException("connection reset");
+            }
+            left--;
+            return 'x';
+          }
+        };
+
+    assertThatThrownBy(() -> blobs.stage(failing, 100)).isInstanceOf(IOException.class);
+
+    assertThat(blobFiles()).isEmpty();
+  }
+
+  @Test
+  @DisplayName("two writers placing the same content at once both end with the one blob")
+  void concurrentPlacesOfOneContent() throws Exception {
+    BlobStore blobs = new BlobStore(store());
+    BlobStore.Staged a = blobs.stage(stream("same"), 4);
+    BlobStore.Staged b = blobs.stage(stream("same"), 4);
+    java.util.concurrent.CyclicBarrier together = new java.util.concurrent.CyclicBarrier(2);
+    List<Throwable> errors = java.util.Collections.synchronizedList(new ArrayList<>());
+    List<Thread> threads = new ArrayList<>();
+    for (BlobStore.Staged staged : List.of(a, b)) {
+      threads.add(
+          new Thread(
+              () -> {
+                try {
+                  together.await();
+                  blobs.place(staged);
+                } catch (Exception e) {
+                  errors.add(e);
+                } finally {
+                  blobs.discard(staged);
+                }
+              }));
+    }
+    threads.forEach(Thread::start);
+    for (Thread thread : threads) {
+      thread.join();
+    }
+
+    assertThat(errors).isEmpty();
+    assertThat(read(BlobStore.key(a.hash()))).isEqualTo("same");
+    assertThat(blobFiles()).containsExactly(BlobStore.key(a.hash()));
+  }
+
+  @Test
+  @DisplayName("a blob's key is only ever made from a SHA-256 in lowercase hex")
+  void keyRefusesAnythingButAHash() {
+    for (String bad :
+        new String[] {null, "", "ABC", "../" + ABC_SHA256.substring(3), ABC_SHA256.toUpperCase()}) {
+      assertThatThrownBy(() -> BlobStore.key(bad)).isInstanceOf(IllegalArgumentException.class);
+    }
+  }
+
+  // Every file below .blobs: the blobs, and any scratch file left beside them.
+  private List<String> blobFiles() {
+    try {
+      return walk(".blobs").stream().filter(entry -> !entry.isDirectory()).map(Entry::key).toList();
+    } catch (IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+  }
+
+  private static InputStream stream(String content) {
+    return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+  }
+
   protected String read(String key) throws IOException {
     try (InputStream in = store().open(key)) {
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);

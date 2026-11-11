@@ -96,7 +96,10 @@ public class StorageSweeper {
         "",
         entry -> {
           if (entry.isDirectory()) {
-            return ownDirs.contains(entry.key())
+            // Blobs are written to scratch files at the top of their folder; what's below it is
+            // only blobs, which a walk at every start would list one request per thousand in S3.
+            boolean blobs = entry.key().startsWith(StoragePaths.BLOBS_DIR + "/");
+            return blobs || ownDirs.contains(entry.key())
                 ? FileVisitResult.SKIP_SUBTREE
                 : FileVisitResult.CONTINUE;
           }

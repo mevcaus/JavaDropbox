@@ -248,6 +248,7 @@ public class DemoService implements ApplicationRunner {
           jdbc.update("DELETE FROM file_versions");
           jdbc.update("DELETE FROM file_history");
           jdbc.update("DELETE FROM file_metadata");
+          jdbc.update("DELETE FROM blobs");
           // Nothing is stored any more; storing the samples counts them again.
           jdbc.update("UPDATE users SET used_bytes = 0");
         });

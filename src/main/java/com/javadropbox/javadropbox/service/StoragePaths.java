@@ -52,6 +52,9 @@ public class StoragePaths {
    */
   public static final String TEMP_DIR = "tmp";
 
+  /** Where each distinct content is kept once, named by its SHA-256 (see {@link BlobStore}). */
+  public static final String BLOBS_DIR = ".blobs";
+
   /** Where each account's files are kept, in a folder named after the account's id. */
   public static final String HOMES_DIR = ".users";
 
@@ -62,7 +65,8 @@ public class StoragePaths {
       "This is your JavaDropbox storage folder. Anything you put here shows up in the web"
           + " interface.\n";
 
-  private static final Set<String> RESERVED_DIRS = Set.of(VERSIONS_DIR, INTERNAL_DIR, HOMES_DIR);
+  private static final Set<String> RESERVED_DIRS =
+      Set.of(VERSIONS_DIR, INTERNAL_DIR, HOMES_DIR, BLOBS_DIR);
   private static final String INVALID_PATH = "Invalid path";
   private static final String HIDDEN_NAME =
       "Names cannot start with a dot: files and folders named like that are hidden";
