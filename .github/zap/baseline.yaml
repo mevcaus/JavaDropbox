@@ -1,7 +1,8 @@
-# ZAP's baseline scan of the running app, as an automation plan: crawl it for a minute, wait for the
-# passive scan rules to check what came back, and write the reports. Nothing is attacked. The
-# docker job in .github/workflows/gradle.yml runs it once the end-to-end tests pass, and fails on
-# any alert the rules below don't accept (docs/testing.md#running-app-scan).
+# ZAP's baseline scan of the running app, as an automation plan: crawl it, request the routes open to
+# visitors who aren't signed in, wait for the passive scan rules to check what came back, and write
+# the reports. Nothing is attacked. .github/scripts/zap-scan.sh runs it, as does the docker job in
+# .github/workflows/gradle.yml after the end-to-end tests, and fails on any alert this plan doesn't
+# accept (docs/testing.md#running-app-scan).
 env:
   contexts:
     - name: app
@@ -17,56 +18,68 @@ jobs:
       maxAlertsPerRule: 10
       enableTags: false
 
+  # The alerts the build accepts, each with why, marked false positives so they leave the reports.
+  # Scoped to where the reason holds where it doesn't hold everywhere: a new alert of the same kind
+  # anywhere else still fails the build.
+  - type: alertFilter
+    alertFilters:
+      # The app is a single-page app, so ZAP's crawler finds no links in its pages. It says so, and
+      # that is all this alert means.
+      - ruleId: 10109
+        newRisk: False Positive
+      # No Content-Security-Policy yet. Accepted until #401, which adds one.
+      - ruleId: 10038
+        newRisk: False Positive
+      # No Cross-Origin-Embedder-, Opener- or Resource-Policy yet. Accepted until #401, which adds
+      # them with the Content-Security-Policy.
+      - ruleId: 90004
+        newRisk: False Positive
+      # XSRF-TOKEN has to be readable by the app's script, which sends it back in a header. That is
+      # how Spring Security's cookie CSRF protection works, and the cookie holds no session.
+      - ruleId: 10010
+        newRisk: False Positive
+        parameter: XSRF-TOKEN
+      # ZAP notes that XSRF-TOKEN could hold a session. It doesn't.
+      - ruleId: 10112
+        newRisk: False Positive
+        parameter: XSRF-TOKEN
+      # Words like "admin" or "select" in the minified bundle: route names and library code, not
+      # comments left in by mistake.
+      - ruleId: 10027
+        newRisk: False Positive
+        url: http://app:8080/assets/.*\.js
+        urlRegex: true
+      # Spring Security sends Cache-Control: no-store on every response, so nothing a signed-in user
+      # saw stays in a cache. Only that variant of the rule: content a cache could keep still fails.
+      - ruleId: 10049
+        newRisk: False Positive
+        evidence: no-store
+
   - type: spider
     parameters:
       url: http://app:8080
       maxDuration: 1
 
+  # The crawler only finds the pages the app shell links to, so these are requested directly: the
+  # routes SecurityConfig lets through without a session, with made-up tokens. Their 401s, 404s and
+  # errors carry the same headers as their real answers.
+  - type: requestor
+    requests:
+      - url: http://app:8080/login
+      - url: http://app:8080/api/me
+      - url: http://app:8080/api/files
+      - url: http://app:8080/share/zap-not-a-token
+      - url: http://app:8080/share/zap-not-a-token/info
+      - url: http://app:8080/share/zap-not-a-token/download
+      - url: http://app:8080/share/zap-not-a-token/preview
+      - url: http://app:8080/api/invite/zap-not-a-token
+      - url: http://app:8080/api/reset-password/zap-not-a-token
+      - url: http://app:8080/actuator/health
+      - url: http://app:8080/v3/api-docs
+
   - type: passiveScan-wait
     parameters:
       maxDuration: 5
-
-  # Every alert counts as a warning, which fails the build, unless a rule here says otherwise. Each
-  # accepted one gives the reason. The reports below still list them.
-  - type: outputSummary
-    parameters:
-      format: Long
-      summaryFile: /zap/wrk/summary.json
-    rules:
-      # The app is a single-page app, so ZAP's crawler finds no links in its pages. It says so, and
-      # that is all this alert means.
-      - id: 10109
-        action: IGNORE
-        customMessage: "Modern Web Application: expected, the app is a single-page app"
-      # Matches words like "admin" or "select" in the minified bundle: route names and library code,
-      # not comments left in by mistake.
-      - id: 10027
-        action: IGNORE
-        customMessage: "Suspicious Comments: words in the minified bundle, not comments"
-      # Spring Security sends Cache-Control: no-store on every response, so nothing a signed-in user
-      # saw stays in a cache. Caching the hashed assets would be about speed, not security.
-      - id: 10049
-        action: IGNORE
-        customMessage: "Non-Storable Content: no-store is on purpose"
-      # Reports that a response sets a cookie a session could live in. Informational: the cookie is
-      # XSRF-TOKEN, which holds no session.
-      - id: 10112
-        action: IGNORE
-        customMessage: "Session Management Response Identified: informational"
-      # XSRF-TOKEN has to be readable by the app's script, which sends it back in a header. That is
-      # how Spring Security's cookie CSRF protection works, and it holds no session.
-      - id: 10010
-        action: IGNORE
-        customMessage: "Cookie No HttpOnly Flag: XSRF-TOKEN is read by the app's script"
-      # No Content-Security-Policy yet. Accepted until #401, which adds one.
-      - id: 10038
-        action: IGNORE
-        customMessage: "CSP Header Not Set: until #401"
-      # No Cross-Origin-Embedder-, Opener- or Resource-Policy yet. Accepted until #401, which
-      # adds them with the Content-Security-Policy.
-      - id: 90004
-        action: IGNORE
-        customMessage: "Cross-Origin policies missing: until #401"
 
   - type: report
     parameters:
@@ -80,4 +93,11 @@ jobs:
       template: sarif-json
       reportDir: /zap/wrk
       reportFile: zap.sarif
+      reportTitle: ZAP baseline scan
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk
+      reportFile: zap.json
       reportTitle: ZAP baseline scan

@@ -135,30 +135,26 @@ jobs:
       run: docker compose --profile app logs
 
     # ZAP's baseline scan of the running app, even if an end-to-end test failed: it crawls the app
-    # for a minute from inside the stack's network and checks the responses with its passive rules,
-    # without attacking anything. The plan, and the alerts it accepts with why, is
-    # .github/zap/baseline.yaml. Only ZAP's beta passive rules are fetched as it starts, as its own
-    # baseline does; the rest of ZAP is the image pinned in .github/zap/Dockerfile.
+    # from inside the stack's network, requests the routes open without a session, and checks the
+    # responses with its passive rules, without attacking anything. The plan, and the alerts it
+    # accepts with why, is .github/zap/baseline.yaml. ZAP is the image pinned in
+    # .github/zap/Dockerfile, with the add-ons pinned in .github/zap/addons.txt.
     - name: Scan the running app with ZAP
       id: zap
       if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
       timeout-minutes: 10
       run: |
-        # ZAP runs as a user of its own, which writes the reports here.
-        mkdir -m 777 "$RUNNER_TEMP/zap"
-        network="$(docker compose --profile app config --format json | jq -r .name)_default"
-        image=$(sed -n 's/^FROM //p' .github/zap/Dockerfile)
-        docker run --rm --network "$network" -v "$RUNNER_TEMP/zap:/zap/wrk" \
-          -v "$PWD/.github/zap/baseline.yaml:/zap/baseline.yaml:ro" "$image" \
-          sh -c 'zap.sh -cmd -addoninstall pscanrulesBeta && zap.sh -cmd -silent -autorun /zap/baseline.yaml' || {
-          echo "::error::ZAP couldn't scan the app. See its log above."
-          exit 1
-        }
-        echo "sarif=true" >> "$GITHUB_OUTPUT"
-        if [ "$(jq '.warn + .fail' "$RUNNER_TEMP/zap/summary.json")" != 0 ]; then
-          echo "::error::ZAP raised an alert that .github/zap/baseline.yaml doesn't accept. See the WARN lines above and docs/testing.md#running-app-scan."
-          exit 1
+        rc=0
+        .github/scripts/zap-scan.sh "$RUNNER_TEMP/zap" || rc=$?
+        if [ -f "$RUNNER_TEMP/zap/zap.sarif.json" ]; then
+          echo "sarif=true" >> "$GITHUB_OUTPUT"
         fi
+        if [ "$rc" = 2 ]; then
+          echo "::error::ZAP raised an alert that .github/zap/baseline.yaml doesn't accept. See the ALERT lines above and docs/testing.md#running-app-scan."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::ZAP couldn't scan the app (exit $rc). See its log above."
+        fi
+        exit "$rc"
 
     # Reporting only, like the Trivy results below.
     - name: Keep the ZAP results
@@ -250,7 +246,9 @@ jobs:
       with:
         persist-credentials: false
 
+    # Each tool's results are uploaded even when the other's failed.
     - name: Download Trivy's results
+      id: trivy-download
       if: ${{ needs.docker.outputs.trivy-sarif == 'true' }}
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
@@ -258,13 +256,14 @@ jobs:
         path: ${{ runner.temp }}/trivy
 
     - name: Upload Trivy's results
-      if: ${{ needs.docker.outputs.trivy-sarif == 'true' }}
+      if: ${{ steps.trivy-download.outcome == 'success' }}
       uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
       with:
         sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
         category: trivy
 
     - name: Download ZAP's results
+      id: zap-download
       if: ${{ !cancelled() && needs.docker.outputs.zap-sarif == 'true' }}
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
@@ -272,7 +271,7 @@ jobs:
         path: ${{ runner.temp }}/zap
 
     - name: Upload ZAP's results
-      if: ${{ !cancelled() && needs.docker.outputs.zap-sarif == 'true' }}
+      if: ${{ !cancelled() && steps.zap-download.outcome == 'success' }}
       uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
       with:
         sarif_file: ${{ runner.temp }}/zap/zap.sarif.json

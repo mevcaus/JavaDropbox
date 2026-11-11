@@ -1,0 +1,6 @@
+# ZAP add-ons the scan loads besides those in its image, as "<url> <sha-256>". The image has only the
+# release passive rules. The beta ones check the Permissions-Policy, cross-origin and caching headers,
+# and ZAP's own baseline scan fetches them as it starts. Pinned here instead so a new release can't
+# change what fails the build. To update, take the url and hash from ZAP's list of add-ons for the
+# image's version (https://github.com/zaproxy/zap-admin, ZapVersions-<version>.xml).
+https://github.com/zaproxy/zap-extensions/releases/download/pscanrulesBeta-v50/pscanrulesBeta-beta-50.zap a979f7cd5d8be10e0338b417e006ec1e2f6ec79101010d570ddb5199892e921b

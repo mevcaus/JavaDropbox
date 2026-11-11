@@ -147,24 +147,21 @@ The Trivy image is pinned by digest in `.github/trivy/Dockerfile`, which Dependa
 
 ### Running app scan
 
-After the end-to-end tests, the `docker` job runs **[ZAP](https://www.zaproxy.org)**'s baseline scan against the app it started, from inside the Compose network. ZAP crawls the app for a minute and checks every response with its passive rules: security headers, cookie flags, information leaks, caching. It doesn't attack anything or sign in, so it sees what a visitor who isn't signed in sees: the app shell, the sign-in and setup pages, the assets and the API's answers to them.
+After the end-to-end tests, the `docker` job runs **[ZAP](https://www.zaproxy.org)**'s baseline scan against the app it started, from inside the Compose network. ZAP crawls what the app shell links to, which is little for a single-page app, so it also requests every route open without a session directly: sign-in, the share-link and account-link routes with made-up tokens, the API's 401s, health. It checks every response with its passive rules: security headers, cookie flags, information leaks, caching. It doesn't attack anything or sign in, so it sees what a visitor who isn't signed in sees. The whole scan takes well under a minute.
 
-The scan is an automation plan, `.github/zap/baseline.yaml`. Any alert fails the build with an error pointing here, unless a rule in that plan accepts it. Each accepted one says why, and the ones waiting on a fix link to its issue. Fix what it finds where you can. Accept an alert only when it's expected for this app, with the reason. The log lists every rule with PASS, WARN or IGNORE. The `zap-results` artifact holds the HTML report for 14 days, and every alert, accepted ones included, goes under the Security tab with the category `zap`, the same as Trivy's.
+The scan is an automation plan, `.github/zap/baseline.yaml`, run by `.github/scripts/zap-scan.sh`. Any alert fails the build, listed as `ALERT` lines with an error pointing here, unless the plan's alert filters accept it. Each accepted one says why, is scoped to where that reason holds (one cookie, one kind of URL), and the ones waiting on a fix link to its issue. Fix what it finds where you can. Accept an alert only when it's expected for this app, with the reason. The `zap-results` artifact holds the HTML report for 14 days, and every alert goes under the Security tab with the category `zap`, the accepted ones at the lowest level.
 
-ZAP runs from the image pinned by digest in `.github/zap/Dockerfile`, which Dependabot updates. As ZAP's own baseline does, it fetches its beta passive rules as it starts. Those cover the Permissions-Policy and cross-origin headers.
+ZAP runs from the image pinned by digest in `.github/zap/Dockerfile`, which Dependabot updates, with `-silent`, so it makes no update checks of its own. The image only has ZAP's release passive rules. Its beta ones check the Permissions-Policy, cross-origin and caching headers, so the script adds them, pinned by URL and hash in `.github/zap/addons.txt`. When Dependabot moves ZAP to a new version, take the add-on's newest URL and hash for that version from ZAP's add-on list, as that file says. A new version can bring new or stricter rules that fail the build; fix or accept what they find in the same pull request.
 
-To run the same scan locally against the stack:
+To run the same scan locally, with the stack up:
 
 ```bash
 docker compose --profile app up --build --wait
-mkdir -m 777 /tmp/zap
-docker run --rm --network "$(docker compose --profile app config --format json | jq -r .name)_default" \
-  -v /tmp/zap:/zap/wrk -v "$PWD/.github/zap/baseline.yaml:/zap/baseline.yaml:ro" \
-  "$(sed -n 's/^FROM //p' .github/zap/Dockerfile)" \
-  sh -c 'zap.sh -cmd -addoninstall pscanrulesBeta && zap.sh -cmd -silent -autorun /zap/baseline.yaml'
+.github/scripts/zap-scan.sh /tmp/zap
+docker compose --profile app down --volumes
 ```
 
-The report is then `/tmp/zap/zap.html`, and `/tmp/zap/summary.json` counts the alerts that would fail the build.
+The report is then `/tmp/zap/zap.html`.
 
 ### End-to-End Tests
 

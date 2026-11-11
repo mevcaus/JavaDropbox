@@ -75,9 +75,9 @@ JavaDropbox/
 │   ├── deploy-demo.yml             # Deploys the live demo once CI passes on main
 │   ├── codeql.yml                  # CodeQL on Java, JavaScript and the workflows
 │   └── coverage-badges.yml         # The README's coverage badges, once CI passes on main
-├── .github/scripts/                # coverage.py (job summaries, badge files), publish-badge.sh
+├── .github/scripts/                # coverage.py (job summaries, badge files), publish-badge.sh, zap-scan.sh
 ├── .github/trivy/Dockerfile        # The Trivy image the image scan uses, for Dependabot
-├── .github/zap/                    # ZAP's scan of the running app: baseline.yaml, the image's Dockerfile
+├── .github/zap/                    # ZAP's scan of the running app: the plan, the image and add-on pins
 ├── .trivyignore                    # Vulnerabilities the image scan accepts, with why
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/

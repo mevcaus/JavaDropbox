@@ -396,7 +396,7 @@ Each run puts its coverage in the job summary and uploads the full report as the
 
 **Trivy** scans the image the `docker` job builds for known vulnerabilities, in Alpine's packages and in the jar's libraries. A fixable high or critical one fails the build. Everything it finds goes under the Security tab too, the accepted ones included. `.trivyignore` lists those, each with the reason.
 
-**ZAP** runs its baseline scan against the app the `docker` job started: it crawls it for a minute and checks the responses for missing headers, cookie flags, leaked information and the like, without attacking it. An alert fails the build unless `.github/zap/baseline.yaml` accepts it, with the reason. Its results go under the Security tab too, and the full report is the `zap-results` artifact.
+**ZAP** runs its baseline scan against the app the `docker` job started: it crawls it, requests the routes open without a session, and checks the responses for missing headers, cookie flags, leaked information and the like, without attacking it. An alert fails the build unless `.github/zap/baseline.yaml` accepts it, with the reason. Its results go under the Security tab too, and the full report is the `zap-results` artifact.
 
 ## Live demo
 
