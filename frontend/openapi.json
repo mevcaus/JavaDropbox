@@ -1,0 +1,1510 @@
+{
+  "openapi" : "3.1.0",
+  "info" : {
+    "title" : "OpenAPI definition",
+    "version" : "v0"
+  },
+  "servers" : [ {
+    "url" : "http://localhost",
+    "description" : "Generated server url"
+  } ],
+  "tags" : [ {
+    "description" : "Endpoints for authentication check",
+    "name" : "Auth"
+  }, {
+    "description" : "Manage accounts: invite people, disable them, set quotas",
+    "name" : "Admin"
+  }, {
+    "description" : "Endpoints for managing file versions",
+    "name" : "File Versions"
+  }, {
+    "description" : "Endpoints for creating and accessing time-limited share links",
+    "name" : "Share"
+  }, {
+    "description" : "Find files and folders by name and by the text inside them",
+    "name" : "Search"
+  }, {
+    "description" : "First-run creation of the admin account",
+    "name" : "Setup"
+  }, {
+    "description" : "Endpoints for viewing file history",
+    "name" : "History"
+  }, {
+    "description" : "Accept an invitation or reset a password",
+    "name" : "Account links"
+  }, {
+    "description" : "Browse, upload, download, delete and create files and folders",
+    "name" : "Files"
+  } ],
+  "paths" : {
+    "/api/admin/invites" : {
+      "get" : {
+        "description" : "Invitations that have not been used or expired yet, newest first.",
+        "operationId" : "listInvites",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/InviteDto"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "List invitations",
+        "tags" : [ "Admin" ]
+      },
+      "post" : {
+        "description" : "A one-time link, valid for 7 days, at which someone chooses a password for a new account with this username, role (ADMIN or USER, USER if left out) and quota (as for the quota endpoint; none if left out). The URL is only returned here. A new invitation for the same username replaces the previous one; a username an account already has is a 409.",
+        "operationId" : "invite",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "username",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "role",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : "USER"
+          }
+        }, {
+          "in" : "query",
+          "name" : "quota",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : ""
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Invite someone",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/invites/{id}" : {
+      "delete" : {
+        "description" : "Its link stops working at once.",
+        "operationId" : "revokeInvite",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Withdraw an invitation",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/users" : {
+      "get" : {
+        "description" : "Every account by username, with its role, whether it can sign in, its quota and what it stores, previous versions included.",
+        "operationId" : "listAccounts",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/AccountDto"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "List accounts",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/users/{id}/enabled" : {
+      "put" : {
+        "description" : "A disabled account cannot sign in, its sessions end at once, and its share links stop opening until it is enabled again. The invitations and password reset links it made are withdrawn for good. Not for your own account, or the last admin who can sign in (409).",
+        "operationId" : "setEnabled",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "enabled",
+          "required" : true,
+          "schema" : {
+            "type" : "boolean"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Disable or enable an account",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/users/{id}/import" : {
+      "post" : {
+        "description" : "Gives every file and folder in the account's folder that has no row one, owned by the account, so it has an id like anything uploaded. Never removes anything: rows whose file is missing from the store are only counted, and items whose names the app wouldn't accept are left out and counted. Returns the counts, not the files. 409 when none of the account's files are in the store, which looks like the wrong serving directory or bucket.",
+        "operationId" : "importFiles",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ImportResult"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Import the files added to an account's folder outside the app",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/users/{id}/password-reset" : {
+      "post" : {
+        "description" : "A one-time link, valid for a day, at which the account's user chooses a new password; using it ends the account's sessions. The URL is only returned here, and a new link replaces the previous one.",
+        "operationId" : "resetPassword_1",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Make a password reset link",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/users/{id}/quota" : {
+      "put" : {
+        "description" : "The most the account may store, previous versions included, as a size such as 500MB or 5GB, or a number of bytes. Empty for no limit. Uploads and restores that would go over it are refused with 507.",
+        "operationId" : "setQuota",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "quota",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : ""
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Set an account's quota",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/admin/users/{id}/role" : {
+      "put" : {
+        "description" : "ADMIN or USER. The account's sessions end, so it signs in again with the new role. Not for your own account, or the last admin who can sign in (409).",
+        "operationId" : "setRole",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "role",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Change an account's role",
+        "tags" : [ "Admin" ]
+      }
+    },
+    "/api/files" : {
+      "delete" : {
+        "description" : "Deletes the item at path, a folder with everything in it, and its versions.",
+        "operationId" : "delete",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Delete a file or folder",
+        "tags" : [ "Files" ]
+      },
+      "get" : {
+        "description" : "The whole tree of files and folders, folders first, each sorted by name.",
+        "operationId" : "getFileTree",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/FileTreeNode"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get file tree",
+        "tags" : [ "Files" ]
+      },
+      "post" : {
+        "description" : "Stores one or more files in the folder at path (the root when empty). A file that already exists is replaced and its previous content kept as a version.",
+        "operationId" : "upload",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "files",
+          "required" : true,
+          "schema" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "format" : "binary"
+            }
+          }
+        }, {
+          "in" : "query",
+          "name" : "path",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : ""
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Upload files",
+        "tags" : [ "Files" ]
+      }
+    },
+    "/api/files/download" : {
+      "get" : {
+        "description" : "The file at the path, or a folder as a zip streamed as it is built.",
+        "operationId" : "download",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "binary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Download a file or folder",
+        "tags" : [ "Files" ]
+      }
+    },
+    "/api/files/preview" : {
+      "get" : {
+        "description" : "The file at the path served for display in the browser: images and PDFs as themselves, text and source files as text/plain. Supports range requests. Folders, and kinds of file that cannot be previewed, are refused with 400.",
+        "operationId" : "preview",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "binary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Preview a file",
+        "tags" : [ "Files" ]
+      }
+    },
+    "/api/files/{fileId}/versions" : {
+      "get" : {
+        "description" : "Returns all versions of one of the signed-in user's files. Another account's file is a 404.",
+        "operationId" : "getFileVersions",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "fileId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/FileVersionDto"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get file versions",
+        "tags" : [ "File Versions" ]
+      }
+    },
+    "/api/files/{fileId}/versions/{version}/restore" : {
+      "post" : {
+        "description" : "Restores a version over the live file (OVERWRITE, which keeps the live file as a new version) or next to it (COPY). Another account's file is a 404.",
+        "operationId" : "restoreVersion",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "fileId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "path",
+          "name" : "version",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "query",
+          "name" : "mode",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : "OVERWRITE",
+            "enum" : [ "OVERWRITE", "COPY" ]
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Restore file version",
+        "tags" : [ "File Versions" ]
+      }
+    },
+    "/api/folders" : {
+      "post" : {
+        "description" : "Creates a folder called name inside the folder at path.",
+        "operationId" : "createFolder",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "path",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : ""
+          }
+        }, {
+          "in" : "query",
+          "name" : "name",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Create a folder",
+        "tags" : [ "Files" ]
+      }
+    },
+    "/api/history" : {
+      "get" : {
+        "description" : "Returns one page of the signed-in user's file operation history, newest first. Pages start at 0; size is capped at 200.",
+        "operationId" : "getHistory",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 50
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/HistoryPage"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get file history",
+        "tags" : [ "History" ]
+      }
+    },
+    "/api/invite/{token}" : {
+      "get" : {
+        "description" : "The username the invitation creates and when it expires. 404 once it has been used, withdrawn or expired. Publicly accessible.",
+        "operationId" : "describeInvite",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AccountLinkInfo"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Describe an invitation",
+        "tags" : [ "Account links" ]
+      },
+      "post" : {
+        "description" : "Creates the invited account with this password (at least 8 characters), then the invitation is used up. Publicly accessible.",
+        "operationId" : "acceptInvite",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "password",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Accept an invitation",
+        "tags" : [ "Account links" ]
+      }
+    },
+    "/api/me" : {
+      "get" : {
+        "description" : "The signed-in user's username, and role: ADMIN or USER.",
+        "operationId" : "getCurrentUser",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get current authenticated user",
+        "tags" : [ "Auth" ]
+      }
+    },
+    "/api/reset-password/{token}" : {
+      "get" : {
+        "description" : "The account whose password the link sets and when it expires. 404 once it has been used or expired. Publicly accessible.",
+        "operationId" : "describePasswordReset",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AccountLinkInfo"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Describe a password reset link",
+        "tags" : [ "Account links" ]
+      },
+      "post" : {
+        "description" : "Sets the account's new password (at least 8 characters) and ends its sessions, then the link is used up. Publicly accessible.",
+        "operationId" : "resetPassword",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "password",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Reset a password",
+        "tags" : [ "Account links" ]
+      }
+    },
+    "/api/search" : {
+      "get" : {
+        "description" : "Items below the folder at path in the signed-in user's files (all of them when empty) with every word of q in their name or their text, best match first, with the passage of text that matched. Case and accents are ignored, and the last word also matches the start of a longer one. The text of text and source files, PDFs and Word documents is searched. indexing is true until the index has caught up after a restart.",
+        "operationId" : "search",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "q",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "path",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : ""
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 50
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SearchResults"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Search files",
+        "tags" : [ "Search" ]
+      }
+    },
+    "/api/share" : {
+      "get" : {
+        "description" : "Lists the links to a path that have not expired or been revoked, the soonest to expire first. Requires authentication.",
+        "operationId" : "listShareLinks",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ShareLinkDto"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "List share links",
+        "tags" : [ "Share" ]
+      },
+      "post" : {
+        "description" : "Creates a time-limited share link for a specific path. Requires authentication.",
+        "operationId" : "createShareLink",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "expirationMinutes",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Create share link",
+        "tags" : [ "Share" ]
+      }
+    },
+    "/api/share/{id}" : {
+      "delete" : {
+        "description" : "Revokes a share link so it stops working at once. Requires authentication.",
+        "operationId" : "revokeShareLink",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Revoke share link",
+        "tags" : [ "Share" ]
+      }
+    },
+    "/api/storage" : {
+      "get" : {
+        "description" : "The bytes the signed-in user stores, previous versions included, and their quota (null for none).",
+        "operationId" : "getStorageUsage",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Usage"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get storage use",
+        "tags" : [ "Files" ]
+      }
+    },
+    "/setup" : {
+      "post" : {
+        "description" : "Creates the admin account. Only available while no account exists, and requires the one-time setup code printed in the server log. Repeated wrong codes from one client are refused with 429 for a while.",
+        "operationId" : "processSetup",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "code",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "username",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "password",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Initial setup",
+        "tags" : [ "Setup" ]
+      }
+    },
+    "/share/{token}" : {
+      "get" : {
+        "description" : "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening /share/{token} as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as /share/{token}/download always does.",
+        "operationId" : "downloadSharedFile",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "binary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Download shared file",
+        "tags" : [ "Share" ]
+      }
+    },
+    "/share/{token}/download" : {
+      "get" : {
+        "description" : "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening /share/{token} as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as /share/{token}/download always does.",
+        "operationId" : "downloadSharedFile_1",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "binary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Download shared file",
+        "tags" : [ "Share" ]
+      }
+    },
+    "/share/{token}/info" : {
+      "get" : {
+        "description" : "The name, size and expiry of what a share token opens, how it can be previewed, and what a folder holds. Names only, never paths. Publicly accessible.",
+        "operationId" : "describeSharedItem",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SharedItemDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Describe shared item",
+        "tags" : [ "Share" ]
+      }
+    },
+    "/share/{token}/preview" : {
+      "get" : {
+        "description" : "The file a share token opens, served for display in the browser as /api/files/preview serves it. Supports range requests. Publicly accessible; a folder, or a kind of file that cannot be previewed, is a 404.",
+        "operationId" : "previewSharedFile",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "token",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "binary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Preview shared file",
+        "tags" : [ "Share" ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "AccountDto" : {
+        "type" : "object",
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "quotaBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "usedBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AccountLinkInfo" : {
+        "type" : "object",
+        "properties" : {
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Entry" : {
+        "type" : "object",
+        "properties" : {
+          "isDirectory" : {
+            "type" : "boolean"
+          },
+          "lastModified" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "FileHistoryDto" : {
+        "type" : "object",
+        "properties" : {
+          "changeType" : {
+            "type" : "string",
+            "enum" : [ "UPLOAD", "DELETE", "CREATE_FOLDER", "RESTORE" ]
+          },
+          "details" : {
+            "type" : "string"
+          },
+          "errorMessage" : {
+            "type" : "string"
+          },
+          "filePath" : {
+            "type" : "string"
+          },
+          "filename" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "FileTreeNode" : {
+        "type" : "object",
+        "properties" : {
+          "children" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FileTreeNode"
+            }
+          },
+          "createdDate" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "isDirectory" : {
+            "type" : "boolean"
+          },
+          "lastModified" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "ownerName" : {
+            "type" : "string"
+          },
+          "previewType" : {
+            "type" : "string",
+            "enum" : [ "image", "pdf", "text" ]
+          },
+          "relativePath" : {
+            "type" : "string"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "FileVersionDto" : {
+        "type" : "object",
+        "properties" : {
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdBy" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "Highlight" : {
+        "type" : "object",
+        "properties" : {
+          "end" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "start" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "HistoryPage" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FileHistoryDto"
+            }
+          },
+          "page" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalItems" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "totalPages" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ImportResult" : {
+        "type" : "object",
+        "properties" : {
+          "files" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "folders" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "missing" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "skipped" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "InviteDto" : {
+        "type" : "object",
+        "properties" : {
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdBy" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "quotaBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SearchResult" : {
+        "type" : "object",
+        "properties" : {
+          "isDirectory" : {
+            "type" : "boolean"
+          },
+          "lastModified" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "previewType" : {
+            "type" : "string",
+            "enum" : [ "image", "pdf", "text" ]
+          },
+          "relativePath" : {
+            "type" : "string"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "snippet" : {
+            "$ref" : "#/components/schemas/Snippet"
+          }
+        }
+      },
+      "SearchResults" : {
+        "type" : "object",
+        "properties" : {
+          "indexing" : {
+            "type" : "boolean"
+          },
+          "results" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchResult"
+            }
+          },
+          "total" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ShareLinkDto" : {
+        "type" : "object",
+        "properties" : {
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdBy" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "SharedItemDto" : {
+        "type" : "object",
+        "properties" : {
+          "contents" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Entry"
+            }
+          },
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "isDirectory" : {
+            "type" : "boolean"
+          },
+          "lastModified" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "previewType" : {
+            "type" : "string",
+            "enum" : [ "image", "pdf", "text" ]
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "Snippet" : {
+        "type" : "object",
+        "properties" : {
+          "highlights" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Highlight"
+            }
+          },
+          "text" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Usage" : {
+        "type" : "object",
+        "properties" : {
+          "quotaBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "usedBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      }
+    }
+  }
+}

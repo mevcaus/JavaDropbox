@@ -77,8 +77,27 @@ dependencyManagement {
 	}
 }
 
+// The API spec the frontend's types are generated from. OpenApiSpecTests fails when it no longer
+// matches the controllers, and ./gradlew openApiSpec writes it again.
+def openApiSpec = file('frontend/openapi.json')
+
 tasks.named('test') {
 	useJUnitPlatform()
+	systemProperty 'javadropbox.openapi.spec', openApiSpec.absolutePath
+	// Read by OpenApiSpecTests, so a change to it alone runs the tests again.
+	inputs.file(openApiSpec).withPathSensitivity(PathSensitivity.NONE)
+}
+
+tasks.register('openApiSpec', Test) {
+	description = 'Writes frontend/openapi.json from the controllers.'
+	group = 'documentation'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	filter { includeTestsMatching 'com.javadropbox.javadropbox.OpenApiSpecTests' }
+	systemProperty 'javadropbox.openapi.spec', openApiSpec.absolutePath
+	systemProperty 'javadropbox.openapi.update', 'true'
+	outputs.upToDateWhen { false }
 }
 
 // Local runs use the dev profile (application-dev.properties) unless told otherwise.

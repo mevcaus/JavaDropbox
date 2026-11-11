@@ -52,6 +52,16 @@ jobs:
     - name: Type check
       run: npm run typecheck
 
+    # The backend build fails when openapi.json no longer matches the controllers
+    # (OpenApiSpecTests); this fails when the types were not generated again from it.
+    - name: API types up to date
+      run: |
+        npm run api:types
+        git diff --exit-code -- src/services/apiSchema.ts || {
+          echo "::error file=frontend/src/services/apiSchema.ts::Out of date with frontend/openapi.json. Run npm run api:types in frontend/ and commit the result."
+          exit 1
+        }
+
     - name: Test
       run: npm test
 

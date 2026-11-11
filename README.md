@@ -366,7 +366,7 @@ flowchart LR
         Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests"]
     end
 
-    Frontend["Frontend CI<br/>lint · type check · test · production build"]
+    Frontend["Frontend CI<br/>lint · type check · API types up to date ·<br/>test · production build"]
 
     Build & Docker --> Deploy["Deploy demo<br/>on main, once both pass"]
     Deploy --> Fly["Fly.io<br/>javadropbox.mevcaus.dev"]
