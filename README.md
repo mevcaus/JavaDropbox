@@ -147,10 +147,16 @@ erDiagram
         bigint user_id FK "a reset's account"
         timestamptz expires_at
     }
+    spring_session ||--o{ spring_session_attributes : holds
     spring_session {
         char primary_id PK
         varchar principal_name "the signed-in account's username"
         bigint expiry_time
+    }
+    spring_session_attributes {
+        char session_primary_id PK, FK
+        varchar attribute_name PK
+        bytea attribute_bytes "a serialized Java object"
     }
 ```
 
@@ -286,7 +292,7 @@ The alternative was one shared tree with ownership checks on every row. That wou
 
 Storing files as blobs ([above](#why-does-the-database-list-what-exists-and-the-store-hold-blobs)) will take this folder out of the store, and with it the guarantee that a path has nowhere else to go. Each account will keep a tree of its own, but the tree will be its rows, so isolation will rest on the queries instead: every lookup by path takes the signed-in account and finds only its rows, every lookup by id checks the owner, and every endpoint gets a test that another account's items are a `404`.
 
-Sessions are kept in PostgreSQL with Spring Session JDBC rather than in the server's memory, so a restart or a deploy doesn't sign anyone out. Only signing in starts one: refused requests and share links don't, so an anonymous visitor writes no row. They are also checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
+Sessions are kept in PostgreSQL with Spring Session JDBC rather than in the server's memory, so a restart or a deploy doesn't sign anyone out. The cost is the database on every signed-in request: the session is read, and its last-used time written so that it expires after being idle whichever server handled it. Only signing in starts a session: refused requests and share links don't, so an anonymous visitor writes no row. They are also checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
 
 ### Why a setup filter and a setup code?
 Rather than shipping hardcoded credentials, the app detects first-run state (no users in the database) and redirects every request to a setup page. This is a filter inside Spring Security's chain, ahead of form login, so setup is reachable without authentication. Reachable without authentication also means reachable by whoever finds the server first, so creating the account also needs a one-time code that the server prints to its log (the approach Jupyter takes): whoever installed the server can read it, someone who merely found the address cannot.

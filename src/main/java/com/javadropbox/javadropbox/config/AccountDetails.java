@@ -9,6 +9,10 @@ import org.springframework.security.core.authority.AuthorityUtils;
  * that version in the new session rather than reading it again once the password has been checked:
  * a change that ends the account's sessions while the password is being checked (it is disabled,
  * changes role or has its password reset) then still ends this one on its next request.
+ *
+ * <p>Signed-in sessions keep it, serialized, in the database (spring_session_attributes), and they
+ * outlive a restart. Renaming, moving or changing this class leaves the sessions stored with the
+ * old one unreadable, which signs them out (see SessionConfig).
  */
 class AccountDetails extends org.springframework.security.core.userdetails.User {
 

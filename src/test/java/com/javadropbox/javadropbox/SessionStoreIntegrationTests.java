@@ -68,13 +68,69 @@ class SessionStoreIntegrationTests {
   @Test
   @DisplayName("signing in stores the session under its account, and signing out deletes it")
   void signInStoresTheSession() {
-    String session =
-        HttpTestClient.cookieValue(http.login("owner", "correct-horse", Map.of()), "JSESSIONID");
+    HttpResponse<String> login = http.login("owner", "correct-horse", Map.of());
+    assertThat(HttpTestClient.setCookie(login, "JSESSIONID"))
+        .contains("HttpOnly")
+        .contains("SameSite=Lax");
+    String session = HttpTestClient.cookieValue(login, "JSESSIONID");
     assertThat(jdbc.queryForList("SELECT principal_name FROM spring_session", String.class))
         .containsExactly("owner");
 
     http.postForm("/logout", Map.of(), http.withCsrf(Map.of("Cookie", "JSESSIONID=" + session)));
     assertThat(sessions()).isZero();
+  }
+
+  @Test
+  @DisplayName("the stored session does not hold the password hash")
+  void passwordHashIsNotStored() {
+    http.login("owner", "correct-horse", Map.of());
+    String hash = users.findByUsername("owner").orElseThrow().getPassword();
+
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM spring_session_attributes"
+                    + " WHERE position(convert_to(?, 'UTF8') IN attribute_bytes) > 0",
+                Integer.class,
+                hash))
+        .isZero();
+  }
+
+  @Test
+  @DisplayName("signing in again gives the browser a new session, and the old one ends")
+  void signingInReplacesTheSession() {
+    String first =
+        HttpTestClient.cookieValue(http.login("owner", "correct-horse", Map.of()), "JSESSIONID");
+
+    String second =
+        HttpTestClient.cookieValue(
+            http.login("owner", "correct-horse", Map.of("Cookie", "JSESSIONID=" + first)),
+            "JSESSIONID");
+
+    assertThat(second).isNotNull().isNotEqualTo(first);
+    assertThat(http.get("/api/me", Map.of("Cookie", "JSESSIONID=" + first)).statusCode())
+        .isEqualTo(401);
+    assertThat(http.get("/api/me", Map.of("Cookie", "JSESSIONID=" + second)).statusCode())
+        .isEqualTo(200);
+  }
+
+  // As after an upgrade that changed a class stored in sessions: such a session is signed out
+  // rather than failing every request until it expires.
+  @Test
+  @DisplayName("a session whose stored sign-in cannot be read is signed out, not an error")
+  void unreadableSessionIsSignedOut() {
+    String session =
+        HttpTestClient.cookieValue(http.login("owner", "correct-horse", Map.of()), "JSESSIONID");
+    jdbc.update(
+        "UPDATE spring_session_attributes SET attribute_bytes = '\\x00'"
+            + " WHERE attribute_name = 'SPRING_SECURITY_CONTEXT'");
+
+    assertThat(http.get("/api/me", Map.of("Cookie", "JSESSIONID=" + session)).statusCode())
+        .isEqualTo(401);
+    assertThat(
+            http.postForm(
+                    "/logout", Map.of(), http.withCsrf(Map.of("Cookie", "JSESSIONID=" + session)))
+                .statusCode())
+        .isEqualTo(200);
   }
 
   @Test

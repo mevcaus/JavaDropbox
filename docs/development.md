@@ -114,6 +114,7 @@ JavaDropbox/
 │   │   │   ├── SecurityConfig.java      # Filter chain, CORS, form login, SPA routes
 │   │   │   ├── SetupFilter.java         # First-run redirect filter
 │   │   │   ├── AccountSessionFilter.java  # Ends sessions of disabled or changed accounts
+│   │   │   ├── SessionConfig.java       # Sessions in PostgreSQL: unreadable ones sign out, not fail
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for

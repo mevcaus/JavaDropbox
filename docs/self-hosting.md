@@ -113,6 +113,15 @@ docker compose exec postgres psql -U postgres -d javadropbox \
 
 `UPDATE 1` means it worked; the new password applies from the next sign-in, without a restart, and your files are untouched. `SELECT username FROM users` lists the accounts if you've forgotten the name too. A disabled admin can be enabled again the same way, with `UPDATE users SET enabled = true WHERE username = 'admin'`.
 
+A password changed this way doesn't end the account's sessions, and since sessions are kept in the database, neither does a restart. If you think someone else is signed in as you, delete the account's sessions too:
+
+```bash
+docker compose exec postgres psql -U postgres -d javadropbox \
+  -c "DELETE FROM spring_session WHERE principal_name = 'admin'"
+```
+
+Leave out the `WHERE` to sign everyone out.
+
 ## Behind a reverse proxy
 
 Behind a reverse proxy that terminates TLS, forward `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, so the sign-in throttle sees each client's real address and share links carry your public `https://` address. The app only believes these headers from the proxies in `server.tomcat.remoteip.internal-proxies`, a regular expression matched against the connecting address; from anyone else they are ignored, so a client cannot choose its own address. It trusts loopback only by default, which suits a proxy on the same host. For a proxy anywhere else, such as another container, set `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES` to its address, e.g. `172\.18\.0\.2`. Don't widen it to a whole network that untrusted machines can connect from.
@@ -138,7 +147,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
 
-Sessions are kept in the database, so restarting or upgrading the server doesn't sign anyone out. The upgrade that moved them there from the server's memory signs everyone out once.
+Sessions are kept in the database, so restarting the server doesn't sign anyone out, and neither do most upgrades. The upgrade that moved them there from the server's memory signs everyone out once, and so does any later one that changes what a session stores, such as a new major version of Spring Security: a session the new version can't read is signed out on its next request.
 
 `app.share.jwt-secret` (`APP_SHARE_JWT_SECRET`) is gone: share links are stored on the server and no longer signed. The app refuses to start while it is set, so remove it when upgrading. A `.javadropbox/share-jwt.key` left by an earlier version is deleted on startup.
 
