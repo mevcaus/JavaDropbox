@@ -123,6 +123,24 @@ npm test -- --coverage
 
 The badges in the README show the share of lines covered on `main`. The `build` and `frontend` jobs turn their report into a [shields.io endpoint](https://shields.io/badges/endpoint-badge) file (`.github/scripts/coverage.py`), and on pushes to `main` keep it as an artifact. Once a CI workflow passes on `main`, the **Coverage badges** workflow commits that file to the `badges` branch, which holds nothing else (`.github/scripts/publish-badge.sh`). It leaves the badge alone if `main` has moved on since, because the newer commit's run will publish its own if it passes. It is a workflow of its own, so the demo's deploy never waits on it and the token that can push never reaches a job that runs the build. Pull requests get the job summary and the artifacts but don't touch the badges.
 
+### Image vulnerability scan
+
+The `docker` job scans the image it built with **[Trivy](https://trivy.dev)**, after the end-to-end tests. It fails on a high or critical vulnerability with a fix available, in Alpine's packages or in a library in the jar, with an error pointing here. Every finding, any severity and the accepted ones too, goes under the repository's Security tab (the `trivy` job uploads them). Pull requests from forks get the scan but can't upload to the Security tab. `.trivyignore` lists the vulnerabilities the build accepts, each with why, such as ones only fixed in a major version the app isn't on yet.
+
+A vulnerability can be published against a library at any time, so the scan can start failing on a pull request that changed nothing near it, and on `main`, where it also holds back the demo's deploy and the backend coverage badge until it passes. The fix then goes in a pull request of its own: move the library to a fixed version, through the Spring Boot version or with a version pin ahead of its BOM in `build.gradle`'s `ext` block. Add to `.trivyignore` only what can't be fixed yet, with the reason and the issue that will fix it.
+
+To run the same scan on an image built locally (the named volume keeps Trivy's database, about 3 GB, between runs):
+
+```bash
+docker compose --profile app build app
+docker save "$(docker compose --profile app config --format json | jq -r .name)-app" -o /tmp/image.tar
+docker run --rm -v /tmp/image.tar:/image.tar:ro -v trivy-cache:/root/.cache/trivy \
+  -v "$PWD/.trivyignore:/trivyignore:ro" "$(sed -n 's/^FROM //p' .github/trivy/Dockerfile)" \
+  image --input /image.tar --scanners vuln --disable-telemetry --ignorefile /trivyignore --severity HIGH,CRITICAL --ignore-unfixed
+```
+
+The Trivy image is pinned by digest in `.github/trivy/Dockerfile`, which Dependabot updates.
+
 ### End-to-End Tests
 
 The backend and frontend suites each mock the other side, so a mismatch between them (an endpoint path, a CSRF header, a response shape) passes both. The **Playwright** tests in `e2e/` close that gap: they drive the real app in Chromium against the Docker Compose stack, the same image, PostgreSQL database and storage volume a user runs.

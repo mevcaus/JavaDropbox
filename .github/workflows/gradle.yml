@@ -75,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      trivy-sarif: ${{ steps.sarif.outcome == 'success' }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,6 +87,7 @@ jobs:
     # Runs the stack as the README tells users to. --wait returns once both
     # services pass their healthchecks, and fails if either never does.
     - name: Start the app with Docker Compose
+      id: stack
       run: docker compose --profile app up --build --detach --wait --wait-timeout 180
 
     # The healthcheck only proves the app and its database are up. Check that / (which
@@ -133,6 +136,89 @@ jobs:
     - name: Stop the app
       if: always()
       run: docker compose --profile app down --volumes
+
+    # Known vulnerabilities in the image the steps above ran, after the end-to-end tests so a finding
+    # doesn't hide whether they pass, and after the stack is down (the image stays) so nothing Trivy
+    # runs can reach it. Trivy runs from its own image (.github/trivy/Dockerfile, pinned by digest,
+    # which Dependabot keeps current) on a saved copy of ours, with a folder of its own mounted: no
+    # Docker socket, no token, and none of the runner's files.
+    - name: Save the image for Trivy
+      id: image
+      if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
+      run: |
+        mkdir "$RUNNER_TEMP/trivy"
+        image="$(docker compose --profile app config --format json | jq -r .name)-app"
+        docker save "$image" -o "$RUNNER_TEMP/trivy/image.tar"
+
+    # Every finding as SARIF for the Security tab (the trivy job uploads it), the accepted ones
+    # included so they stay in sight. Then the gate: a fixable high or critical vulnerability not in
+    # .trivyignore fails the build, scanned offline against the database the first pass fetched.
+    # Trivy exits 1 when it fails itself, so the gate uses 2 to tell a finding from an error.
+    - name: Scan the image with Trivy
+      id: trivy
+      if: ${{ !cancelled() && steps.image.outcome == 'success' }}
+      timeout-minutes: 10
+      run: |
+        image=$(sed -n 's/^FROM //p' .github/trivy/Dockerfile)
+        flags=(image --input /work/image.tar --scanners vuln --cache-dir /work/cache
+          --disable-telemetry --skip-version-check --no-progress)
+        docker run --rm -v "$RUNNER_TEMP/trivy:/work" "$image" "${flags[@]}" --format sarif --output /work/trivy.sarif || {
+          echo "::error::Trivy couldn't scan the image, often because its database couldn't be fetched. See its log above."
+          exit 1
+        }
+        echo "sarif=true" >> "$GITHUB_OUTPUT"
+        rc=0
+        docker run --rm --network none -v "$RUNNER_TEMP/trivy:/work" -v "$PWD/.trivyignore:/trivyignore:ro" "$image" \
+          "${flags[@]}" --ignorefile /trivyignore --skip-db-update --skip-java-db-update \
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 2 || rc=$?
+        if [ "$rc" = 2 ]; then
+          echo "::error::Trivy found a fixable high or critical vulnerability in the image. See the table above and docs/testing.md#image-vulnerability-scan."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Trivy failed (exit $rc) before it could check the image. See its log above."
+        fi
+        exit "$rc"
+
+    # Reporting only, like the trivy job: a blip in the artifact service shouldn't fail this check.
+    # The trivy job then skips, since this step's outcome is the job's trivy-sarif output.
+    - name: Keep the Trivy results
+      id: sarif
+      if: ${{ !cancelled() && steps.trivy.outputs.sarif == 'true' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: trivy-sarif
+        path: ${{ runner.temp }}/trivy/trivy.sarif
+        retention-days: 1
+
+  # Puts Trivy's results under the Security tab. A job of its own, so the token that can write
+  # them never reaches the job that builds the image and runs its tests. Reporting only: if it
+  # fails, the workflow still passes, since the demo's deploy and the coverage badges wait on it.
+  trivy:
+
+    needs: docker
+    # Also when the scan failed the build, as long as it got as far as writing its results.
+    if: ${{ !cancelled() && needs.docker.outputs.trivy-sarif == 'true' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    # The upload reads the commit and ref from the checkout.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: trivy-sarif
+        path: ${{ runner.temp }}/trivy
+
+    - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      with:
+        sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
+        category: trivy
 
   dependency-submission:
 
