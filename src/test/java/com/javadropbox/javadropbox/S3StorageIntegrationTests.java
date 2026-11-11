@@ -46,6 +46,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -608,7 +609,12 @@ class S3StorageIntegrationTests {
 
   private void createFolder(String parent, String name) throws Exception {
     mockMvc
-        .perform(post("/api/folders").param("path", parent).param("name", name).with(csrf()))
+        .perform(
+            post("/api/folders")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", parent)
+                .param("name", name)
+                .with(csrf()))
         .andExpect(status().isOk());
   }
 
@@ -624,7 +630,11 @@ class S3StorageIntegrationTests {
   private String share(String path) throws Exception {
     String body =
         mockMvc
-            .perform(post("/api/share").param("path", path).with(csrf()))
+            .perform(
+                post("/api/share")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("path", path)
+                    .with(csrf()))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()

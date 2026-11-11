@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -147,7 +148,11 @@ class StoragePathSecurityTests {
         .perform(delete("/api/files").param("path", "../../.versions").with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
-        .perform(post("/api/share").param("path", ".versions/keep.txt.v1").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", ".versions/keep.txt.v1")
+                .with(csrf()))
         .andExpect(status().isBadRequest());
 
     assertThat(servingDir.resolve(".versions/keep.txt.v1")).exists();
@@ -182,7 +187,11 @@ class StoragePathSecurityTests {
         .perform(delete("/api/files").param("path", ".VERSIONS").with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
-        .perform(post("/api/share").param("path", ".Versions").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", ".Versions")
+                .with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(
@@ -192,7 +201,12 @@ class StoragePathSecurityTests {
                 .with(csrf().asHeader()))
         .andExpect(status().isBadRequest());
     mockMvc
-        .perform(post("/api/folders").param("path", ".VERSIONS").param("name", "x").with(csrf()))
+        .perform(
+            post("/api/folders")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", ".VERSIONS")
+                .param("name", "x")
+                .with(csrf()))
         .andExpect(status().isBadRequest());
 
     assertThat(servingDir.resolve(".versions/keep.txt.v1")).hasContent("old");
@@ -204,7 +218,11 @@ class StoragePathSecurityTests {
   @DisplayName("the root folder cannot be shared")
   void rootCannotBeShared() throws Exception {
     mockMvc
-        .perform(post("/api/share").param("path", "").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "")
+                .with(csrf()))
         .andExpect(status().isBadRequest());
   }
 
@@ -237,7 +255,11 @@ class StoragePathSecurityTests {
     Path up = Files.createSymbolicLink(home.resolve("a/up"), Path.of(".."));
     try {
       mockMvc
-          .perform(post("/api/share").param("path", "self").with(csrf()))
+          .perform(
+              post("/api/share")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                  .param("path", "self")
+                  .with(csrf()))
           .andExpect(status().isBadRequest());
       mockMvc
           .perform(get("/api/files/download").param("path", "self"))
@@ -249,7 +271,11 @@ class StoragePathSecurityTests {
           .perform(get("/api/files/download").param("path", "v"))
           .andExpect(status().isBadRequest());
       mockMvc
-          .perform(post("/api/share").param("path", "v").with(csrf()))
+          .perform(
+              post("/api/share")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                  .param("path", "v")
+                  .with(csrf()))
           .andExpect(status().isBadRequest());
       mockMvc
           .perform(get("/api/files/download").param("path", "a/up/.javadropbox/share-jwt.key"))
@@ -319,7 +345,12 @@ class StoragePathSecurityTests {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("dot")));
     mockMvc
-        .perform(post("/api/folders").param("path", "").param("name", ".config").with(csrf()))
+        .perform(
+            post("/api/folders")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "")
+                .param("name", ".config")
+                .with(csrf()))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("dot")));
     mockMvc

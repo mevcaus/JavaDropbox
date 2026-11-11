@@ -225,7 +225,11 @@ class ObservabilityIntegrationTests {
     String url =
         json.readTree(
                 mockMvc
-                    .perform(post("/api/share").param("path", "notes.txt").with(csrf()))
+                    .perform(
+                        post("/api/share")
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("path", "notes.txt")
+                            .with(csrf()))
                     .andExpect(status().isOk())
                     .andReturn()
                     .getResponse()
@@ -279,10 +283,18 @@ class ObservabilityIntegrationTests {
     double created = metric(SHARE_LINKS_CREATED, "COUNT");
 
     mockMvc
-        .perform(post("/api/share").param("path", "shared.txt").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "shared.txt")
+                .with(csrf()))
         .andExpect(status().isOk());
     mockMvc
-        .perform(post("/api/share").param("path", "nope.txt").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "nope.txt")
+                .with(csrf()))
         .andExpect(status().isNotFound());
 
     assertThat(metric(SHARE_LINKS_CREATED, "COUNT")).isEqualTo(created + 1);

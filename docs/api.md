@@ -2,6 +2,8 @@
 
 All endpoints require authentication unless noted otherwise, and act on the signed-in account's own files: paths are relative to its folder, and another account's files are out of reach, by path or by id (a `404`, or a `400` for a path that leads out of the folder). For a live, interactive reference of all REST API endpoints, visit the Swagger UI at `http://localhost:8080/swagger-ui.html` while the backend runs with the `dev` profile (`./gradlew bootRun`; see [development.md](development.md)). The same spec, sorted and with the demo's endpoint included, is committed as [`frontend/openapi.json`](../frontend/openapi.json), and the build fails when it no longer matches the endpoints. The frontend's API types are generated from it.
 
+**Request fields.** An endpoint that takes fields in a `POST` or `PUT` takes them in the body, as a form (`application/x-www-form-urlencoded`): setup, invitations and their acceptance, password resets, an account's role, quota and enabled state, and new share links. Uploads take a multipart body (`multipart/form-data`), and a new folder takes either. A request to one of these with any other content type, or none, gets a `415`, so a password or setup code can't come in through the query string, where it would end up in access logs. The rest take their fields in the query string: `DELETE /api/files?path=...` and a version restore's `mode`.
+
 Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code or a user calling an admin endpoint, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in or setup is throttled, `507` when an upload or restore would go over the account's quota.
 
 ### Authentication
@@ -45,9 +47,9 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/users` | Every account by username: `[{id, username, role, enabled, quotaBytes, usedBytes}]` |
-| `PUT` | `/api/admin/users/{id}/enabled?enabled=<true\|false>` | Disable an account (it can't sign in, its sessions end, its share links stop opening, and the invitations and password reset links it made are withdrawn) or enable it again. `409` for your own account or the last admin who can sign in |
-| `PUT` | `/api/admin/users/{id}/role?role=<ADMIN\|USER>` | Change an account's role; its sessions end. `409` for your own account or the last admin who can sign in |
-| `PUT` | `/api/admin/users/{id}/quota?quota=<size>` | Set an account's quota, previous versions included, as `500MB`, `5GB` or a number of bytes; empty for no limit |
+| `PUT` | `/api/admin/users/{id}/enabled` (form: `enabled=<true\|false>`) | Disable an account (it can't sign in, its sessions end, its share links stop opening, and the invitations and password reset links it made are withdrawn) or enable it again. `409` for your own account or the last admin who can sign in |
+| `PUT` | `/api/admin/users/{id}/role` (form: `role=<ADMIN\|USER>`) | Change an account's role; its sessions end. `409` for your own account or the last admin who can sign in |
+| `PUT` | `/api/admin/users/{id}/quota` (form: `quota=<size>`) | Set an account's quota, previous versions included, as `500MB`, `5GB` or a number of bytes; empty for no limit |
 | `POST` | `/api/admin/users/{id}/password-reset` | A one-time link, valid for a day, to set a new password: `{url, expiresAt}`. Only returned here; a new one replaces the previous one |
 | `POST` | `/api/admin/users/{id}/import` | Give a row to every file and folder in the account's folder that has none, such as files copied in by hand, so each has an id and an owner: `{files, folders, missing, skipped}`: the counts imported, the rows whose file is missing from the store (counted, never removed), and items left out, with what they hold, because the app wouldn't accept their name (over 255 characters, a backslash, or a path over 4096 characters). `409` when none of the account's files are in the store, which looks like the wrong serving directory or bucket |
 | `GET` | `/api/admin/invites` | Invitations not yet used or expired, newest first: `[{id, username, role, quotaBytes, createdAt, expiresAt, createdBy}]` |
@@ -66,7 +68,7 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
+| `POST` | `/api/share` (form: `path`, `expirationMinutes`) | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
 | `GET` | `/api/share?path=<path>` | ✅ | The path's links that have not expired or been revoked, soonest to expire first: `[{id, createdAt, expiresAt, createdBy}]` |
 | `DELETE` | `/api/share/{id}` | ✅ | Revoke a link; it stops working at once |
 | `GET` | `/share/{token}` | ❌ | Opened in a browser (`Accept: text/html`), the link's page, which shows what the link opens before anything is downloaded. Any other client gets the file, or the folder as a ZIP, as from `/download` |

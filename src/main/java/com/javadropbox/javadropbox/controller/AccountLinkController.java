@@ -6,6 +6,7 @@ import com.javadropbox.javadropbox.model.AccountLink.Purpose;
 import com.javadropbox.javadropbox.service.AccountLinkService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,7 +41,7 @@ public class AccountLinkController {
     return accountLinks.describe(Purpose.INVITE, token);
   }
 
-  @PostMapping("/api/invite/{token}")
+  @PostMapping(path = "/api/invite/{token}", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "acceptInvite",
       summary = "Accept an invitation",
@@ -64,7 +65,9 @@ public class AccountLinkController {
     return accountLinks.describe(Purpose.PASSWORD_RESET, token);
   }
 
-  @PostMapping("/api/reset-password/{token}")
+  @PostMapping(
+      path = "/api/reset-password/{token}",
+      consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "resetPassword",
       summary = "Reset a password",

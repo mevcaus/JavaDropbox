@@ -275,6 +275,57 @@ class OpenApiSpecTests {
     }
   }
 
+  // Spring reads a @RequestParam from the query string and a form alike; the spec has to say which
+  // one the endpoint wants, or a generated client puts passwords in URLs (FormRequestBodies).
+  @Test
+  @DisplayName("takes form and multipart fields as a named body, never a password or file in a URL")
+  void formsAreBodies() throws Exception {
+    List<String> problems = new ArrayList<>();
+    liveSpec()
+        .path("paths")
+        .properties()
+        .forEach(
+            path ->
+                path.getValue()
+                    .properties()
+                    .forEach(
+                        operation -> {
+                          String where = operation.getKey().toUpperCase() + " " + path.getKey();
+                          JsonNode op = operation.getValue();
+                          op.path("requestBody")
+                              .path("content")
+                              .properties()
+                              .forEach(
+                                  media -> {
+                                    JsonNode schema = media.getValue().path("schema");
+                                    if (!schema.has("properties")) {
+                                      problems.add(
+                                          where
+                                              + " has a "
+                                              + media.getKey()
+                                              + " body with no named fields");
+                                    }
+                                  });
+                          if (!List.of("post", "put", "patch").contains(operation.getKey())) {
+                            return;
+                          }
+                          op.path("parameters")
+                              .forEach(
+                                  parameter -> {
+                                    String name = parameter.path("name").asText();
+                                    boolean secret = name.equals("password") || name.equals("code");
+                                    boolean file =
+                                        parameter.path("schema").toString().contains("binary");
+                                    if (parameter.path("in").asText().equals("query")
+                                        && (secret || file)) {
+                                      problems.add(where + " takes " + name + " in the query");
+                                    }
+                                  });
+                        }));
+
+    assertThat(problems).isEmpty();
+  }
+
   private JsonNode liveSpec() throws Exception {
     return new ObjectMapper()
         .readTree(

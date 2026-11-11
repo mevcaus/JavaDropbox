@@ -32,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -234,7 +235,12 @@ class AccountIsolationIntegrationTests {
   @DisplayName("another account's file cannot be shared, nor its links listed or revoked by id")
   void sharingIsPrivate() throws Exception {
     mockMvc
-        .perform(post("/api/share").param("path", "secret.txt").with(BOB).with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "secret.txt")
+                .with(BOB)
+                .with(csrf()))
         .andExpect(status().isNotFound());
 
     String token = share(ALICE, "secret.txt");
@@ -370,7 +376,12 @@ class AccountIsolationIntegrationTests {
     String url =
         json.readTree(
                 mockMvc
-                    .perform(post("/api/share").param("path", path).with(as).with(csrf()))
+                    .perform(
+                        post("/api/share")
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("path", path)
+                            .with(as)
+                            .with(csrf()))
                     .andExpect(status().isOk())
                     .andReturn()
                     .getResponse()

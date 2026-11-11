@@ -218,7 +218,11 @@ class SecurityIntegrationTests {
     void userCannotReachAdminEndpoints() throws Exception {
       mockMvc.perform(get("/api/admin/users")).andExpect(status().isForbidden());
       mockMvc
-          .perform(post("/api/admin/invites").param("username", "eve").with(csrf()))
+          .perform(
+              post("/api/admin/invites")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                  .param("username", "eve")
+                  .with(csrf()))
           .andExpect(status().isForbidden());
     }
 
