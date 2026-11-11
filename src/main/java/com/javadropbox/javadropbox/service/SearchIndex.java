@@ -26,9 +26,10 @@ import java.util.List;
  *
  * <p>Items are keyed by their account and their path in its folder, and an implementation must only
  * ever index what is inside an account's folder: not the accounts' folders themselves, not files
- * beside them, not the app's own folder, hidden names or anything behind a symbolic link. Each
- * implementation is checked by the tests in SearchIndexContractTests, and by SearchIntegrationTests
- * run against it, which cover what is hidden and what a search returns.
+ * beside them, not the app's own folder, hidden names or anything behind a symbolic link.
+ * IndexableItems walks the store that way for every implementation. Each implementation is checked
+ * by the tests in SearchIndexContractTests, and by SearchIntegrationTests run against it, which
+ * cover what is hidden and what a search returns.
  */
 public interface SearchIndex {
 

@@ -25,7 +25,7 @@ class LuceneSearchIndexTests extends SearchIndexContractTests {
 
   @Override
   SearchIndex create() throws IOException {
-    return new LuceneSearchIndex(storagePaths, store, extractor, indexDir.toString());
+    return new LuceneSearchIndex(storagePaths, items(), indexDir.toString());
   }
 
   @Override

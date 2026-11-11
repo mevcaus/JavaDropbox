@@ -49,8 +49,13 @@ abstract class SearchIndexContractTests {
         }
       };
 
-  /** A new index over {@link #store}, reading text with {@link #extractor}. */
+  /** A new index over {@link #store}, walking it through {@link #items()}. */
   abstract SearchIndex create() throws IOException;
+
+  /** What every implementation indexes, over {@link #store}, reading text with the extractor. */
+  IndexableItems items() {
+    return new IndexableItems(store, extractor);
+  }
 
   /** Closes an index {@link #create} made, as the app does at shutdown. */
   abstract void close(SearchIndex index) throws Exception;
