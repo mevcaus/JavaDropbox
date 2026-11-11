@@ -38,6 +38,15 @@ public class FileMetadata {
 
   private Long size;
 
+  /**
+   * The SHA-256 of the content the app last stored for this file, as hex; null for a folder, and
+   * where the app never read the content as it stored it (from before hashes were kept, or copied
+   * in by hand). A hint, not a promise: content changed outside the app since doesn't match it, so
+   * it has to be checked against the content before anything is keyed by it.
+   */
+  @Column(length = 64)
+  private String contentHash;
+
   @Column(nullable = false)
   private Boolean isDirectory;
 
@@ -80,6 +89,14 @@ public class FileMetadata {
 
   public Long getSize() {
     return size;
+  }
+
+  public String getContentHash() {
+    return contentHash;
+  }
+
+  public void setContentHash(String contentHash) {
+    this.contentHash = contentHash;
   }
 
   public void setSize(Long size) {

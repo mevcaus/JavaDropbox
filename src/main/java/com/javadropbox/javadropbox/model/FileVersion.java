@@ -43,6 +43,13 @@ public class FileVersion {
 
   private Long size;
 
+  /**
+   * The SHA-256 of the version's content, as hex; null where it isn't known. A hint, like the
+   * file's: it has to be checked against the content before anything is keyed by it.
+   */
+  @Column(length = 64)
+  private String contentHash;
+
   private Instant createdAt;
 
   @ManyToOne(fetch = FetchType.LAZY)
@@ -56,11 +63,13 @@ public class FileVersion {
       Integer version,
       String storedFilename,
       Long size,
+      String contentHash,
       User createdBy) {
     this.fileMetadata = fileMetadata;
     this.version = version;
     this.storedFilename = storedFilename;
     this.size = size;
+    this.contentHash = contentHash;
     this.createdBy = createdBy;
     this.createdAt = Instant.now();
   }
@@ -75,6 +84,10 @@ public class FileVersion {
 
   public Integer getVersion() {
     return version;
+  }
+
+  public String getContentHash() {
+    return contentHash;
   }
 
   public String getStoredFilename() {

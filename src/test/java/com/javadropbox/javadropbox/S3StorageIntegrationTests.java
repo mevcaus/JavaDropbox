@@ -197,6 +197,44 @@ class S3StorageIntegrationTests {
   }
 
   @Test
+  @DisplayName("an upload sent on to S3 in parts records the SHA-256 of all of it")
+  void uploadToS3RecordsItsHash() throws Exception {
+    // Bigger than a part, so the hash has to cover what several requests to S3 sent.
+    byte[] content = new byte[70 * 1024 * 1024];
+    new java.util.Random(7).nextBytes(content);
+
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(
+                    new MockMultipartFile("files", "big.bin", "application/octet-stream", content))
+                .param("path", "")
+                .with(csrf().asHeader()))
+        .andExpect(status().isOk());
+
+    assertThat(metadata.findByPath(owner.getId(), "big.bin").orElseThrow().getContentHash())
+        .isEqualTo(
+            java.util.HexFormat.of()
+                .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(content)));
+  }
+
+  @Test
+  @DisplayName("in S3, a replace and a restore as a copy carry hashes that match the bytes")
+  void hashesAreCarriedInS3() throws Exception {
+    upload("", "h.txt", "first");
+    upload("", "h.txt", "second");
+    long id = metadata.findByPath(owner.getId(), "h.txt").orElseThrow().getId();
+
+    restore(id, 1, "COPY");
+
+    assertThat(jdbc.queryForObject("SELECT content_hash FROM file_versions", String.class))
+        .isEqualTo(sha256(object(".versions/" + id + "/v1")));
+    assertThat(metadata.findByPath(owner.getId(), "h_v1.txt").orElseThrow().getContentHash())
+        .isEqualTo(sha256(object(home + "h_v1.txt")))
+        .isEqualTo(sha256("first"));
+  }
+
+  @Test
   @DisplayName("a file downloads whole and in ranges, and previews")
   void downloadsWholeAndInRanges() throws Exception {
     upload("", "letters.txt", "abcdefghij");
@@ -659,6 +697,13 @@ class S3StorageIntegrationTests {
     client.putObject(
         request -> request.bucket(bucket).key(key),
         RequestBody.fromString(content, StandardCharsets.UTF_8));
+  }
+
+  private static String sha256(String content) throws Exception {
+    return java.util.HexFormat.of()
+        .formatHex(
+            java.security.MessageDigest.getInstance("SHA-256")
+                .digest(content.getBytes(StandardCharsets.UTF_8)));
   }
 
   private static String object(String key) {

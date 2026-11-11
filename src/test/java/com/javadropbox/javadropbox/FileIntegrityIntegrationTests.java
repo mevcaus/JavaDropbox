@@ -111,6 +111,7 @@ class FileIntegrityIntegrationTests {
     jdbc.execute("DROP TRIGGER IF EXISTS slow_folder_insert ON file_metadata");
     jdbc.execute("DROP TRIGGER IF EXISTS slow_row_insert ON file_metadata");
     TestDatabase.assertUsageMatchesRows(jdbc);
+    ContentHashes.assertTrustedHashesMatch(jdbc, servingDir);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
