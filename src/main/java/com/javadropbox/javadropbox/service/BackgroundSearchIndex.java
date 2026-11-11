@@ -38,7 +38,6 @@ abstract class BackgroundSearchIndex implements SearchIndex {
     RETRY
   }
 
-  final IndexableItems items;
   private final Duration retryDelay;
   private final ScheduledThreadPoolExecutor worker;
 
@@ -54,8 +53,7 @@ abstract class BackgroundSearchIndex implements SearchIndex {
   /**
    * @param retryDelay how long to wait before trying a batch again that the index couldn't take
    */
-  BackgroundSearchIndex(IndexableItems items, Duration retryDelay) {
-    this.items = items;
+  BackgroundSearchIndex(Duration retryDelay) {
     this.retryDelay = retryDelay;
     this.worker =
         new ScheduledThreadPoolExecutor(
@@ -76,7 +74,12 @@ abstract class BackgroundSearchIndex implements SearchIndex {
    * <p>Returns {@link Outcome#RETRY} for a failure that will pass, such as a lock another writer
    * holds or a backend that can't be reached for now: the whole batch is tried again after the
    * retry delay, with whatever has been reported since. Throws for one that won't: the batch is
-   * given up, logged, and what it did not get to, the next reconcile will.
+   * given up, logged, and what it did not get to, the next reconcile will. Nothing is logged for a
+   * retry: the backend says why it is retrying.
+   *
+   * <p>A batch checks {@link #closing()} as it goes and stops early, returning {@link
+   * Outcome#DONE}, once the app is shutting down. After writing everything there is, not cut short,
+   * the backend calls {@link #markCaughtUp()}.
    */
   abstract Outcome write(boolean reconcileAll, List<String> changed) throws IOException;
 

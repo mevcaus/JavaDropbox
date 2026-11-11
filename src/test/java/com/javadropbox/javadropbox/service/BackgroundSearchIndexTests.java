@@ -7,6 +7,7 @@ import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Queue;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -25,9 +27,11 @@ import org.junit.jupiter.api.io.TempDir;
  * given. Each backend inherits this, so it is tested here without one.
  */
 @DisplayName("Keeping a search index up with the store")
+@Timeout(30)
 class BackgroundSearchIndexTests {
 
   private static final Duration WAIT = Duration.ofSeconds(10);
+  private static final Duration RETRY = Duration.ofMillis(200);
 
   @TempDir Path servingDir;
 
@@ -58,7 +62,7 @@ class BackgroundSearchIndexTests {
   void changesDuringABatchGoIntoTheNext() throws Exception {
     index.block();
     index.changed(home, "a");
-    index.writing.await();
+    assertThat(index.writing.await(WAIT.toMillis(), TimeUnit.MILLISECONDS)).isTrue();
 
     index.changed(home, "b");
     index.changed(home, "c");
@@ -71,17 +75,21 @@ class BackgroundSearchIndexTests {
   }
 
   @Test
-  @DisplayName("a batch the index can't take yet is tried again, with what was reported since")
+  @DisplayName(
+      "a batch the index can't take yet is tried again later, with what was reported since")
   void retriedBatchesKeepTheirChanges() throws Exception {
     index.outcomes.add(BackgroundSearchIndex.Outcome.RETRY);
+    index.block();
     index.reconcile();
+    assertThat(index.writing.await(WAIT.toMillis(), TimeUnit.MILLISECONDS)).isTrue();
     index.changed(home, "a");
+    index.release();
     index.awaitIdle(WAIT);
 
-    assertThat(index.batches).hasSizeGreaterThanOrEqualTo(2);
-    Batch last = index.batches.getLast();
-    assertThat(last.reconcileAll()).isTrue();
-    assertThat(last.changed()).contains("1/a");
+    assertThat(index.batches)
+        .containsExactly(new Batch(true, List.of()), new Batch(true, List.of("1/a")));
+    assertThat(Duration.between(index.started.get(0), index.started.get(1)))
+        .isGreaterThanOrEqualTo(RETRY);
   }
 
   @Test
@@ -98,18 +106,23 @@ class BackgroundSearchIndexTests {
   }
 
   @Test
-  @DisplayName("closing tells a batch under way to stop, then releases the index")
+  @DisplayName("closing tells a batch under way, and releases the index only once it has ended")
   void closingStopsABatch() throws Exception {
     index.block();
     index.changed(home, "a");
-    index.writing.await();
+    assertThat(index.writing.await(WAIT.toMillis(), TimeUnit.MILLISECONDS)).isTrue();
 
     Thread closer = new Thread(this::closeQuietly);
     closer.start();
-    // The batch sees the app closing before it is let go.
+    // The batch sees the app closing while it is still under way, and the index isn't released
+    // under it.
+    long deadline = System.nanoTime() + WAIT.toNanos();
     while (!index.closing()) {
+      assertThat(System.nanoTime()).isLessThan(deadline);
       Thread.onSpinWait();
     }
+    Thread.sleep(100);
+    assertThat(index.closed).isFalse();
     index.release();
     closer.join(WAIT.toMillis());
 
@@ -124,7 +137,7 @@ class BackgroundSearchIndexTests {
   void awaitIdleGivesUp() throws Exception {
     index.block();
     index.changed(home, "a");
-    index.writing.await();
+    assertThat(index.writing.await(WAIT.toMillis(), TimeUnit.MILLISECONDS)).isTrue();
 
     assertThatThrownBy(() -> index.awaitIdle(Duration.ofMillis(100)))
         .isInstanceOf(IllegalStateException.class);
@@ -145,6 +158,7 @@ class BackgroundSearchIndexTests {
   private static final class Recorder extends BackgroundSearchIndex {
 
     final List<Batch> batches = new CopyOnWriteArrayList<>();
+    final List<Instant> started = new CopyOnWriteArrayList<>();
     final Queue<Outcome> outcomes = new ArrayDeque<>();
     final AtomicBoolean fail = new AtomicBoolean();
     volatile CountDownLatch writing = new CountDownLatch(0);
@@ -152,7 +166,7 @@ class BackgroundSearchIndexTests {
     volatile boolean closed;
 
     Recorder() {
-      super(null, Duration.ofMillis(50));
+      super(RETRY);
     }
 
     void block() {
@@ -167,6 +181,7 @@ class BackgroundSearchIndexTests {
     @Override
     Outcome write(boolean reconcileAll, List<String> changed) throws IOException {
       batches.add(new Batch(reconcileAll, changed));
+      started.add(Instant.now());
       writing.countDown();
       try {
         if (!go.await(WAIT.toMillis(), TimeUnit.MILLISECONDS)) {

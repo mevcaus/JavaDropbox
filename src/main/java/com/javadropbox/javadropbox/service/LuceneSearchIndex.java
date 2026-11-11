@@ -161,6 +161,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
 
   private static final Logger log = LoggerFactory.getLogger(LuceneSearchIndex.class);
 
+  private final IndexableItems items;
   private final Path location;
   private final Directory directory;
 
@@ -175,7 +176,8 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
       IndexableItems items,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
-    super(items, RETRY_DELAY);
+    super(RETRY_DELAY);
+    this.items = items;
     this.location =
         indexDirectory.isBlank()
             ? storagePaths.internalDir().resolve("search-index")
