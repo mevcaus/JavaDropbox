@@ -79,8 +79,31 @@ dependencyManagement {
 	}
 }
 
-tasks.named('test') {
+// The API spec the frontend's types are generated from. OpenApiSpecTests fails when it no longer
+// matches the controllers, and ./gradlew openApiSpec writes it again.
+def openApiSpec = file('frontend/openapi.json')
+
+// Shared by test and openApiSpec, so whatever is added here applies to both.
+tasks.withType(Test).configureEach {
 	useJUnitPlatform()
+	systemProperty 'javadropbox.openapi.spec', openApiSpec.absolutePath
+	// The assertion's message in the build log, so CI shows why a test failed and not just where.
+	testLogging { exceptionFormat = 'full' }
+}
+
+tasks.named('test') {
+	// Read by OpenApiSpecTests, so a change to it alone runs the tests again.
+	inputs.file(openApiSpec).withPathSensitivity(PathSensitivity.NONE)
+}
+
+tasks.register('openApiSpec', Test) {
+	description = 'Writes frontend/openapi.json from the controllers. Needs Docker, like the tests.'
+	group = 'documentation'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	filter { includeTestsMatching 'com.javadropbox.javadropbox.OpenApiSpecTests' }
+	systemProperty 'javadropbox.openapi.update', 'true'
+	outputs.upToDateWhen { false }
 }
 
 // Local runs use the dev profile (application-dev.properties) unless told otherwise.

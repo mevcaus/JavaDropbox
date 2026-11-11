@@ -2,3 +2,6 @@
 *.bat text eol=crlf
 *.jar binary
 *.png filter=lfs diff=lfs merge=lfs -text
+# Written by ./gradlew openApiSpec and npm run api:types; collapsed in GitHub's diffs.
+/frontend/openapi.json text eol=lf linguist-generated=true
+/frontend/src/services/apiSchema.ts text eol=lf linguist-generated=true

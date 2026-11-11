@@ -12,6 +12,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc -p .",
+    "api:types": "openapi-typescript openapi.json --output src/services/apiSchema.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.14.0",
     "jsdom": "^31.0.0",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.5",
     "typescript": "~5.9.3",

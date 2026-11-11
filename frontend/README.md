@@ -31,14 +31,15 @@ and packs `dist/` into the jar (`./gradlew bootJar -PbundleFrontend`).
 
 ## Available scripts
 
-| Script              | Description                           |
-| ------------------- | ------------------------------------- |
-| `npm run dev`       | Start the Vite dev server with HMR.   |
-| `npm run build`     | Build production assets into `dist/`. |
-| `npm run preview`   | Preview the production build locally. |
-| `npm run lint`      | Run ESLint over the project.          |
-| `npm run typecheck` | Type-check the TypeScript files.      |
-| `npm test`          | Run the Vitest suite once.            |
+| Script              | Description                                               |
+| ------------------- | --------------------------------------------------------- |
+| `npm run dev`       | Start the Vite dev server with HMR.                       |
+| `npm run build`     | Build production assets into `dist/`.                     |
+| `npm run preview`   | Preview the production build locally.                     |
+| `npm run lint`      | Run ESLint over the project.                              |
+| `npm run typecheck` | Type-check the TypeScript files.                          |
+| `npm run api:types` | Generate `src/services/apiSchema.ts` from `openapi.json`. |
+| `npm test`          | Run the Vitest suite once.                                |
 
 ## Project structure
 
@@ -48,7 +49,8 @@ src/
   features/     Redux slices (auth, files)
   layouts/      Shared page layout(s)
   pages/        Route-level pages (Login, Setup, Dashboard)
-  services/     axios instance (CSRF priming, 401 handler hook)
+  services/     axios instance (CSRF priming, 401 handler hook), and apiSchema.ts,
+                the API types generated from frontend/openapi.json
   redux/        Store configuration
   utils/        Formatting (dates, sizes) and readable error messages
 ```
