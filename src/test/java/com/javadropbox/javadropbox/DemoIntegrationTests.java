@@ -42,7 +42,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -65,6 +67,7 @@ class DemoIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private JdbcIndexedSessionRepository sessionRepository;
 
   // Each test starts from a fresh demo, as on a first start: no account, no files, no reset yet.
   @BeforeEach
@@ -294,6 +297,14 @@ class DemoIntegrationTests {
     assertThat(TestDatabase.sessionsOf(jdbc, "demo")).isZero();
     mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isUnauthorized());
     mockMvc.perform(get("/api/admin/users").cookie(signIn())).andExpect(status().isForbidden());
+  }
+
+  // A schedule would take a database connection every minute and keep one open into every
+  // suspend; sign-ins delete expired sessions instead.
+  @Test
+  @DisplayName("Spring Session's cleanup schedule is off")
+  void sessionCleanupScheduleIsOff() {
+    assertThat(ReflectionTestUtils.getField(sessionRepository, "taskScheduler")).isNull();
   }
 
   // The session cookie of the demo account, signed in through the login form like a browser's.

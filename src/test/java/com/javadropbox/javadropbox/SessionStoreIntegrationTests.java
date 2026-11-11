@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +24,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Sessions live in the spring_session table, which Flyway creates (V9). Each one is a row, so only
@@ -37,6 +44,8 @@ class SessionStoreIntegrationTests {
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ApplicationContext context;
+  @Autowired private JdbcIndexedSessionRepository sessionRepository;
+  @Autowired private PlatformTransactionManager transactionManager;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
 
@@ -135,6 +144,85 @@ class SessionStoreIntegrationTests {
                     "/logout", Map.of(), http.withCsrf(Map.of("Cookie", "JSESSIONID=" + session)))
                 .statusCode())
         .isEqualTo(200);
+  }
+
+  @Test
+  @DisplayName("the cleanup schedule is on by default")
+  void cleanupScheduleRuns() {
+    assertThat(ReflectionTestUtils.getField(sessionRepository, "taskScheduler")).isNotNull();
+  }
+
+  @Test
+  @DisplayName("signing in deletes the sessions that have expired, and no others")
+  void signInDeletesExpiredSessions() {
+    long now = System.currentTimeMillis();
+    jdbc.update(
+        "INSERT INTO spring_session VALUES"
+            + " ('00000000-0000-0000-0000-00000000000e', 'expired', ?, ?, 1800, ?, 'someone')",
+        now - 3_600_000,
+        now - 3_600_000,
+        now - 1_800_000);
+    jdbc.update(
+        "INSERT INTO spring_session VALUES"
+            + " ('00000000-0000-0000-0000-00000000000a', 'alive', ?, ?, 1800, ?, 'someone')",
+        now,
+        now,
+        now + 1_800_000);
+
+    assertThat(http.login("owner", "correct-horse", Map.of()).statusCode()).isEqualTo(200);
+
+    assertThat(jdbc.queryForList("SELECT trim(session_id) FROM spring_session", String.class))
+        .contains("alive")
+        .doesNotContain("expired")
+        .hasSize(2);
+  }
+
+  // Another sign-in's cleanup, or a change ending an account's sessions, may hold some of them.
+  @Test
+  @DisplayName("the cleanup at sign-in skips expired sessions another transaction has locked")
+  void cleanupSkipsLockedSessions() throws Exception {
+    long now = System.currentTimeMillis();
+    for (String id : new String[] {"locked", "free"}) {
+      jdbc.update(
+          "INSERT INTO spring_session VALUES (?, ?, ?, ?, 1800, ?, 'someone')",
+          String.format("%-36s", id),
+          id,
+          now - 3_600_000,
+          now - 3_600_000,
+          now - 1_800_000);
+    }
+    CountDownLatch locked = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CompletableFuture<Void> holder =
+        CompletableFuture.runAsync(
+            () ->
+                new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(
+                        status -> {
+                          jdbc.queryForList(
+                              "SELECT 1 FROM spring_session WHERE trim(session_id) = 'locked'"
+                                  + " FOR UPDATE");
+                          locked.countDown();
+                          try {
+                            release.await(10, TimeUnit.SECONDS);
+                          } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                          }
+                        }));
+    assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+
+    try {
+      CompletableFuture<HttpResponse<String>> login =
+          CompletableFuture.supplyAsync(() -> http.login("owner", "correct-horse", Map.of()));
+      assertThat(login.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
+      // Checked while the lock is held: once it is released, the schedule could delete it too.
+      assertThat(jdbc.queryForList("SELECT trim(session_id) FROM spring_session", String.class))
+          .contains("locked")
+          .doesNotContain("free");
+    } finally {
+      release.countDown();
+      holder.get(10, TimeUnit.SECONDS);
+    }
   }
 
   @Test
