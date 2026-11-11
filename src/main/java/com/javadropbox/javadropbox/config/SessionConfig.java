@@ -11,12 +11,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.convert.support.GenericConversionService;
 import org.springframework.core.serializer.support.DeserializingConverter;
 import org.springframework.core.serializer.support.SerializingConverter;
+import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.session.FlushMode;
 import org.springframework.session.config.SessionRepositoryCustomizer;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
@@ -44,6 +46,16 @@ class SessionConfig implements BeanClassLoaderAware {
 
   private static final Logger log = LoggerFactory.getLogger(SessionConfig.class);
 
+  /**
+   * Spring Session's query for deleting expired sessions, on its schedule and at each sign-in, in
+   * batches and skipping sessions another transaction has locked: a sign-in never waits on another
+   * sign-in's cleanup or on a change ending an account's sessions, can't deadlock with either, and
+   * a backlog (the demo's, after a quiet spell) goes a thousand at a time.
+   */
+  static final String DELETE_EXPIRED_SESSIONS =
+      "DELETE FROM %TABLE_NAME% WHERE PRIMARY_ID IN (SELECT PRIMARY_ID FROM %TABLE_NAME%"
+          + " WHERE EXPIRY_TIME < ? LIMIT 1000 FOR UPDATE SKIP LOCKED)";
+
   private ClassLoader classLoader;
 
   @Override
@@ -63,7 +75,30 @@ class SessionConfig implements BeanClassLoaderAware {
     return repository -> {
       repository.setConversionService(conversions);
       repository.setFlushMode(FlushMode.IMMEDIATE);
+      repository.setDeleteSessionsByExpiryTimeQuery(DELETE_EXPIRED_SESSIONS);
     };
+  }
+
+  /**
+   * Deletes the sessions that have expired at each sign-in, as well as on Spring Session's own
+   * schedule (spring.session.jdbc.cleanup-cron). A sign-in is the only thing that adds a session,
+   * so this keeps the table to about the sessions in use even where the schedule can't be counted
+   * on: the demo is suspended whenever it's idle, and turns its schedule off. Every way of signing
+   * in publishes this event.
+   */
+  @Bean
+  ApplicationListener<AuthenticationSuccessEvent> deleteExpiredSessionsAtSignIn(
+      JdbcIndexedSessionRepository sessionRepository) {
+    return event -> deleteExpiredSessions(sessionRepository);
+  }
+
+  // A failure is only logged: it must not refuse a sign-in that has nothing wrong with it.
+  static void deleteExpiredSessions(JdbcIndexedSessionRepository sessionRepository) {
+    try {
+      sessionRepository.cleanUpExpiredSessions();
+    } catch (RuntimeException e) {
+      log.warn("Could not delete the expired sessions: {}", e.toString());
+    }
   }
 
   /** Right after Spring Session has loaded the request's session, before anything reads it. */

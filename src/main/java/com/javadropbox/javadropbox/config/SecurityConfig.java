@@ -36,7 +36,6 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
-import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -95,7 +94,6 @@ public class SecurityConfig {
       HttpSecurity http,
       LoginAttemptLimiter limiter,
       AccountSessions accountSessions,
-      JdbcIndexedSessionRepository sessionRepository,
       ObjectMapper json)
       throws Exception {
     // One matcher decides both which requests form login authenticates and which the throttle
@@ -170,7 +168,6 @@ public class SecurityConfig {
                             res.setStatus(401);
                             return;
                           }
-                          deleteExpiredSessions(sessionRepository);
                           res.setStatus(200);
                           res.setContentType(MediaType.APPLICATION_JSON_VALUE);
                           json.writeValue(res.getWriter(), AuthController.describe(auth));
@@ -237,21 +234,6 @@ public class SecurityConfig {
       endNewSession(request, null);
     }
     return current;
-  }
-
-  /**
-   * Deletes the sessions that have expired, at each sign-in as well as on Spring Session's own
-   * schedule (spring.session.jdbc.cleanup-cron). A sign-in is the only thing that adds a session,
-   * so this keeps the table to about the sessions still in use even where the schedule rarely runs:
-   * the demo is suspended whenever it is idle, and turns the schedule off. One indexed DELETE,
-   * which usually finds nothing. A failure is only logged: the sign-in has already worked.
-   */
-  private static void deleteExpiredSessions(JdbcIndexedSessionRepository sessionRepository) {
-    try {
-      sessionRepository.cleanUpExpiredSessions();
-    } catch (RuntimeException e) {
-      log.warn("Could not delete the expired sessions: {}", e.toString());
-    }
   }
 
   // If ending it fails too, as it will when the database is gone, that is added to the failure
