@@ -40,6 +40,7 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `SessionRestartIntegrationTests` | A signed-in session still works after the app is stopped and started again on the same database |
 | `FolderArchiveTests` | Zips leave out hidden files, FIFOs and entries that vanish while zipping, and keep empty folders |
 | `OnRollbackTests` | Undos run newest first on a rollback and never on a commit, a joining participant's undo goes on the same stack, and a separate inner transaction undoes only its own changes |
+| `FileContentsTests` | A version's stored copy found below the version store by its recorded name, and a name leading anywhere else refused |
 | `HashingInputStreamTests` | A stream passed on unchanged while counted and hashed with SHA-256 (checked against known digests), and skipping and rewinding refused |
 | `ClientAbortIntegrationTests` / `IoExceptionHandlingTests` | Cancelled file and zip downloads are logged at debug only (on real Tomcat); nothing is written into a response already under way |
 | `DownloadConnectionIntegrationTests` | A paused download holds no database connection, with a one-connection pool (on real Tomcat) |

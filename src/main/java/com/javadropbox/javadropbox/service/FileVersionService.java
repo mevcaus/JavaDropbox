@@ -33,6 +33,7 @@ public class FileVersionService {
   private final FileVersionRepository versions;
   private final FileMetadataRepository files;
   private final FileStore store;
+  private final FileContents contents;
   private final StorageQuota quota;
   private final int maxRetained;
 
@@ -40,6 +41,7 @@ public class FileVersionService {
       FileVersionRepository versions,
       FileMetadataRepository files,
       FileStore store,
+      FileContents contents,
       StorageQuota quota,
       @Value("${javadropbox.versions.max-retained:10}") int maxRetained) {
     // Checked here so a bad setting stops the app starting, rather than failing every replace.
@@ -50,6 +52,7 @@ public class FileVersionService {
     this.versions = versions;
     this.files = files;
     this.store = store;
+    this.contents = contents;
     this.quota = quota;
     this.maxRetained = maxRetained;
   }
@@ -80,7 +83,7 @@ public class FileVersionService {
   public void archive(FileMetadata file, Entry live, User user) throws IOException {
     int number = file.getCurrentVersion() != null ? file.getCurrentVersion() : 1;
     String stored = file.getId() + "/v" + number;
-    String target = resolve(stored);
+    String target = FileContents.versionKey(stored);
 
     // Never replacing: a file that is in the way now belongs to someone else, and failing is
     // better than overwriting it, unless it is left over from an interrupted operation.
@@ -139,10 +142,9 @@ public class FileVersionService {
             .filter(v -> v.getVersion() == number)
             .findFirst()
             .orElseThrow(() -> new NotFoundException("Version " + number + " not found"));
-    String stored = resolve(version.getStoredFilename());
     Entry copy =
-        store
-            .stat(stored)
+        contents
+            .ofVersion(version)
             .filter(entry -> !entry.isDirectory())
             .orElseThrow(
                 () ->
@@ -151,7 +153,7 @@ public class FileVersionService {
         unchangedSince(copy, version.getSize(), version.getCreatedAt())
             ? version.getContentHash()
             : null;
-    return new StoredCopy(stored, hash);
+    return new StoredCopy(copy.key(), hash);
   }
 
   /**
@@ -177,7 +179,7 @@ public class FileVersionService {
     String below = FileMetadataRepository.below(path);
     List<String> stored =
         versions.findStoredFilenamesAtOrBelow(ownerId, path, below).stream()
-            .map(FileVersionService::resolve)
+            .map(FileContents::versionKey)
             .toList();
     List<String> folders =
         fileIds.stream().map(id -> StoragePaths.VERSIONS_DIR + "/" + id).toList();
@@ -201,7 +203,7 @@ public class FileVersionService {
         version.getFileMetadata().getOwner().getId(),
         version.getSize() == null ? 0 : -version.getSize());
     versions.delete(version);
-    String stored = resolve(version.getStoredFilename());
+    String stored = FileContents.versionKey(version.getStoredFilename());
     AfterCommit.run("remove " + stored, () -> store.delete(stored));
   }
 
@@ -223,15 +225,5 @@ public class FileVersionService {
         && content.modified() != null
         && recordedAt != null
         && !content.modified().isAfter(recordedAt);
-  }
-
-  // Rows are written by the app, but a row pointing anywhere else would be the store's to lose.
-  private static String resolve(String storedFilename) {
-    for (String segment : storedFilename.split("/", -1)) {
-      if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
-        throw new IllegalStateException("Version row points outside the version store");
-      }
-    }
-    return StoragePaths.VERSIONS_DIR + "/" + storedFilename;
   }
 }
