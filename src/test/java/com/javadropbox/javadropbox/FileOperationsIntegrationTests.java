@@ -805,6 +805,22 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
+  @DisplayName("the sweep removes an old blob scratch file and leaves the blobs alone")
+  void startupSweepRemovesBlobScratchButNotBlobs() throws Exception {
+    Path blobs = Files.createDirectories(servingDir.resolve(".blobs/ab"));
+    Path blob = old(Files.writeString(blobs.resolve("ab" + "0".repeat(62)), "a blob"));
+    Path scratch = old(Files.writeString(servingDir.resolve(".blobs/.upload-x.tmp"), "left"));
+    // Shaped like a scratch file, but below the blob folders, where the sweep doesn't look.
+    Path deep = old(Files.writeString(blobs.resolve(".upload-y.tmp"), "kept"));
+
+    sweeper.sweep();
+
+    assertThat(blob).hasContent("a blob");
+    assertThat(scratch).doesNotExist();
+    assertThat(deep).exists();
+  }
+
+  @Test
   @DisplayName("against an empty database the sweep deletes no version at all")
   void startupSweepSkipsVersionsWhenTheDatabaseIsEmpty() throws Exception {
     upload("", "kept.txt", "one");

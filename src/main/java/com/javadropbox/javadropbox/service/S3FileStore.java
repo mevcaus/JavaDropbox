@@ -159,11 +159,12 @@ public class S3FileStore implements FileStore, AutoCloseable {
     }
   }
 
-  // Accounts' folders or versions, as any store the app has used has, or the welcome file it puts
-  // in a new one, as a serving directory copied in from before setup has.
+  // Accounts' folders, versions or blobs, as any store the app has used has, or the welcome file it
+  // puts in a new one, as a serving directory copied in from before setup has.
   private boolean isJavaDropboxs() {
     return hasAnyBelow(folderPrefix(StoragePaths.HOMES_DIR))
         || hasAnyBelow(folderPrefix(StoragePaths.VERSIONS_DIR))
+        || hasAnyBelow(folderPrefix(StoragePaths.BLOBS_DIR))
         || hasAnyBelow(objectKey(StoragePaths.WELCOME_FILE));
   }
 

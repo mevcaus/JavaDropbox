@@ -84,7 +84,8 @@ class S3FileStoreTests extends FileStoreContractTests {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {".users/1/a.txt", ".versions/7/v1", StoragePaths.WELCOME_FILE})
+  @ValueSource(
+      strings = {".users/1/a.txt", ".versions/7/v1", ".blobs/ab/ab12", StoragePaths.WELCOME_FILE})
   @DisplayName("a store with any sign of the app's own layout is taken as the app's")
   void storeWithTheAppsLayoutIsUsed(String key) {
     put("ours/" + key, "the app's");
