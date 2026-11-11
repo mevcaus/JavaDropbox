@@ -307,16 +307,21 @@ class OpenApiSpecTests {
                                               + " body with no named fields");
                                     }
                                   });
-                          if (!List.of("post", "put", "patch").contains(operation.getKey())) {
+                          if (!List.of("post", "put", "patch", "delete")
+                              .contains(operation.getKey())) {
                             return;
                           }
                           op.path("parameters")
                               .forEach(
                                   parameter -> {
                                     String name = parameter.path("name").asText();
-                                    // The one field a change takes in its URL: how to restore.
+                                    // The two fields a change takes in its URL: how to restore, and
+                                    // what to delete.
                                     boolean allowed =
-                                        name.equals("mode") && path.getKey().endsWith("/restore");
+                                        (name.equals("mode") && path.getKey().endsWith("/restore"))
+                                            || (name.equals("path")
+                                                && operation.getKey().equals("delete")
+                                                && path.getKey().equals("/api/files"));
                                     if (parameter.path("in").asText().equals("query") && !allowed) {
                                       problems.add(where + " takes " + name + " in the query");
                                     }

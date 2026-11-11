@@ -55,6 +55,10 @@ public class FormRequestBodies implements OperationCustomizer {
     Map<String, Schema> fields = new LinkedHashMap<>();
     List<String> required = new ArrayList<>();
     String endpoint = handler.getBeanType().getSimpleName() + "." + handler.getMethod().getName();
+    long formFields =
+        java.util.Arrays.stream(handler.getMethod().getParameters())
+            .filter(FormRequestBodies::isFormField)
+            .count();
     for (java.lang.reflect.Parameter parameter : handler.getMethod().getParameters()) {
       if (AnnotatedElementUtils.hasAnnotation(parameter, RequestPart.class)) {
         // Its part is already in the body springdoc made, which this would replace.
@@ -64,11 +68,11 @@ public class FormRequestBodies implements OperationCustomizer {
       // Merged, so @RequestParam("files") reads as the name "files".
       RequestParam param =
           AnnotatedElementUtils.findMergedAnnotation(parameter, RequestParam.class);
-      if (param == null) {
+      if (param == null || !isFormField(parameter)) {
         continue;
       }
       String name = !param.name().isEmpty() ? param.name() : parameter.getName();
-      Schema<?> schema = schemaOf(operation, name);
+      Schema<?> schema = schemaOf(operation, name, formFields == 1);
       if (schema == null) {
         throw new IllegalStateException(
             "springdoc left " + endpoint + "'s form field \"" + name + "\" out of the spec.");
@@ -116,9 +120,20 @@ public class FormRequestBodies implements OperationCustomizer {
     return type == null ? List.of() : List.of(type.consumes());
   }
 
+  // A @RequestParam that springdoc puts in the spec: not hidden, and not a Map of all parameters.
+  private static boolean isFormField(java.lang.reflect.Parameter parameter) {
+    if (!AnnotatedElementUtils.hasAnnotation(parameter, RequestParam.class)
+        || Map.class.isAssignableFrom(parameter.getType())) {
+      return false;
+    }
+    io.swagger.v3.oas.annotations.Parameter doc =
+        parameter.getAnnotation(io.swagger.v3.oas.annotations.Parameter.class);
+    return doc == null || !doc.hidden();
+  }
+
   // Where springdoc put the field: as a query parameter, as a property of the body it made, or as
   // the whole body, when the form had only this one field.
-  private static @Nullable Schema<?> schemaOf(Operation operation, String name) {
+  private static @Nullable Schema<?> schemaOf(Operation operation, String name, boolean only) {
     if (operation.getParameters() != null) {
       for (Parameter parameter : operation.getParameters()) {
         if ("query".equals(parameter.getIn()) && name.equals(parameter.getName())) {
@@ -139,7 +154,8 @@ public class FormRequestBodies implements OperationCustomizer {
         if (field != null) {
           return field;
         }
-      } else {
+      } else if (only) {
+        // springdoc collapsed a one-field form to that field's schema.
         return schema;
       }
     }
