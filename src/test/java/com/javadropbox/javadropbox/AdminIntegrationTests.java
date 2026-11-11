@@ -35,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -131,11 +132,19 @@ class AdminIntegrationTests {
         .andExpect(jsonPath("$.username").value("carol"));
     mockMvc
         .perform(
-            post("/api/invite/" + token).param("password", "short").with(anonymous()).with(csrf()))
+            post("/api/invite/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("password", "short")
+                .with(anonymous())
+                .with(csrf()))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(
-            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("password", PASSWORD)
+                .with(anonymous())
+                .with(csrf()))
         .andExpect(status().isOk());
 
     signIn("carol", PASSWORD)
@@ -147,7 +156,11 @@ class AdminIntegrationTests {
 
     mockMvc
         .perform(
-            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("password", PASSWORD)
+                .with(anonymous())
+                .with(csrf()))
         .andExpect(status().isNotFound());
     mockMvc.perform(get("/api/invite/" + token).with(anonymous())).andExpect(status().isNotFound());
     mockMvc
@@ -161,7 +174,11 @@ class AdminIntegrationTests {
     String token = invite("dana", "ADMIN", "");
     mockMvc
         .perform(
-            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("password", PASSWORD)
+                .with(anonymous())
+                .with(csrf()))
         .andExpect(status().isOk());
 
     signIn("dana", PASSWORD).andExpect(jsonPath("$.role").value("ADMIN"));
@@ -172,7 +189,12 @@ class AdminIntegrationTests {
   @DisplayName("an invitation for a username in use is refused, and a new one replaces the old")
   void invitationsAreOnePerUsername() throws Exception {
     mockMvc
-        .perform(post("/api/admin/invites").param("username", "bob").with(ADMIN).with(csrf()))
+        .perform(
+            post("/api/admin/invites")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("username", "bob")
+                .with(ADMIN)
+                .with(csrf()))
         .andExpect(status().isConflict());
 
     String first = invite("erin", "USER", "");
@@ -212,6 +234,7 @@ class AdminIntegrationTests {
       mockMvc
           .perform(
               post("/api/invite/" + token)
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .param("password", PASSWORD)
                   .with(anonymous())
                   .with(csrf()))
@@ -239,7 +262,11 @@ class AdminIntegrationTests {
     String bobsPassword = users.findById(bob.getId()).orElseThrow().getPassword();
     mockMvc
         .perform(
-            post("/api/invite/" + reset).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + reset)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("password", PASSWORD)
+                .with(anonymous())
+                .with(csrf()))
         .andExpect(status().isNotFound());
     resetPassword(invitation, "a brand new password").andExpect(status().isNotFound());
     assertThat(users.count()).isEqualTo(2);
@@ -249,6 +276,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             post("/api/invite/" + invitation)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("password", PASSWORD)
                 .with(anonymous())
                 .with(csrf()))
@@ -286,7 +314,11 @@ class AdminIntegrationTests {
 
     mockMvc
         .perform(
-            post("/api/invite/" + token).param("password", PASSWORD).with(anonymous()).with(csrf()))
+            post("/api/invite/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("password", PASSWORD)
+                .with(anonymous())
+                .with(csrf()))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.message").value(Matchers.containsString("already an account")));
 
@@ -315,6 +347,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             post("/api/admin/invites")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("username", "jill")
                 .param("role", "ROOT")
                 .with(ADMIN)
@@ -323,6 +356,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             post("/api/admin/invites")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("username", "jill")
                 .param("quota", "lots")
                 .with(ADMIN)
@@ -378,6 +412,7 @@ class AdminIntegrationTests {
             link(
                 mockMvc.perform(
                     post("/api/admin/invites")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("username", "hank")
                         .with(asDana)
                         .with(csrf()))));
@@ -429,6 +464,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             put("/api/admin/users/" + root.getId() + "/role")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("role", "USER")
                 .with(ADMIN)
                 .with(csrf()))
@@ -471,6 +507,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             put("/api/admin/users/" + root.getId() + "/enabled")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("enabled", "false")
                 .with(formerAdmin)
                 .with(csrf()))
@@ -478,6 +515,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             put("/api/admin/users/" + root.getId() + "/role")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("role", "USER")
                 .with(formerAdmin)
                 .with(csrf()))
@@ -499,6 +537,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             put("/api/admin/users/" + bob.getId() + "/role")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("role", "ADMIN")
                 .with(ADMIN)
                 .with(csrf()))
@@ -544,7 +583,11 @@ class AdminIntegrationTests {
     setQuota(bob, "0").andExpect(status().isBadRequest());
     mockMvc
         .perform(
-            put("/api/admin/users/999999/quota").param("quota", "1MB").with(ADMIN).with(csrf()))
+            put("/api/admin/users/999999/quota")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("quota", "1MB")
+                .with(ADMIN)
+                .with(csrf()))
         .andExpect(status().isNotFound());
   }
 
@@ -565,6 +608,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             post("/api/reset-password/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("password", "a brand new password")
                 .with(anonymous())
                 .with(csrf()))
@@ -577,6 +621,7 @@ class AdminIntegrationTests {
     mockMvc
         .perform(
             post("/api/reset-password/" + token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("password", "yet another password")
                 .with(anonymous())
                 .with(csrf()))
@@ -625,6 +670,7 @@ class AdminIntegrationTests {
   private ResultActions inviting(String username, String role, String quota) throws Exception {
     return mockMvc.perform(
         post("/api/admin/invites")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
             .param("username", username)
             .param("role", role)
             .param("quota", quota)
@@ -650,6 +696,7 @@ class AdminIntegrationTests {
   private ResultActions resetPassword(String token, String password) throws Exception {
     return mockMvc.perform(
         post("/api/reset-password/" + token)
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
             .param("password", password)
             .with(anonymous())
             .with(csrf()));
@@ -670,6 +717,7 @@ class AdminIntegrationTests {
   private ResultActions setEnabled(User account, boolean enabled) throws Exception {
     return mockMvc.perform(
         put("/api/admin/users/" + account.getId() + "/enabled")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
             .param("enabled", String.valueOf(enabled))
             .with(ADMIN)
             .with(csrf()));
@@ -678,6 +726,7 @@ class AdminIntegrationTests {
   private ResultActions setRole(User account, String role) throws Exception {
     return mockMvc.perform(
         put("/api/admin/users/" + account.getId() + "/role")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
             .param("role", role)
             .with(ADMIN)
             .with(csrf()));
@@ -686,6 +735,7 @@ class AdminIntegrationTests {
   private ResultActions setQuota(User account, String quota) throws Exception {
     return mockMvc.perform(
         put("/api/admin/users/" + account.getId() + "/quota")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
             .param("quota", quota)
             .with(ADMIN)
             .with(csrf()));

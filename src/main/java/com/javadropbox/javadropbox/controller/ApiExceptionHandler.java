@@ -21,7 +21,9 @@ import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -134,6 +136,20 @@ public class ApiExceptionHandler {
         || cause instanceof ClientAbortException
         || cause instanceof EOFException
         || cause instanceof SocketTimeoutException;
+  }
+
+  // A form or upload endpoint sent JSON, or no body. Says which types it takes, in the body as well
+  // as in the Accept header.
+  @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+  public ResponseEntity<Map<String, String>> handleUnsupportedMediaType(
+      HttpMediaTypeNotSupportedException ex) {
+    String types =
+        ex.getSupportedMediaTypes().stream()
+            .map(MediaType::toString)
+            .collect(java.util.stream.Collectors.joining(" or "));
+    return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+        .headers(ex.getHeaders())
+        .body(Map.of("message", "Send the request body as " + types + "."));
   }
 
   static ResponseEntity<Map<String, String>> message(HttpStatus status, String message) {

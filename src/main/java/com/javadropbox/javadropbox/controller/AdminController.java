@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.List;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,7 +57,7 @@ public class AdminController {
     return accounts.list();
   }
 
-  @PutMapping("/users/{id}/enabled")
+  @PutMapping(path = "/users/{id}/enabled", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "setAccountEnabled",
       summary = "Disable or enable an account",
@@ -70,7 +71,7 @@ public class AdminController {
     return new Message(enabled ? "Account enabled" : "Account disabled");
   }
 
-  @PutMapping("/users/{id}/role")
+  @PutMapping(path = "/users/{id}/role", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "setAccountRole",
       summary = "Change an account's role",
@@ -82,7 +83,7 @@ public class AdminController {
     return new Message("Role changed");
   }
 
-  @PutMapping("/users/{id}/quota")
+  @PutMapping(path = "/users/{id}/quota", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "setAccountQuota",
       summary = "Set an account's quota",
@@ -130,7 +131,7 @@ public class AdminController {
     return accountLinks.openInvites();
   }
 
-  @PostMapping("/invites")
+  @PostMapping(path = "/invites", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "createInvite",
       summary = "Invite someone",

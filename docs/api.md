@@ -2,20 +2,22 @@
 
 All endpoints require authentication unless noted otherwise, and act on the signed-in account's own files: paths are relative to its folder, and another account's files are out of reach, by path or by id (a `404`, or a `400` for a path that leads out of the folder). For a live, interactive reference of all REST API endpoints, visit the Swagger UI at `http://localhost:8080/swagger-ui.html` while the backend runs with the `dev` profile (`./gradlew bootRun`; see [development.md](development.md)). The same spec, sorted and with the demo's endpoint included, is committed as [`frontend/openapi.json`](../frontend/openapi.json), and the build fails when it no longer matches the endpoints. The frontend's API types are generated from it.
 
-Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, `403` for a wrong setup code or a user calling an admin endpoint, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `429` when sign-in or setup is throttled, `507` when an upload or restore would go over the account's quota.
+**Request fields.** An endpoint that takes fields in a `POST` or `PUT` takes them in the body, as a form (`application/x-www-form-urlencoded`): setup, invitations and their acceptance, password resets, an account's role, quota and enabled state, and new share links. Uploads take a multipart body (`multipart/form-data`), and a new folder takes either. A request to one of these with any other content type, or none, gets a `415` saying which types it takes. And no `POST`, `PUT`, `PATCH` or `DELETE`, sign-in included, takes a `password` or `code` from its URL, where it would end up in access logs, proxies and browser history: one there gets a `400`, whatever the content type. Two changes do take a field in the query string: `DELETE /api/files?path=...` and a version restore's `mode`.
+
+Errors come back as `{"message": "..."}` with a meaningful status: `400` for an invalid path or name, or a password or code in the URL, `403` for a wrong setup code or a user calling an admin endpoint, `404` when the item or version does not exist, `409` when something already exists or a concurrent change got in the way, `415` when a form or upload is sent as another type, `429` when sign-in or setup is throttled, `507` when an upload or restore would go over the account's quota.
 
 ### Authentication
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/setup` | ❌ | Create the first account, an admin (`code`, `username`, `password`); only while none exists |
+| `POST` | `/setup` (form: `code`, `username`, `password`) | ❌ | Create the first account, an admin; only while none exists |
 | `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded): `{username, role}`. A disabled account is refused like a wrong password (`401`), and so, rarely, is a sign-in to an account an admin changes while it is being checked; signing in again works if the account can still sign in |
 | `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user: `{username, role}`, where `role` is `ADMIN` or `USER` |
 | `GET` | `/api/invite/{token}` | ❌ | What an invitation is for: `{username, expiresAt}`; `404` once used, withdrawn or expired |
-| `POST` | `/api/invite/{token}` | ❌ | Accept an invitation: creates the account with `password` (at least 8 characters); the link is then used up |
+| `POST` | `/api/invite/{token}` (form: `password`) | ❌ | Accept an invitation: creates the account with the password (at least 8 characters); the link is then used up |
 | `GET` | `/api/reset-password/{token}` | ❌ | Whose password a reset link sets: `{username, expiresAt}`; `404` once used or expired |
-| `POST` | `/api/reset-password/{token}` | ❌ | Set the account's new `password` and sign it out everywhere; the link is then used up |
+| `POST` | `/api/reset-password/{token}` (form: `password`) | ❌ | Set the account's new password and sign it out everywhere; the link is then used up |
 | `GET` | `/api/demo` | ❌ | Only in the `demo` profile: the shared account and the limits, for the sign-in page (`404` elsewhere) |
 
 An account's sessions end at once when it is disabled, or its role or password changes: they are deleted from the database, and the next request with one is a `401`.
@@ -29,7 +31,7 @@ An account's sessions end at once when it is disabled, or its role or password c
 | `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it. An item still listed but removed from the store by hand loses its rows; `404` only when neither the database nor the store has it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
 | `GET` | `/api/files/preview?path=<path>` | Serve a previewable file inline: images and PDFs as themselves, text and source files as `text/plain`; supports range requests. `400` for folders and other kinds of file |
-| `POST` | `/api/folders` | Create a folder (`path` + `name`) |
+| `POST` | `/api/folders` (form or multipart: `path`, `name`) | Create a folder |
 | `GET` | `/api/storage` | What the account stores, previous versions included, and its quota: `{usedBytes, quotaBytes}` (`quotaBytes` is `null` for no limit) |
 
 ### Search
@@ -45,13 +47,13 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/admin/users` | Every account by username: `[{id, username, role, enabled, quotaBytes, usedBytes}]` |
-| `PUT` | `/api/admin/users/{id}/enabled?enabled=<true\|false>` | Disable an account (it can't sign in, its sessions end, its share links stop opening, and the invitations and password reset links it made are withdrawn) or enable it again. `409` for your own account or the last admin who can sign in |
-| `PUT` | `/api/admin/users/{id}/role?role=<ADMIN\|USER>` | Change an account's role; its sessions end. `409` for your own account or the last admin who can sign in |
-| `PUT` | `/api/admin/users/{id}/quota?quota=<size>` | Set an account's quota, previous versions included, as `500MB`, `5GB` or a number of bytes; empty for no limit |
+| `PUT` | `/api/admin/users/{id}/enabled` (form: `enabled=<true\|false>`) | Disable an account (it can't sign in, its sessions end, its share links stop opening, and the invitations and password reset links it made are withdrawn) or enable it again. `409` for your own account or the last admin who can sign in |
+| `PUT` | `/api/admin/users/{id}/role` (form: `role=<ADMIN\|USER>`) | Change an account's role; its sessions end. `409` for your own account or the last admin who can sign in |
+| `PUT` | `/api/admin/users/{id}/quota` (form: `quota=<size>`) | Set an account's quota, previous versions included, as `500MB`, `5GB` or a number of bytes; empty for no limit |
 | `POST` | `/api/admin/users/{id}/password-reset` | A one-time link, valid for a day, to set a new password: `{url, expiresAt}`. Only returned here; a new one replaces the previous one |
 | `POST` | `/api/admin/users/{id}/import` | Give a row to every file and folder in the account's folder that has none, such as files copied in by hand, so each has an id and an owner: `{files, folders, missing, skipped}`: the counts imported, the rows whose file is missing from the store (counted, never removed), and items left out, with what they hold, because the app wouldn't accept their name (over 255 characters, a backslash, or a path over 4096 characters). `409` when none of the account's files are in the store, which looks like the wrong serving directory or bucket |
 | `GET` | `/api/admin/invites` | Invitations not yet used or expired, newest first: `[{id, username, role, quotaBytes, createdAt, expiresAt, createdBy}]` |
-| `POST` | `/api/admin/invites` | Invite someone (`username`, `role` = `ADMIN` or `USER`, default `USER`, and `quota` as above, default none): `{url, expiresAt}`, valid for 7 days and only returned here. A new invitation for the same username replaces the previous one; `409` if an account has the username |
+| `POST` | `/api/admin/invites` (form: `username`, `role`, `quota`) | Invite someone: `role` is `ADMIN` or `USER`, default `USER`, and `quota` as above, default none: `{url, expiresAt}`, valid for 7 days and only returned here. A new invitation for the same username replaces the previous one; `409` if an account has the username |
 | `DELETE` | `/api/admin/invites/{id}` | Withdraw an invitation; its link stops working at once |
 | `GET` | `/actuator/metrics` | The server's meters (see [self-hosting.md](self-hosting.md#observability)) |
 
@@ -66,7 +68,7 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/api/share?path=<path>&expirationMinutes=<n>` | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
+| `POST` | `/api/share` (form: `path`, `expirationMinutes`) | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
 | `GET` | `/api/share?path=<path>` | ✅ | The path's links that have not expired or been revoked, soonest to expire first: `[{id, createdAt, expiresAt, createdBy}]` |
 | `DELETE` | `/api/share/{id}` | ✅ | Revoke a link; it stops working at once |
 | `GET` | `/share/{token}` | ❌ | Opened in a browser (`Accept: text/html`), the link's page, which shows what the link opens before anything is downloaded. Any other client gets the file, or the folder as a ZIP, as from `/download` |

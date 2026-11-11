@@ -275,6 +275,62 @@ class OpenApiSpecTests {
     }
   }
 
+  // Spring reads a @RequestParam from the query string and a form alike; the spec has to say which
+  // one the endpoint wants, or a generated client puts passwords in URLs (FormRequestBodies).
+  @Test
+  @DisplayName(
+      "takes form and multipart fields as a named body, and no change takes a field in its URL")
+  void formsAreBodies() throws Exception {
+    List<String> problems = new ArrayList<>();
+    liveSpec()
+        .path("paths")
+        .properties()
+        .forEach(
+            path ->
+                path.getValue()
+                    .properties()
+                    .forEach(
+                        operation -> {
+                          String where = operation.getKey().toUpperCase() + " " + path.getKey();
+                          JsonNode op = operation.getValue();
+                          op.path("requestBody")
+                              .path("content")
+                              .properties()
+                              .forEach(
+                                  media -> {
+                                    JsonNode schema = media.getValue().path("schema");
+                                    if (!schema.has("properties")) {
+                                      problems.add(
+                                          where
+                                              + " has a "
+                                              + media.getKey()
+                                              + " body with no named fields");
+                                    }
+                                  });
+                          if (!List.of("post", "put", "patch", "delete")
+                              .contains(operation.getKey())) {
+                            return;
+                          }
+                          op.path("parameters")
+                              .forEach(
+                                  parameter -> {
+                                    String name = parameter.path("name").asText();
+                                    // The two fields a change takes in its URL: how to restore, and
+                                    // what to delete.
+                                    boolean allowed =
+                                        (name.equals("mode") && path.getKey().endsWith("/restore"))
+                                            || (name.equals("path")
+                                                && operation.getKey().equals("delete")
+                                                && path.getKey().equals("/api/files"));
+                                    if (parameter.path("in").asText().equals("query") && !allowed) {
+                                      problems.add(where + " takes " + name + " in the query");
+                                    }
+                                  });
+                        }));
+
+    assertThat(problems).isEmpty();
+  }
+
   private JsonNode liveSpec() throws Exception {
     return new ObjectMapper()
         .readTree(

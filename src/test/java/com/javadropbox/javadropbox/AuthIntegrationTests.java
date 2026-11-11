@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -80,7 +81,12 @@ class AuthIntegrationTests {
       username = "testuser",
       roles = {"USER"})
   void stateChangingRequestRejectedWithoutCsrf() throws Exception {
-    mockMvc.perform(post("/api/share").param("path", "some.txt")).andExpect(status().isForbidden());
+    mockMvc
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "some.txt"))
+        .andExpect(status().isForbidden());
   }
 
   @Test
@@ -113,6 +119,7 @@ class AuthIntegrationTests {
     mockMvc
         .perform(
             post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("path", "some.txt")
                 .cookie(cookie)
                 .header(CSRF_HEADER, cookie.getValue()))

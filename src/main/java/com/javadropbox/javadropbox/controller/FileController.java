@@ -17,6 +17,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
 import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -99,7 +100,7 @@ public class FileController {
     return DownloadResponses.preview(preview);
   }
 
-  @PostMapping("/api/files")
+  @PostMapping(path = "/api/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   @Operation(
       operationId = "uploadFiles",
       summary = "Upload files",
@@ -124,7 +125,9 @@ public class FileController {
     return new Message("Deleted " + path);
   }
 
-  @PostMapping("/api/folders")
+  @PostMapping(
+      path = "/api/folders",
+      consumes = {MediaType.MULTIPART_FORM_DATA_VALUE, MediaType.APPLICATION_FORM_URLENCODED_VALUE})
   @Operation(
       operationId = "createFolder",
       summary = "Create a folder",

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
@@ -80,6 +81,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("code", "ABCDE-FGHJK")
                   .param("username", "testadmin")
@@ -97,6 +99,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("code", "abcdefghjk")
                   .param("username", "testadmin")
@@ -110,6 +113,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("username", "intruder")
                   .param("password", "testpassword123"))
@@ -117,6 +121,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("code", "WRONG-CODE0")
                   .param("username", "intruder")
@@ -133,6 +138,7 @@ class SetupIntegrationTests {
         mockMvc
             .perform(
                 post("/setup")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .with(csrf())
                     .with(remoteAddr("198.51.100.66"))
                     .param("code", "WRONG-CODE" + i)
@@ -144,6 +150,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .with(remoteAddr("198.51.100.66"))
                   .param("code", "ABCDE-FGHJK")
@@ -154,6 +161,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .with(remoteAddr("192.0.2.1"))
                   .param("code", "ABCDE-FGHJK")
@@ -168,6 +176,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("code", "ABCDE-FGHJK")
                   .param("password", "testpassword123"))
@@ -179,7 +188,11 @@ class SetupIntegrationTests {
     void setupWithMissingPasswordHandled() throws Exception {
       mockMvc
           .perform(
-              post("/setup").with(csrf()).param("code", "ABCDE-FGHJK").param("username", "admin"))
+              post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                  .with(csrf())
+                  .param("code", "ABCDE-FGHJK")
+                  .param("username", "admin"))
           .andExpect(status().isBadRequest());
     }
 
@@ -189,6 +202,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("code", "ABCDE-FGHJK")
                   .param("username", "admin")
@@ -203,6 +217,7 @@ class SetupIntegrationTests {
       mockMvc
           .perform(
               post("/setup")
+                  .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                   .with(csrf())
                   .param("code", "ABCDE-FGHJK")
                   .param("username", "")
@@ -262,6 +277,7 @@ class SetupIntegrationTests {
     mockMvc
         .perform(
             post("/setup")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .with(csrf())
                 .param("code", "ABCDE-FGHJK")
                 .param("username", "second")

@@ -35,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -88,7 +89,12 @@ class ShareLinkIntegrationTests {
   @DisplayName("Unauthenticated user cannot create a share link")
   void unauthenticatedCannotCreateShareLink() throws Exception {
     mockMvc
-        .perform(post("/api/share").param("path", "shared.txt").with(csrf()).with(anonymous()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "shared.txt")
+                .with(csrf())
+                .with(anonymous()))
         .andExpect(status().isUnauthorized());
   }
 
@@ -96,7 +102,11 @@ class ShareLinkIntegrationTests {
   @DisplayName("Authenticated user can create a share link for an existing file")
   void authenticatedUserCanCreateShareLink() throws Exception {
     mockMvc
-        .perform(post("/api/share").param("path", "shared.txt").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "shared.txt")
+                .with(csrf()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.url").value(containsString("/share/")))
         .andExpect(jsonPath("$.expiresAt").exists());
@@ -106,7 +116,11 @@ class ShareLinkIntegrationTests {
   @DisplayName("Creating a share link for a nonexistent path returns 404")
   void shareLinkForMissingPathReturns404() throws Exception {
     mockMvc
-        .perform(post("/api/share").param("path", "nope.txt").with(csrf()))
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "nope.txt")
+                .with(csrf()))
         .andExpect(status().isNotFound());
   }
 
@@ -116,6 +130,7 @@ class ShareLinkIntegrationTests {
     mockMvc
         .perform(
             post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("path", "shared.txt")
                 .param("expirationMinutes", "0")
                 .with(csrf()))
@@ -124,6 +139,7 @@ class ShareLinkIntegrationTests {
     mockMvc
         .perform(
             post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("path", "shared.txt")
                 .param("expirationMinutes", "999999")
                 .with(csrf()))
@@ -473,7 +489,11 @@ class ShareLinkIntegrationTests {
   private String share(String path) throws Exception {
     String body =
         mockMvc
-            .perform(post("/api/share").param("path", path).with(csrf()))
+            .perform(
+                post("/api/share")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("path", path)
+                    .with(csrf()))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()

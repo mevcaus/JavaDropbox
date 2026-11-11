@@ -40,6 +40,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
@@ -190,6 +191,7 @@ class DemoIntegrationTests {
     mockMvc
         .perform(
             post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("path", "Welcome.md")
                 .param("expirationMinutes", "60")
                 .with(user("demo"))
@@ -198,7 +200,12 @@ class DemoIntegrationTests {
 
     String body =
         mockMvc
-            .perform(post("/api/share").param("path", "Welcome.md").with(user("demo")).with(csrf()))
+            .perform(
+                post("/api/share")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("path", "Welcome.md")
+                    .with(user("demo"))
+                    .with(csrf()))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()
@@ -219,6 +226,7 @@ class DemoIntegrationTests {
     mockMvc
         .perform(
             post("/api/admin/invites")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("username", "freeloader")
                 .with(user("demo"))
                 .with(csrf()))

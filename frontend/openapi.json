@@ -65,30 +65,30 @@
       "post" : {
         "description" : "A one-time link, valid for 7 days, at which someone chooses a password for a new account with this username, role (ADMIN or USER, USER if left out) and quota (as for the quota endpoint; none if left out). The URL is only returned here. A new invitation for the same username replaces the previous one; a username an account already has is a 409.",
         "operationId" : "createInvite",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "username",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "in" : "query",
-          "name" : "role",
-          "required" : false,
-          "schema" : {
-            "type" : "string",
-            "default" : "USER"
-          }
-        }, {
-          "in" : "query",
-          "name" : "quota",
-          "required" : false,
-          "schema" : {
-            "type" : "string",
-            "default" : ""
-          }
-        } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "quota" : {
+                    "type" : "string",
+                    "default" : ""
+                  },
+                  "role" : {
+                    "type" : "string",
+                    "default" : "USER"
+                  },
+                  "username" : {
+                    "type" : "string"
+                  }
+                },
+                "required" : [ "username" ]
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -169,14 +169,23 @@
             "type" : "integer",
             "format" : "int64"
           }
-        }, {
-          "in" : "query",
-          "name" : "enabled",
-          "required" : true,
-          "schema" : {
-            "type" : "boolean"
-          }
         } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "enabled" : {
+                    "type" : "boolean"
+                  }
+                },
+                "required" : [ "enabled" ]
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -263,15 +272,23 @@
             "type" : "integer",
             "format" : "int64"
           }
-        }, {
-          "in" : "query",
-          "name" : "quota",
-          "required" : false,
-          "schema" : {
-            "type" : "string",
-            "default" : ""
-          }
         } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "quota" : {
+                    "type" : "string",
+                    "default" : ""
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -300,14 +317,23 @@
             "type" : "integer",
             "format" : "int64"
           }
-        }, {
-          "in" : "query",
-          "name" : "role",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
         } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "role" : {
+                    "type" : "string"
+                  }
+                },
+                "required" : [ "role" ]
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -394,26 +420,30 @@
       "post" : {
         "description" : "Stores one or more files in the folder at path (the root when empty). A file that already exists is replaced and its previous content kept as a version.",
         "operationId" : "uploadFiles",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "files",
-          "required" : true,
-          "schema" : {
-            "type" : "array",
-            "items" : {
-              "type" : "string",
-              "format" : "binary"
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "files" : {
+                    "type" : "array",
+                    "items" : {
+                      "type" : "string",
+                      "format" : "binary"
+                    }
+                  },
+                  "path" : {
+                    "type" : "string",
+                    "default" : ""
+                  }
+                },
+                "required" : [ "files" ]
+              }
             }
-          }
-        }, {
-          "in" : "query",
-          "name" : "path",
-          "required" : false,
-          "schema" : {
-            "type" : "string",
-            "default" : ""
-          }
-        } ],
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -570,22 +600,41 @@
       "post" : {
         "description" : "Creates a folder called name inside the folder at path.",
         "operationId" : "createFolder",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "path",
-          "required" : false,
-          "schema" : {
-            "type" : "string",
-            "default" : ""
-          }
-        }, {
-          "in" : "query",
-          "name" : "name",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "name" : {
+                    "type" : "string"
+                  },
+                  "path" : {
+                    "type" : "string",
+                    "default" : ""
+                  }
+                },
+                "required" : [ "name" ]
+              }
+            },
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "name" : {
+                    "type" : "string"
+                  },
+                  "path" : {
+                    "type" : "string",
+                    "default" : ""
+                  }
+                },
+                "required" : [ "name" ]
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -678,14 +727,22 @@
           "schema" : {
             "type" : "string"
           }
-        }, {
-          "in" : "query",
-          "name" : "password",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
         } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "password" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -759,14 +816,22 @@
           "schema" : {
             "type" : "string"
           }
-        }, {
-          "in" : "query",
-          "name" : "password",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
         } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "password" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -861,22 +926,26 @@
       "post" : {
         "description" : "Creates a time-limited share link for a specific path. Requires authentication.",
         "operationId" : "createShareLink",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "in" : "query",
-          "name" : "expirationMinutes",
-          "required" : false,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "expirationMinutes" : {
+                    "type" : "integer",
+                    "format" : "int64"
+                  },
+                  "path" : {
+                    "type" : "string"
+                  }
+                },
+                "required" : [ "path" ]
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -946,28 +1015,27 @@
       "post" : {
         "description" : "Creates the admin account. Only available while no account exists, and requires the one-time setup code printed in the server log. Repeated wrong codes from one client are refused with 429 for a while.",
         "operationId" : "completeSetup",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "code",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "in" : "query",
-          "name" : "username",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "in" : "query",
-          "name" : "password",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
+        "requestBody" : {
+          "content" : {
+            "application/x-www-form-urlencoded" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "code" : {
+                    "type" : "string"
+                  },
+                  "password" : {
+                    "type" : "string"
+                  },
+                  "username" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {

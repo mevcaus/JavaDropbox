@@ -5,6 +5,7 @@ import com.javadropbox.javadropbox.service.SetupService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,7 +20,7 @@ public class SetupController {
     this.setupService = setupService;
   }
 
-  @PostMapping("/setup")
+  @PostMapping(path = "/setup", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   @Operation(
       operationId = "completeSetup",
       summary = "Initial setup",

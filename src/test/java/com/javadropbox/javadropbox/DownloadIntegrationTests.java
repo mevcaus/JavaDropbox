@@ -34,6 +34,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -178,7 +179,12 @@ class DownloadIntegrationTests {
   private String share(String path) throws Exception {
     String body =
         mockMvc
-            .perform(post("/api/share").param("path", path).with(user("owner")).with(csrf()))
+            .perform(
+                post("/api/share")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("path", path)
+                    .with(user("owner"))
+                    .with(csrf()))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()

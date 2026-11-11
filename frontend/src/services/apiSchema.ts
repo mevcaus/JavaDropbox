@@ -801,16 +801,22 @@ export interface operations {
     };
     createInvite: {
         parameters: {
-            query: {
-                username: string;
-                role?: string;
-                quota?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @default  */
+                    quota?: string;
+                    /** @default USER */
+                    role?: string;
+                    username: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -867,16 +873,20 @@ export interface operations {
     };
     setAccountEnabled: {
         parameters: {
-            query: {
-                enabled: boolean;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: number;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    enabled: boolean;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -935,16 +945,21 @@ export interface operations {
     };
     setAccountQuota: {
         parameters: {
-            query?: {
-                quota?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: number;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @default  */
+                    quota?: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -959,16 +974,20 @@ export interface operations {
     };
     setAccountRole: {
         parameters: {
-            query: {
-                role: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: number;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    role: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -1023,15 +1042,20 @@ export interface operations {
     };
     uploadFiles: {
         parameters: {
-            query: {
-                files: string[];
-                path?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    files: string[];
+                    /** @default  */
+                    path?: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -1159,15 +1183,25 @@ export interface operations {
     };
     createFolder: {
         parameters: {
-            query: {
-                path?: string;
-                name: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    name: string;
+                    /** @default  */
+                    path?: string;
+                };
+                "multipart/form-data": {
+                    name: string;
+                    /** @default  */
+                    path?: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -1227,16 +1261,20 @@ export interface operations {
     };
     acceptInvite: {
         parameters: {
-            query?: {
-                password?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 token: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    password?: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -1293,16 +1331,20 @@ export interface operations {
     };
     resetPassword: {
         parameters: {
-            query?: {
-                password?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 token: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    password?: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -1363,15 +1405,20 @@ export interface operations {
     };
     createShareLink: {
         parameters: {
-            query: {
-                path: string;
-                expirationMinutes?: number;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** Format: int64 */
+                    expirationMinutes?: number;
+                    path: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -1428,16 +1475,20 @@ export interface operations {
     };
     completeSetup: {
         parameters: {
-            query?: {
-                code?: string;
-                username?: string;
-                password?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    code?: string;
+                    password?: string;
+                    username?: string;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
