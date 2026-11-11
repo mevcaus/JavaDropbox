@@ -215,7 +215,7 @@ A migration that disables accounts, changes their role or their password also ha
 cd frontend && npm test    # frontend
 ```
 
-[testing.md](testing.md) describes what each suite covers, and the backend's [coverage minimums](testing.md#coverage).
+[testing.md](testing.md) describes what each suite covers, and the backend's [coverage minimums](testing.md#backend-coverage-minimums).
 
 ## Code style
 

@@ -118,7 +118,15 @@ tasks.register('openApiSpec', Test) {
 // Coverage of the backend by the tests. ./gradlew check writes the report to
 // build/reports/jacoco/test/html and fails when coverage falls below the minimums.
 jacoco {
+	// Ahead of the version Gradle 8.14 brings (0.8.13). JaCoCo has to read the class files of the
+	// Java version the tests run on, so move this up with the toolchain.
 	toolVersion = '0.8.16'
+}
+
+tasks.named('test') {
+	// Only the app's classes, which are all the report reads. The agent otherwise instruments
+	// every class of Spring, Hibernate and the rest as the test JVMs load them.
+	jacoco.includes = ['com.javadropbox.*', 'db.migration.*']
 }
 
 tasks.named('openApiSpec') {
@@ -133,8 +141,9 @@ tasks.named('jacocoTestReport') {
 	}
 }
 
-// Just under the coverage when they were set (91.5% of lines, 83.0% of branches), so code added
-// without tests fails the build. Raise them as coverage rises.
+// Just under the coverage when they were set (91.6% of lines, 83.0% of branches), about 20 lines
+// and 14 branches of slack, so coverage can't fall more than about half a point. Raise them as
+// coverage rises.
 tasks.named('jacocoTestCoverageVerification') {
 	violationRules {
 		rule {
