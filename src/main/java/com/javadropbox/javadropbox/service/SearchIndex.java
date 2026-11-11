@@ -21,8 +21,8 @@ import java.util.List;
  * </ul>
  *
  * Indexing happens in the background. Reporting a change or asking for a reconcile returns at once
- * and never throws: an upload or a delete must not wait for the index, nor fail because of it. Each
- * implementation schedules its own reconciles.
+ * and never throws: an upload or a delete must not wait for the index, nor fail because of it.
+ * BackgroundSearchIndex does this, and schedules the reconciles, for every implementation.
  *
  * <p>Items are keyed by their account and their path in its folder, and an implementation must only
  * ever index what is inside an account's folder: not the accounts' folders themselves, not files

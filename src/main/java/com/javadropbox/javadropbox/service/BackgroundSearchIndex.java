@@ -27,20 +27,19 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 abstract class BackgroundSearchIndex implements SearchIndex {
 
   static final Duration RECONCILE_INTERVAL = Duration.ofMinutes(10);
-  // Before trying a batch again that the index could not take yet, such as while a second server
-  // on the same storage holds its lock.
-  static final Duration RETRY_DELAY = Duration.ofSeconds(5);
   private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(10);
 
-  private static final Logger log = LoggerFactory.getLogger(BackgroundSearchIndex.class);
+  // Named after the index it runs, so that its messages say which.
+  private final Logger log = LoggerFactory.getLogger(getClass());
 
-  /** Whether a batch is done, or has to be tried again after {@link #RETRY_DELAY}. */
+  /** Whether a batch is done, or has to be tried again after the retry delay. */
   enum Outcome {
     DONE,
     RETRY
   }
 
-  protected final IndexableItems items;
+  final IndexableItems items;
+  private final Duration retryDelay;
   private final ScheduledThreadPoolExecutor worker;
 
   // What the worker has yet to do, and whether it is at it. Guarded by lock.
@@ -52,8 +51,12 @@ abstract class BackgroundSearchIndex implements SearchIndex {
   private volatile boolean caughtUp;
   private volatile boolean closing;
 
-  BackgroundSearchIndex(IndexableItems items) {
+  /**
+   * @param retryDelay how long to wait before trying a batch again that the index couldn't take
+   */
+  BackgroundSearchIndex(IndexableItems items, Duration retryDelay) {
     this.items = items;
+    this.retryDelay = retryDelay;
     this.worker =
         new ScheduledThreadPoolExecutor(
             1,
@@ -68,26 +71,33 @@ abstract class BackgroundSearchIndex implements SearchIndex {
   /**
    * Writes one batch: everything there is when {@code reconcileAll}, as {@link
    * IndexableItems#reconcile} reports it differs, and then each changed key, as {@link
-   * IndexableItems#walkUnder} finds it. Called only on the worker thread. An exception gives the
-   * batch up, logged: what it did not get to, the next reconcile will.
+   * IndexableItems#walkUnder} finds it. Called only on the worker thread.
+   *
+   * <p>Returns {@link Outcome#RETRY} for a failure that will pass, such as a lock another writer
+   * holds or a backend that can't be reached for now: the whole batch is tried again after the
+   * retry delay, with whatever has been reported since. Throws for one that won't: the batch is
+   * given up, logged, and what it did not get to, the next reconcile will.
    */
-  protected abstract Outcome write(boolean reconcileAll, List<String> changed) throws IOException;
+  abstract Outcome write(boolean reconcileAll, List<String> changed) throws IOException;
 
-  /** Releases what the index holds, once the worker has stopped. */
-  protected abstract void closeIndex() throws IOException;
+  /**
+   * Releases what the index holds, at shutdown: once the worker has stopped, or once it has had ten
+   * seconds to, so a batch may still be writing.
+   */
+  abstract void closeIndex() throws IOException;
 
   /** Whether the app is shutting down: a batch should stop where it is. */
-  protected final boolean closing() {
+  final boolean closing() {
     return closing;
   }
 
   /** Records that the index has caught up with the store since the server started. */
-  protected final void caughtUp() {
+  final void markCaughtUp() {
     caughtUp = true;
   }
 
   /** Whether the index has caught up with the store since the server started. */
-  protected final boolean isCaughtUp() {
+  final boolean isCaughtUp() {
     return caughtUp;
   }
 
@@ -187,7 +197,7 @@ abstract class BackgroundSearchIndex implements SearchIndex {
           busy = false;
           lock.notifyAll();
         } else if (retry) {
-          worker.schedule(this::drain, RETRY_DELAY.toMillis(), TimeUnit.MILLISECONDS);
+          worker.schedule(this::drain, retryDelay.toMillis(), TimeUnit.MILLISECONDS);
         } else {
           worker.execute(this::drain);
         }

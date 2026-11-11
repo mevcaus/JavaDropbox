@@ -9,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.text.BreakIterator;
 import java.text.Normalizer;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -97,6 +98,10 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
   private static final String FORMAT = "2";
   private static final String FORMAT_KEY = "javadropbox.search.format";
 
+  // Before trying again when another writer, such as a second server on the same storage, holds
+  // the index's lock.
+  private static final Duration RETRY_DELAY = Duration.ofSeconds(5);
+
   // Small, for the demo's small heap: added documents go to disk sooner.
   private static final double RAM_BUFFER_MB = 8;
 
@@ -170,7 +175,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
       IndexableItems items,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
-    super(items);
+    super(items, RETRY_DELAY);
     this.location =
         indexDirectory.isBlank()
             ? storagePaths.internalDir().resolve("search-index")
@@ -216,7 +221,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
   // A batch the index's lock or a damaged index kept from being written is tried again; a
   // damaged index is started over first.
   @Override
-  protected Outcome write(boolean reconcileAll, List<String> changed) throws IOException {
+  Outcome write(boolean reconcileAll, List<String> changed) throws IOException {
     try {
       writeBatch(reconcileAll, changed);
       return Outcome.DONE;
@@ -259,7 +264,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
     rebuild = false;
     refreshSearchers();
     if (full && !closing()) {
-      caughtUp();
+      markCaughtUp();
     }
 
     long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
@@ -305,7 +310,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
   private void reconcileAll(IndexWriter writer, Counts counts) throws IOException {
     items.reconcile(
         indexedStamps(writer),
-        () -> closing(),
+        this::closing,
         (key, entry) -> {
           writer.updateDocument(new Term(PATH, key), document(key, entry));
           counts.indexed++;
@@ -359,7 +364,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
     }
     items.walkUnder(
         key,
-        () -> closing(),
+        this::closing,
         (itemKey, entry) -> {
           writer.addDocument(document(itemKey, entry));
           counts.indexed++;
@@ -489,7 +494,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
   }
 
   @Override
-  protected void closeIndex() throws IOException {
+  void closeIndex() throws IOException {
     closeSearchers();
     directory.close();
   }
