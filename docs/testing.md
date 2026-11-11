@@ -5,7 +5,14 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 ```bash
 # Run all backend tests
 ./gradlew test
+
+# The tests, the coverage report and its minimums, and the format check
+./gradlew check
 ```
+
+### Coverage
+
+`./gradlew check` (and so `./gradlew build`) measures the backend's coverage with **JaCoCo** and writes the report to `build/reports/jacoco/test/html/index.html`, with an XML copy beside it. It fails when the tests cover less than 91% of lines or 82% of branches, the minimums in `build.gradle`'s `jacocoTestCoverageVerification`. They sit just under the coverage when they were set (91.5% and 83.0%), so a change that adds code without tests fails the build. Raise them when coverage rises; lower them only on purpose, in a change that says why.
 
 ### Backend Test Coverage
 

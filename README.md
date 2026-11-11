@@ -361,7 +361,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 | **Search** | Apache Lucene (embedded), Apache PDFBox for the text of PDFs |
 | **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
 | **Testing** | JUnit 5, MockMvc, Testcontainers (PostgreSQL, S3Mock), Jimfs; Vitest, Testing Library |
-| **Build and style** | Gradle, Spotless with google-java-format, ESLint, the TypeScript compiler (`strict`) |
+| **Build and style** | Gradle, JaCoCo, Spotless with google-java-format, ESLint, the TypeScript compiler (`strict`) |
 | **Delivery** | Docker (multi-stage build), Docker Compose, GitHub Actions, Fly.io |
 
 ## Testing and CI/CD
@@ -373,7 +373,7 @@ flowchart LR
     Push["Push or pull request<br/>to main"] --> Build & Docker & Frontend
 
     subgraph Gradle["Java CI with Gradle"]
-        Build["build<br/>tests on PostgreSQL<br/>Spotless format check"]
+        Build["build<br/>tests on PostgreSQL<br/>coverage minimums<br/>Spotless format check"]
         Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests"]
     end
 
