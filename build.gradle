@@ -96,6 +96,12 @@ tasks.withType(Test).configureEach {
 tasks.named('test') {
 	// Read by OpenApiSpecTests, so a change to it alone runs the tests again.
 	inputs.file(openApiSpec).withPathSensitivity(PathSensitivity.NONE)
+	// Most of the run is starting Spring contexts one after another, so split the classes across
+	// JVMs, one for every two cores: each JVM starts its own PostgreSQL container, which needs the
+	// other. The classes that share a serving directory get one per JVM
+	// (src/test/resources/config/application.properties). Past four the run gains little more and
+	// the machine is busier for it.
+	maxParallelForks = Math.min(4, Math.max(1, Runtime.runtime.availableProcessors().intdiv(2)))
 }
 
 tasks.register('openApiSpec', Test) {
