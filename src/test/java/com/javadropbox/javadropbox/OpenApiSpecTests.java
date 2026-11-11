@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -71,6 +74,76 @@ class OpenApiSpecTests {
                 + " api:types in frontend/, and commit both files. First difference:%n%s",
             COMMITTED, firstDifference(committed, live))
         .isTrue();
+  }
+
+  @Test
+  @DisplayName("has every response field required, and null only where it is marked @Nullable")
+  void fieldsAreRequiredAndNullOnlyWhereMarked() throws Exception {
+    JsonNode schemas = liveSpec().path("components").path("schemas");
+
+    // A record: id and quotaBytes are both Long, but only quotaBytes is marked.
+    JsonNode account = schemas.path("AccountDto");
+    assertThat(names(account.path("required"))).contains("id", "quotaBytes", "username");
+    assertThat(isOrNull(account.path("properties").path("id"))).isFalse();
+    assertThat(isOrNull(account.path("properties").path("quotaBytes"))).isTrue();
+
+    // A class with getters: the mark is on the getter's return type.
+    JsonNode node = schemas.path("FileTreeNode");
+    assertThat(names(node.path("required"))).contains("id", "name", "children");
+    assertThat(isOrNull(node.path("properties").path("id"))).isTrue();
+    assertThat(isOrNull(node.path("properties").path("name"))).isFalse();
+    assertThat(isOrNull(node.path("properties").path("children"))).isFalse();
+
+    // A field that refers back to its own type, which swagger-core drops on its own.
+    JsonNode children = schemas.path("Entry").path("properties").path("children");
+    assertThat(isOrNull(children)).isTrue();
+    assertThat(children.toString()).contains("#/components/schemas/Entry");
+    assertThat(names(schemas.path("Entry").path("required"))).contains("children");
+
+    // No schema is left with a field a client would have to treat as maybe missing.
+    List<String> optional = new ArrayList<>();
+    schemas
+        .properties()
+        .forEach(
+            schema ->
+                schema
+                    .getValue()
+                    .path("properties")
+                    .fieldNames()
+                    .forEachRemaining(
+                        field -> {
+                          if (!names(schema.getValue().path("required")).contains(field)) {
+                            optional.add(schema.getKey() + "." + field);
+                          }
+                        }));
+    assertThat(optional).isEmpty();
+  }
+
+  private JsonNode liveSpec() throws Exception {
+    return new ObjectMapper()
+        .readTree(
+            mockMvc
+                .perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8));
+  }
+
+  private static List<String> names(JsonNode array) {
+    List<String> names = new ArrayList<>();
+    array.forEach(name -> names.add(name.asText()));
+    return names;
+  }
+
+  // Nullable fields are written as anyOf the field's own schema and {"type": "null"}.
+  private static boolean isOrNull(JsonNode property) {
+    for (JsonNode option : property.path("anyOf")) {
+      if (option.path("type").toString().contains("\"null\"")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // A few lines from where the two specs part, rather than both specs in full.

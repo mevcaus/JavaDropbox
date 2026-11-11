@@ -4,6 +4,7 @@ import com.javadropbox.javadropbox.model.PreviewType;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 public class FileTreeNode {
   private String name;
@@ -61,7 +62,7 @@ public class FileTreeNode {
     this.children = children;
   }
 
-  public Instant getCreatedDate() {
+  public @Nullable Instant getCreatedDate() {
     return createdDate;
   }
 
@@ -69,7 +70,7 @@ public class FileTreeNode {
     this.createdDate = createdDate;
   }
 
-  public Instant getLastModified() {
+  public @Nullable Instant getLastModified() {
     return lastModified;
   }
 
@@ -85,7 +86,7 @@ public class FileTreeNode {
     this.ownerName = ownerName;
   }
 
-  public Long getId() {
+  public @Nullable Long getId() {
     return id;
   }
 
@@ -101,7 +102,7 @@ public class FileTreeNode {
     this.relativePath = relativePath;
   }
 
-  public PreviewType getPreviewType() {
+  public @Nullable PreviewType getPreviewType() {
     return previewType;
   }
 

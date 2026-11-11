@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox.dto;
 import com.javadropbox.javadropbox.model.PreviewType;
 import java.time.Instant;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /**
  * What a share link opens, for the page someone with the link sees before downloading. Public, so
@@ -17,14 +18,18 @@ public record SharedItemDto(
     String name,
     boolean isDirectory,
     long size,
-    Instant lastModified,
-    PreviewType previewType,
+    @Nullable Instant lastModified,
+    @Nullable PreviewType previewType,
     Instant expiresAt,
-    List<Entry> contents) {
+    @Nullable List<Entry> contents) {
 
   /** One item inside a shared folder. {@code children} is null for a file. */
   public record Entry(
-      String name, boolean isDirectory, long size, Instant lastModified, List<Entry> children) {
+      String name,
+      boolean isDirectory,
+      long size,
+      @Nullable Instant lastModified,
+      @Nullable List<Entry> children) {
 
     public static List<Entry> fromTree(List<FileTreeNode> nodes) {
       return nodes.stream()

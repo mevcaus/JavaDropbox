@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox.dto;
 
 import com.javadropbox.javadropbox.model.PreviewType;
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A file or folder a search found, as it is stored now.
@@ -16,7 +17,7 @@ public record SearchResult(
     String name,
     String relativePath,
     boolean isDirectory,
-    Long size,
-    Instant lastModified,
-    PreviewType previewType,
-    Snippet snippet) {}
+    @Nullable Long size,
+    @Nullable Instant lastModified,
+    @Nullable PreviewType previewType,
+    @Nullable Snippet snippet) {}

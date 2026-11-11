@@ -1,5 +1,7 @@
 package com.javadropbox.javadropbox.dto;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * An account as admins see it.
  *
@@ -8,4 +10,9 @@ package com.javadropbox.javadropbox.dto;
  * @param usedBytes what it stores now, previous versions included
  */
 public record AccountDto(
-    Long id, String username, String role, boolean enabled, Long quotaBytes, long usedBytes) {}
+    Long id,
+    String username,
+    String role,
+    boolean enabled,
+    @Nullable Long quotaBytes,
+    long usedBytes) {}

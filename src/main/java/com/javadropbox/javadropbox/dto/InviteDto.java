@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.dto;
 
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An invitation that has not been used or expired yet. The link itself is only shown once, when the
@@ -13,7 +14,7 @@ public record InviteDto(
     Long id,
     String username,
     String role,
-    Long quotaBytes,
+    @Nullable Long quotaBytes,
     Instant createdAt,
     Instant expiresAt,
-    String createdBy) {}
+    @Nullable String createdBy) {}

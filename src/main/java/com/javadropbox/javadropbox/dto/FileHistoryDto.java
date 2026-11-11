@@ -2,17 +2,18 @@ package com.javadropbox.javadropbox.dto;
 
 import com.javadropbox.javadropbox.model.FileHistory;
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 
 public record FileHistoryDto(
     Long id,
-    String filePath,
-    String filename,
-    FileHistory.ChangeType changeType,
-    Instant timestamp,
+    @Nullable String filePath,
+    @Nullable String filename,
+    FileHistory.@Nullable ChangeType changeType,
+    @Nullable Instant timestamp,
     String username,
     boolean success,
-    String errorMessage,
-    String details) {
+    @Nullable String errorMessage,
+    @Nullable String details) {
   public static FileHistoryDto fromEntity(FileHistory entity) {
     return new FileHistoryDto(
         entity.getId(),
