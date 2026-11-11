@@ -24,3 +24,10 @@ updates:
       npm-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # Pinned to 5.x: openapi-typescript needs typescript ^5.x as a peer, and
+      # typescript-eslint takes nothing past 6.0. TypeScript 7, the native
+      # compiler, has no JavaScript API for either. Lift this once both accept
+      # a newer major.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]

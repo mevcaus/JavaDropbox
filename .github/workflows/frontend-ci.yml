@@ -44,9 +44,13 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    # Split from the test step so a red build says which of the three failed.
+    # Split from the other steps so a red build says which one failed.
     - name: Lint
       run: npm run lint
+
+    # Vite and Vitest only strip types, so this is the step that fails on a type error.
+    - name: Type check
+      run: npm run typecheck
 
     - name: Test
       run: npm test

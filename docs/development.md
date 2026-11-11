@@ -71,7 +71,7 @@ Everything else is as above, with the app's own state still in `./JDB/.javadropb
 JavaDropbox/
 ├── .github/workflows/
 │   ├── gradle.yml                  # Backend build + tests, Docker image build, dependency graph
-│   ├── frontend-ci.yml             # Frontend lint, tests, production build
+│   ├── frontend-ci.yml             # Frontend lint, type check, tests, production build
 │   └── deploy-demo.yml             # Deploys the live demo once CI passes on main
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
@@ -105,6 +105,7 @@ JavaDropbox/
 │   │   ├── App.jsx                 # Route definitions
 │   │   └── main.jsx                # Entry point; registers the 401 handler
 │   ├── vite.config.js              # Dev proxy to Spring Boot backend
+│   ├── tsconfig.json               # Strict type check; allowJs while the frontend moves to TypeScript
 │   └── package.json
 ├── src/main/java/
 │   ├── com/javadropbox/javadropbox/
@@ -223,3 +224,13 @@ Every Java file under `src/` is checked. The codebase was reformatted in one com
 ```bash
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
+
+ESLint checks every frontend file, JavaScript and TypeScript, with the same hooks rules. The TypeScript compiler, with `strict` on, checks the TypeScript files. CI runs both:
+
+```bash
+cd frontend && npm run lint && npm run typecheck
+```
+
+The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones. Those aren't type-checked themselves, but TypeScript infers types from them, and those types count. A component's destructured props without a default become required, for example, so a `.tsx` page that leaves one out fails until that component is converted and says which props are optional. Converting the files that others import first, components before the pages that use them, avoids that. Once a file has been converted, keep it TypeScript.
+
+TypeScript stays on 5.x for now (`~5.9.3`, and Dependabot skips its majors). `openapi-typescript` takes only 5.x, `typescript-eslint` nothing past 6.0, and TypeScript 7, the native compiler, has no JavaScript API for either.
