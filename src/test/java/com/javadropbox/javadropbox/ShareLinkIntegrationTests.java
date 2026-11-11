@@ -76,6 +76,8 @@ class ShareLinkIntegrationTests {
             .orElseGet(() -> userRepository.save(new User("testadmin", "unused", "ROLE_ADMIN")));
     home = localStore.path(storagePaths.home(owner).key());
     Files.writeString(home.resolve("shared.txt"), "share me");
+    // Copied in by hand, so listed and shareable once imported.
+    imports.importFiles(owner.getId(), "test");
   }
 
   @AfterEach
@@ -202,14 +204,15 @@ class ShareLinkIntegrationTests {
   }
 
   @Test
-  @DisplayName("A link dies when its file is removed outside the app and the path is reused")
-  void linkDiesWhenItsFileIsReplacedAfterRemovalOnDisk() throws Exception {
+  @DisplayName("A file removed outside the app and uploaded again is still the file its link opens")
+  void linkFollowsItsFileUploadedAgainAfterRemovalOnDisk() throws Exception {
     String token = share("shared.txt");
 
     Files.delete(home.resolve("shared.txt"));
-    upload("", "shared.txt", "someone else's file");
+    upload("", "shared.txt", "uploaded again");
 
-    download(token).andExpect(status().isNotFound());
+    // Still listed, so an upload onto it replaces it, as any replace keeps the file's links.
+    download(token).andExpect(status().isOk()).andExpect(content().string("uploaded again"));
   }
 
   @Test
@@ -236,14 +239,27 @@ class ShareLinkIntegrationTests {
   }
 
   @Test
-  @DisplayName("Sharing a file copied in by hand starts tracking it")
-  void sharingAnUntrackedFileTracksIt() throws Exception {
-    share("shared.txt");
+  @DisplayName(
+      "a listed file removed from the disk by hand, or now a folder there, can't be shared")
+  void listedItemNotInTheStoreIsNotShared() throws Exception {
+    Files.delete(home.resolve("shared.txt"));
 
-    assertThat(
-            jdbc.queryForObject(
-                "SELECT count(*) FROM file_metadata WHERE path = 'shared.txt'", Integer.class))
-        .isEqualTo(1);
+    mockMvc
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "shared.txt")
+                .with(csrf()))
+        .andExpect(status().isNotFound());
+
+    Files.createDirectories(home.resolve("shared.txt"));
+    mockMvc
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "shared.txt")
+                .with(csrf()))
+        .andExpect(status().isNotFound());
   }
 
   @Test
@@ -380,6 +396,20 @@ class ShareLinkIntegrationTests {
   }
 
   @Test
+  @DisplayName("a file copied in by hand and not imported can't be shared: it isn't listed")
+  void unlistedFileIsNotShared() throws Exception {
+    Files.writeString(home.resolve("unlisted.txt"), "copied in");
+
+    mockMvc
+        .perform(
+            post("/api/share")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "unlisted.txt")
+                .with(csrf()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   @DisplayName("A folder's page leaves out folders whose names start like it")
   void sharedFolderLeavesOutLookalikes() throws Exception {
     for (String path :
@@ -486,7 +516,9 @@ class ShareLinkIntegrationTests {
   }
 
   // The token at the end of the share URL.
+  // Files written to disk here are copied in by hand, so they are shared once imported.
   private String share(String path) throws Exception {
+    imports.importFiles(owner.getId(), "test");
     String body =
         mockMvc
             .perform(

@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.config.SetupFilter;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
@@ -58,6 +59,7 @@ class ObservabilityIntegrationTests {
 
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   @AfterEach
   void tearDown() throws IOException {
@@ -210,6 +212,8 @@ class ObservabilityIntegrationTests {
     Path home = completeSetup();
     Files.writeString(home.resolve("notes.txt"), "hello");
     Files.createDirectory(home.resolve("folder"));
+    // Copied in by hand, so listed and shareable once imported.
+    imports.importFiles(userRepository.findByUsername("testadmin").orElseThrow().getId(), "test");
     double downloads = filesServed("download");
     double previews = filesServed("preview");
     double shared = filesServed("share-link");
@@ -280,6 +284,8 @@ class ObservabilityIntegrationTests {
   void shareLinksCreated() throws Exception {
     Path home = completeSetup();
     Files.writeString(home.resolve("shared.txt"), "share me");
+    // Copied in by hand, so listed and shareable once imported.
+    imports.importFiles(userRepository.findByUsername("testadmin").orElseThrow().getId(), "test");
     double created = metric(SHARE_LINKS_CREATED, "COUNT");
 
     mockMvc

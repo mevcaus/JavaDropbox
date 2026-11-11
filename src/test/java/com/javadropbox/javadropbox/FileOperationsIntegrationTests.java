@@ -206,21 +206,92 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
-  @DisplayName("a row left by an item removed outside the app is started over as the new folder")
-  void leftoverRowBecomesTheNewFolder() throws Exception {
+  @DisplayName("a file listed but removed from the disk by hand is still a file: no folder in it")
+  void listedFileGoneFromTheDiskIsNotAFolder() throws Exception {
     upload("", "Work", "one");
     upload("", "Work", "two");
     long id = idOf("Work");
     Files.delete(home.resolve("Work"));
 
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "a.txt", "text/plain", "x".getBytes()))
+                .param("path", "Work")
+                .with(csrf().asHeader()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("\"Work\" is a file, not a folder"));
+
+    FileMetadata file = metadata.findByPath(owner.getId(), "Work").orElseThrow();
+    assertThat(file.getId()).isEqualTo(id);
+    assertThat(file.getIsDirectory()).isFalse();
+    assertThat(versions.findAll()).hasSize(1);
+  }
+
+  @Test
+  @DisplayName(
+      "an upload into a listed folder removed from the disk by hand makes it again, same row")
+  void uploadIntoAListedFolderGoneFromTheDisk() throws Exception {
+    createFolder("", "Work");
+    long id = idOf("Work");
+    Files.delete(home.resolve("Work"));
+
     upload("Work", "a.txt", "x");
 
-    FileMetadata folder = metadata.findByPath(owner.getId(), "Work").orElseThrow();
-    assertThat(folder.getId()).isEqualTo(id);
-    assertThat(folder.getIsDirectory()).isTrue();
-    assertThat(folder.getCurrentVersion()).isEqualTo(1);
-    assertThat(versions.findAll()).isEmpty();
     assertThat(home.resolve("Work/a.txt")).hasContent("x");
+    assertThat(idOf("Work")).isEqualTo(id);
+    assertThat(history.findAll())
+        .filteredOn(h -> h.getChangeType() == ChangeType.CREATE_FOLDER)
+        .extracting(FileHistory::getFilePath)
+        .containsExactly("Work");
+  }
+
+  @Test
+  @DisplayName(
+      "restoring a file whose folder is now listed as a file, gone from the disk, is a 400")
+  void restoreUnderAListedFileIsRefused() throws Exception {
+    upload("Work", "a.txt", "one");
+    upload("Work", "a.txt", "two");
+    long id = idOf("Work/a.txt");
+    deleteFolderByHand(home.resolve("Work"));
+    jdbc.update(
+        "UPDATE file_metadata SET is_directory = false WHERE user_id = ? AND path = 'Work'",
+        owner.getId());
+
+    mockMvc
+        .perform(
+            post("/api/files/" + id + "/versions/1/restore")
+                .param("mode", "OVERWRITE")
+                .with(csrf()))
+        .andExpect(status().isBadRequest());
+
+    assertThat(home.resolve("Work")).doesNotExist();
+  }
+
+  @Test
+  @DisplayName("a folder listed but removed from the disk by hand can't be replaced by a file")
+  void listedFolderGoneFromTheDiskIsNotAFile() throws Exception {
+    createFolder("", "Photos");
+    Files.delete(home.resolve("Photos"));
+
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "Photos", "text/plain", "x".getBytes()))
+                .param("path", "")
+                .with(csrf().asHeader()))
+        .andExpect(status().isConflict());
+    mockMvc
+        .perform(
+            post("/api/folders")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("path", "")
+                .param("name", "Photos")
+                .with(csrf()))
+        .andExpect(status().isConflict());
+
+    assertThat(metadata.findByPath(owner.getId(), "Photos").orElseThrow().getIsDirectory())
+        .isTrue();
   }
 
   @Test
@@ -247,15 +318,16 @@ class FileOperationsIntegrationTests {
     upload("Work", "a.txt", "one");
     upload("Work", "a.txt", "two");
     long id = idOf("Work/a.txt");
+    long workId = idOf("Work");
     deleteFolderByHand(home.resolve("Work"));
 
     restore(id, 1, "COPY");
 
     assertThat(home.resolve("Work/a_v1.txt")).hasContent("one");
+    // The folder is made again in the store, and keeps the row it had.
     FileMetadata folder = metadata.findByPath(owner.getId(), "Work").orElseThrow();
     assertThat(folder.getIsDirectory()).isTrue();
-    // The row the folder left behind, started over.
-    assertThat(folder.getCreatedAt()).isAfter(metadata.findById(id).orElseThrow().getCreatedAt());
+    assertThat(folder.getId()).isEqualTo(workId);
   }
 
   @Test
@@ -489,16 +561,68 @@ class FileOperationsIntegrationTests {
   }
 
   @Test
-  @DisplayName("a file removed outside the app does not pass its versions to a new upload")
-  void leftoverRowIsReset() throws Exception {
+  @DisplayName(
+      "an upload onto a file removed from the disk by hand becomes its content, versions kept")
+  void uploadOntoAFileGoneFromTheDiskKeepsIt() throws Exception {
     upload("", "ghost.txt", "old one");
     upload("", "ghost.txt", "old two");
+    long id = idOf("ghost.txt");
     Files.delete(home.resolve("ghost.txt"));
 
     upload("", "ghost.txt", "new");
 
-    assertThat(metadata.findAll()).hasSize(1);
-    assertThat(versions.findAll()).isEmpty();
+    assertThat(metadata.findAll()).singleElement().extracting(FileMetadata::getId).isEqualTo(id);
+    assertThat(versions.findAll()).hasSize(1);
+    assertThat(home.resolve("ghost.txt")).hasContent("new");
+  }
+
+  @Test
+  @DisplayName("a copy restore leaves a file copied in by hand under its name alone")
+  void copyRestoreSkipsAnUnlistedFile() throws Exception {
+    upload("", "n.txt", "one");
+    upload("", "n.txt", "two");
+    Files.writeString(home.resolve("n_v1.txt"), "copied in by hand");
+
+    restore(idOf("n.txt"), 1, "COPY");
+
+    assertThat(home.resolve("n_v1.txt")).hasContent("copied in by hand");
+    assertThat(home.resolve("n_v1 (2).txt")).hasContent("one");
+    assertThat(metadata.findPathsOf(owner.getId()))
+        .containsExactlyInAnyOrder("n.txt", "n_v1 (2).txt");
+  }
+
+  @Test
+  @DisplayName("restoring a file where a folder was put by hand is refused, and the folder kept")
+  void restoreOverAFolderPutByHandIsRefused() throws Exception {
+    upload("", "r.txt", "one");
+    upload("", "r.txt", "two");
+    long id = idOf("r.txt");
+    Files.delete(home.resolve("r.txt"));
+    Files.createDirectories(home.resolve("r.txt"));
+    Files.writeString(home.resolve("r.txt/inside.txt"), "x");
+
+    mockMvc
+        .perform(
+            post("/api/files/" + id + "/versions/1/restore")
+                .param("mode", "OVERWRITE")
+                .with(csrf()))
+        .andExpect(status().isConflict());
+
+    assertThat(home.resolve("r.txt/inside.txt")).hasContent("x");
+    assertThat(versions.findAll()).hasSize(1);
+  }
+
+  @Test
+  @DisplayName("a copy restore doesn't take a name that is listed, even if it's gone from the disk")
+  void copyRestoreSkipsListedNames() throws Exception {
+    upload("", "n.txt", "one");
+    upload("", "n.txt", "two");
+    upload("", "n_v1.txt", "listed");
+    Files.delete(home.resolve("n_v1.txt"));
+
+    restore(idOf("n.txt"), 1, "COPY");
+
+    assertThat(home.resolve("n_v1 (2).txt")).hasContent("one");
   }
 
   @Test
@@ -508,9 +632,8 @@ class FileOperationsIntegrationTests {
     upload("", "ghost.txt", "old two");
     Path folder = servingDir.resolve(".versions/" + idOf("ghost.txt"));
     Files.writeString(folder.resolve("stray"), "left over");
-    Files.delete(home.resolve("ghost.txt"));
 
-    upload("", "ghost.txt", "new");
+    deletePath("ghost.txt");
 
     assertThat(folder).doesNotExist();
   }

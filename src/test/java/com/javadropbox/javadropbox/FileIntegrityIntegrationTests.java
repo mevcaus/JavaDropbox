@@ -30,7 +30,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -402,22 +401,37 @@ class FileIntegrityIntegrationTests {
   }
 
   @Test
-  @DisplayName("sharing a file copied in by hand while an import adds its row uses that row")
-  void shareRacingImportUsesOneRow() throws Exception {
-    Files.writeString(home.resolve("s.txt"), "by hand");
-    slowDownRowInserts();
+  @DisplayName(
+      "an import while a copy restore is committing finds its row and leaves the name to it")
+  void copyRestoreRacingImportKeepsItsRow() throws Exception {
+    upload("n.txt", "one");
+    upload("n.txt", "two");
+    long id = idOf("n.txt");
+    // The restore's history entry is its last insert, after the copy is in the store and its row
+    // added: held there, the restore is open while the import walks and finds the copy.
+    jdbc.execute(
+        "CREATE OR REPLACE FUNCTION slow_insert() RETURNS trigger AS $$ BEGIN"
+            + " PERFORM pg_sleep(2); RETURN NEW; END $$ LANGUAGE plpgsql");
+    jdbc.execute(
+        "CREATE TRIGGER slow_restore_history BEFORE INSERT ON file_history FOR EACH ROW"
+            + " WHEN (NEW.change_type = 'RESTORE') EXECUTE FUNCTION slow_insert()");
 
-    List<Throwable> errors =
-        runTogether(
-            () -> imports.importFiles(owner.getId(), "test"),
-            () -> {
-              Thread.sleep(300);
-              shareLinks.create("s.txt", Duration.ofDays(1));
-            });
+    List<Throwable> errors;
+    try {
+      errors =
+          runTogether(
+              () -> fileService.restoreVersion(id, 1, RestoreMode.COPY),
+              () -> {
+                Thread.sleep(700);
+                imports.importFiles(owner.getId(), "test");
+              });
+    } finally {
+      jdbc.execute("DROP TRIGGER IF EXISTS slow_restore_history ON file_history");
+    }
 
     assertThat(errors).isEmpty();
-    assertThat(metadata.findPathsOf(owner.getId())).containsExactly("s.txt");
-    assertThat(jdbc.queryForObject("SELECT count(*) FROM share_links", Long.class)).isEqualTo(1);
+    assertThat(metadata.findPathsOf(owner.getId())).containsExactlyInAnyOrder("n.txt", "n_v1.txt");
+    assertThat(home.resolve("n_v1.txt")).hasContent("one");
   }
 
   @Test

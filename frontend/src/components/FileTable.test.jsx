@@ -17,27 +17,27 @@ afterEach(() => {
 // lastModified arrives from the backend as absolute ISO-8601 instants, so the fixtures use
 // that exact shape, including the trailing Z.
 const APPLES_FILES = [
-    { name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '2026-02-02T10:00:00Z', relativePath: 'apples/budget.xlsx' },
-    { name: 'photo.png', isDirectory: false, size: 900, lastModified: '2026-02-03T10:00:00Z', relativePath: 'apples/photo.png' },
+    { id: 100, name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '2026-02-02T10:00:00Z', relativePath: 'apples/budget.xlsx' },
+    { id: 101, name: 'photo.png', isDirectory: false, size: 900, lastModified: '2026-02-03T10:00:00Z', relativePath: 'apples/photo.png' },
 ];
 
 const ROOT_FILES = [
     {
-        name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '2026-01-05T09:00:00Z', relativePath: 'Zebra Folder',
+        id: 102, name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '2026-01-05T09:00:00Z', relativePath: 'Zebra Folder',
         children: [
-            { name: 'deep.txt', isDirectory: false, size: 10, lastModified: '2026-04-01T08:00:00Z', relativePath: 'Zebra Folder/deep.txt' },
+            { id: 103, name: 'deep.txt', isDirectory: false, size: 10, lastModified: '2026-04-01T08:00:00Z', relativePath: 'Zebra Folder/deep.txt' },
             {
-                name: 'nested', isDirectory: true, size: 20, lastModified: '2026-04-02T08:00:00Z', relativePath: 'Zebra Folder/nested',
+                id: 104, name: 'nested', isDirectory: true, size: 20, lastModified: '2026-04-02T08:00:00Z', relativePath: 'Zebra Folder/nested',
                 children: [
-                    { name: 'buried.log', isDirectory: false, size: 20, lastModified: '2026-04-03T08:00:00Z', relativePath: 'Zebra Folder/nested/buried.log' },
+                    { id: 105, name: 'buried.log', isDirectory: false, size: 20, lastModified: '2026-04-03T08:00:00Z', relativePath: 'Zebra Folder/nested/buried.log' },
                 ],
             },
         ],
     },
-    { name: 'apples', isDirectory: true, size: 128, lastModified: '2025-12-31T23:59:00Z', relativePath: 'apples', children: [...APPLES_FILES] },
-    { name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '2026-09-09T14:38:00Z', relativePath: 'notes.txt' },
-    { name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '2026-03-04T02:38:00Z', relativePath: 'Big.zip' },
-    { name: 'tiny.md', isDirectory: false, size: 12, lastModified: '2026-01-02T00:05:00Z', relativePath: 'tiny.md' },
+    { id: 106, name: 'apples', isDirectory: true, size: 128, lastModified: '2025-12-31T23:59:00Z', relativePath: 'apples', children: [...APPLES_FILES] },
+    { id: 107, name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '2026-09-09T14:38:00Z', relativePath: 'notes.txt' },
+    { id: 108, name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '2026-03-04T02:38:00Z', relativePath: 'Big.zip' },
+    { id: 109, name: 'tiny.md', isDirectory: false, size: 12, lastModified: '2026-01-02T00:05:00Z', relativePath: 'tiny.md' },
 ];
 
 const noopHandlers = {
@@ -533,6 +533,17 @@ describe('FileTable versions action', () => {
         expect(screen.getAllByRole('button', { name: /^Versions of/ })).toHaveLength(1);
         await user.click(screen.getByRole('button', { name: 'Versions of kept.txt' }));
         expect(onVersions).toHaveBeenCalledWith(tracked);
+    });
+
+    // A search can find a file copied in by hand that has no row yet; until it is imported it can't
+    // be shared, so it isn't offered.
+    it('offers sharing only for listed items, which have an id', () => {
+        const listed = { name: 'kept.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'kept.txt', id: 4 };
+        const unlisted = { name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' };
+        render(<FileTable files={[listed, unlisted]} currentPath="" {...noopHandlers} />);
+
+        expect(screen.getAllByRole('button', { name: /^Share / })).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Share kept.txt' })).toBeInTheDocument();
     });
 
     it('no longer claims an access level it does not track', () => {

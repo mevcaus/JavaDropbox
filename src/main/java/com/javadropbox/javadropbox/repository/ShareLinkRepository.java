@@ -24,11 +24,6 @@ public interface ShareLinkRepository extends JpaRepository<ShareLink, Long> {
           + " order by l.expiresAt")
   List<ShareLink> findActive(FileMetadata file, Instant now);
 
-  /** Removes an item's links, e.g. because a new item is taking over its metadata row. */
-  @Modifying
-  @Query("delete from ShareLink l where l.file = :file")
-  void deleteByFile(FileMetadata file);
-
   /** Removes links that expired before {@code time}; they can never open again. */
   @Modifying
   @Query("delete from ShareLink l where l.expiresAt < :time")

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.ShareLinkService;
 import com.javadropbox.javadropbox.service.StoragePaths;
@@ -57,6 +58,7 @@ class DownloadConnectionIntegrationTests {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   @BeforeEach
   void setUp() throws IOException {
@@ -68,6 +70,8 @@ class DownloadConnectionIntegrationTests {
       big.setLength(512L * 1024 * 1024);
     }
     Files.writeString(home.resolve("small.txt"), "small");
+    // Copied in by hand, so listed and shareable once imported.
+    imports.importFiles(users.findByUsername("owner").orElseThrow().getId(), "test");
   }
 
   @AfterEach

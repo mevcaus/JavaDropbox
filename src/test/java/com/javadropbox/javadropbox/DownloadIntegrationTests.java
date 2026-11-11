@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.ByteArrayInputStream;
@@ -56,6 +57,7 @@ class DownloadIntegrationTests {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   // The signed-in account's folder, where its files are.
   private Path home;
@@ -176,7 +178,9 @@ class DownloadIntegrationTests {
   }
 
   // Shares a path as the signed-in owner and returns the link's path, e.g. /share/abc.
+  // Files written to disk here are copied in by hand, so they are shared once imported.
   private String share(String path) throws Exception {
+    imports.importFiles(users.findByUsername("owner").orElseThrow().getId(), "test");
     String body =
         mockMvc
             .perform(
