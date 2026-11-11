@@ -19,5 +19,6 @@ final class TestDatabase {
     jdbc.execute("DELETE FROM file_metadata");
     jdbc.execute("DELETE FROM users");
     jdbc.execute("DELETE FROM spring_session");
+    jdbc.execute("DELETE FROM one_time_steps");
   }
 }

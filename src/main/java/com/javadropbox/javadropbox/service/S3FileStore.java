@@ -145,7 +145,7 @@ public class S3FileStore implements FileStore, AutoCloseable {
             RequestBody.fromString(StoragePaths.WELCOME_TEXT, StandardCharsets.UTF_8));
         log.info("Created {} in {}", StoragePaths.WELCOME_FILE, description());
       } else if (!isJavaDropboxs()) {
-        // What is at the top of the store is given to the first account (see LooseFileAdoption):
+        // What is at the top of the store is given to the first account (see FirstAccountImport):
         // moved into its folder, and out of the way of whatever else uses the bucket.
         throw new IllegalStateException(
             "Not using "

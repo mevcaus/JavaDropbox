@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.PostgresTestSupport.Database;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.FirstAccountImport;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -64,6 +65,7 @@ class UpgradeToAccountsIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private SearchIndex searchIndex;
   @Autowired private ObjectMapper json;
+  @Autowired private FirstAccountImport firstAccountImport;
 
   // Before the app starts: the database as V6 left it, and the files where that version kept them.
   @BeforeAll
@@ -89,12 +91,21 @@ class UpgradeToAccountsIntegrationTests {
               + " ('"
               + sha256("legacy-token")
               + "', 11, 'docs/report.txt', now(), now() + interval '1 day')");
+      s.execute(
+          "INSERT INTO file_history (id, change_type, file_path, filename, success, \"timestamp\","
+              + " file_id, user_id) VALUES"
+              + " (100, 'CREATE_FOLDER', 'docs', 'docs', true, now(), 10,"
+              + " (SELECT id FROM users WHERE username = 'helper')),"
+              + " (101, 'UPLOAD', 'docs/report.txt', 'report.txt', true, now(), 11,"
+              + " (SELECT id FROM users WHERE username = 'owner'))");
     }
     Files.createDirectories(servingDir.resolve("docs"));
     Files.writeString(servingDir.resolve("docs/report.txt"), "new");
     Files.writeString(servingDir.resolve("copied in.txt"), "by hand");
     Files.createDirectories(servingDir.resolve(".versions/11"));
     Files.writeString(servingDir.resolve(".versions/11/v1"), "old");
+    // The filesystem's own folder, at the top of a serving directory that is a mount point.
+    Files.createDirectories(servingDir.resolve("lost+found"));
   }
 
   @Test
@@ -109,10 +120,65 @@ class UpgradeToAccountsIntegrationTests {
         .andExpect(jsonPath("$[0].name").value("docs"))
         .andExpect(jsonPath("$[0].id").value(10))
         .andExpect(jsonPath("$[0].children[0].id").value(11))
-        .andExpect(jsonPath("$[1].name").value("copied in.txt"));
+        .andExpect(jsonPath("$[1].name").value("copied in.txt"))
+        .andExpect(jsonPath("$[1].id").isNotEmpty())
+        .andExpect(jsonPath("$[1].ownerName").value("owner"));
     mockMvc
         .perform(get("/api/files/download").param("path", "docs/report.txt").with(user("owner")))
         .andExpect(content().string("new"));
+  }
+
+  @Test
+  @DisplayName("every file, version, share link and history row from before is kept")
+  void everyRowIsKept() throws Exception {
+    assertThat(DATABASE.column("SELECT id FROM file_metadata WHERE id IN (10, 11) ORDER BY id"))
+        .containsExactly("10", "11");
+    assertThat(
+            DATABASE.column(
+                "SELECT concat_ws(',', file_id, version, stored_filename) FROM file_versions"
+                    + " WHERE file_id = 11 AND version = 1"))
+        .containsExactly("11,1,11/v1");
+    assertThat(
+            DATABASE.column(
+                "SELECT concat_ws(',', file_id, path) FROM share_links WHERE token_hash = '"
+                    + sha256("legacy-token")
+                    + "'"))
+        .containsExactly("11,docs/report.txt");
+    assertThat(
+            DATABASE.column(
+                "SELECT concat_ws(',', id, change_type, file_id) FROM file_history"
+                    + " WHERE id IN (100, 101) ORDER BY id"))
+        .containsExactly("100,CREATE_FOLDER,10", "101,UPLOAD,11");
+  }
+
+  @Test
+  @DisplayName("a file copied in by hand before the upgrade gets a row of the first account's")
+  void fileCopiedInByHandIsImported() throws Exception {
+    assertThat(
+            DATABASE.column(
+                "SELECT u.username FROM file_metadata m JOIN users u ON u.id = m.user_id"
+                    + " WHERE m.path = 'copied in.txt'"))
+        .containsExactly("owner");
+  }
+
+  @Test
+  @DisplayName("it is done once: what is put at the top of the store later stays there")
+  void laterItemsAtTheTopStay() throws Exception {
+    assertThat(DATABASE.column("SELECT name FROM one_time_steps"))
+        .containsExactly("first-account-import");
+    assertThat(servingDir.resolve("lost+found")).isDirectory();
+
+    Path later = servingDir.resolve("later.txt");
+    Files.writeString(later, "put here after the upgrade");
+    try {
+      firstAccountImport.atStartup();
+
+      assertThat(later).hasContent("put here after the upgrade");
+      assertThat(DATABASE.column("SELECT path FROM file_metadata WHERE path = 'later.txt'"))
+          .isEmpty();
+    } finally {
+      Files.deleteIfExists(later);
+    }
   }
 
   @Test
