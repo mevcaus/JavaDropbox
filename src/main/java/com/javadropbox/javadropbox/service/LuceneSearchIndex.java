@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
+import com.javadropbox.javadropbox.config.SearchConfig;
 import com.javadropbox.javadropbox.dto.Snippet;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.IndexableItems.Stamp;
@@ -75,6 +76,7 @@ import org.apache.lucene.util.BytesRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -90,6 +92,7 @@ import org.springframework.stereotype.Service;
  * writer is open only while there is work, so an idle server holds no lock on it.
  */
 @Service
+@ConditionalOnProperty(name = SearchConfig.BACKEND, havingValue = "lucene", matchIfMissing = true)
 public class LuceneSearchIndex extends BackgroundSearchIndex {
 
   // Recorded with every commit. Changing what is indexed, or how, means bumping it, so that an
@@ -150,11 +153,11 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
   // after the search comes first; relevance in the text orders the rest. In the text, a whole word
   // counts for more than the start of a longer one, and the words together in order for more than
   // the same words apart.
-  private static final float NAME_BOOST = 1000;
-  private static final float PREFIX_BOOST = 0.5f;
-  private static final float PHRASE_BOOST = 2;
+  static final float NAME_BOOST = 1000;
+  static final float PREFIX_BOOST = 0.5f;
+  static final float PHRASE_BOOST = 2;
   // Shorter starts of words match too much of the text to be worth showing.
-  private static final int MIN_PREFIX_LENGTH = 3;
+  static final int MIN_PREFIX_LENGTH = 3;
 
   private static final int SNIPPET_LENGTH = 160;
   private static final String ELLIPSIS = "…";
@@ -475,7 +478,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
     return Normalizer.normalize(text, Normalizer.Form.NFC);
   }
 
-  private static List<String> tokens(String text) {
+  static List<String> tokens(String text) {
     List<String> tokens = new ArrayList<>();
     try (TokenStream stream = ANALYZER.tokenStream(CONTENT, nfc(text))) {
       CharTermAttribute term = stream.addAttribute(CharTermAttribute.class);
@@ -491,7 +494,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
     return tokens;
   }
 
-  private static String escapeWildcards(String text) {
+  static String escapeWildcards(String text) {
     return text.replaceAll("[*?\\\\]", "\\\\$0");
   }
 
@@ -507,22 +510,39 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
     int removed;
   }
 
+  /**
+   * The passage of {@code content} that best matches a search's {@link #query}, cut and marked as
+   * this index's own hits are, for a backend that finds hits elsewhere and has their text; null
+   * when nothing in the text matches.
+   */
+  static Snippet snippet(Query query, String content) throws IOException {
+    return (Snippet) new SnippetHighlighter().highlightWithoutSearcher(CONTENT, query, content, 1);
+  }
+
   /** Each hit's best passage, as a {@link Snippet}. */
   private static final class SnippetHighlighter extends UnifiedHighlighter {
 
     SnippetHighlighter(IndexSearcher searcher) {
-      super(
-          UnifiedHighlighter.builder(searcher, ANALYZER)
-              .withMaxLength(TextExtractor.MAX_CHARS)
-              // About a sentence's worth, broken between words, with the match in the middle.
-              .withBreakIterator(
-                  () ->
-                      LengthGoalBreakIterator.createClosestToLength(
-                          BreakIterator.getWordInstance(Locale.ROOT), SNIPPET_LENGTH, 0.5f))
-              .withFormatter(SNIPPETS)
-              // A hit on the name alone gets no snippet, rather than the text's first lines.
-              .withMaxNoHighlightPassages(0)
-              .withHandleMultiTermQuery(true));
+      super(configure(UnifiedHighlighter.builder(searcher, ANALYZER)));
+    }
+
+    // Without an index: the text is given, and analysed again to find the matches.
+    SnippetHighlighter() {
+      super(configure(UnifiedHighlighter.builderWithoutSearcher(ANALYZER)));
+    }
+
+    private static UnifiedHighlighter.Builder configure(UnifiedHighlighter.Builder builder) {
+      return builder
+          .withMaxLength(TextExtractor.MAX_CHARS)
+          // About a sentence's worth, broken between words, with the match in the middle.
+          .withBreakIterator(
+              () ->
+                  LengthGoalBreakIterator.createClosestToLength(
+                      BreakIterator.getWordInstance(Locale.ROOT), SNIPPET_LENGTH, 0.5f))
+          .withFormatter(SNIPPETS)
+          // A hit on the name alone gets no snippet, rather than the text's first lines.
+          .withMaxNoHighlightPassages(0)
+          .withHandleMultiTermQuery(true);
     }
 
     Object[] snippets(Query query, int[] docIds) throws IOException {

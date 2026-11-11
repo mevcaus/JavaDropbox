@@ -3,8 +3,21 @@ package com.javadropbox.javadropbox;
 import java.util.Arrays;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchClientAutoConfiguration;
+import org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration;
 
-@SpringBootApplication
+// Spring Boot's Elasticsearch client, and its health check, would reach for a service on localhost
+// whether search used one or not; ElasticsearchSearchIndex makes its own client when it does.
+// Excluded here rather than by spring.autoconfigure.exclude, which any other setting of it would
+// replace.
+@SpringBootApplication(
+    exclude = {
+      ElasticsearchClientAutoConfiguration.class,
+      ElasticsearchRestClientAutoConfiguration.class
+    },
+    excludeName =
+        "org.springframework.boot.actuate.autoconfigure.elasticsearch."
+            + "ElasticsearchRestHealthContributorAutoConfiguration")
 public class JavadropboxApplication {
 
   static final String DIRECTORY_PROPERTY = "javadropbox.serving.directory";
