@@ -35,6 +35,9 @@
   }, {
     "description" : "Browse, upload, download, delete and create files and folders",
     "name" : "Files"
+  }, {
+    "description" : "The public demo's account and limits",
+    "name" : "Demo"
   } ],
   "paths" : {
     "/api/admin/invites" : {
@@ -337,6 +340,25 @@
         },
         "summary" : "Change an account's role",
         "tags" : [ "Admin" ]
+      }
+    },
+    "/api/demo" : {
+      "get" : {
+        "operationId" : "info",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DemoInfo"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get the demo account and limits",
+        "tags" : [ "Demo" ]
       }
     },
     "/api/files" : {
@@ -1160,6 +1182,33 @@
           "expiresAt" : {
             "type" : "string",
             "format" : "date-time"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DemoInfo" : {
+        "type" : "object",
+        "properties" : {
+          "maxShareMinutes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "maxUploadBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "nextReset" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "password" : {
+            "type" : "string"
+          },
+          "storageLimitBytes" : {
+            "type" : "integer",
+            "format" : "int64"
           },
           "username" : {
             "type" : "string"

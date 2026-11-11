@@ -49,7 +49,8 @@ src/
   features/     Redux slices (auth, files)
   layouts/      Shared page layout(s)
   pages/        Route-level pages (Login, Setup, Dashboard)
-  services/     axios instance (CSRF priming, 401 handler hook)
+  services/     axios instance (CSRF priming, 401 handler hook), and apiSchema.ts,
+                the API types generated from frontend/openapi.json
   redux/        Store configuration
   utils/        Formatting (dates, sizes) and readable error messages
 ```

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -28,11 +29,18 @@ import org.springframework.test.web.servlet.MockMvc;
       "springdoc.writer-with-default-pretty-printer=true"
     })
 @AutoConfigureMockMvc
+// The demo's endpoint is in the spec too, so the frontend has its types. Naming the profile also
+// keeps a developer's SPRING_PROFILES_ACTIVE from changing the file. The demo stores its sample
+// files at startup, hence a serving directory of its own.
+@ActiveProfiles("demo")
+@TempServingDirectory
 @DisplayName("The committed OpenAPI spec")
 class OpenApiSpecTests {
 
-  // Set by the openApiSpec and test tasks in build.gradle.
-  private static final Path COMMITTED = Path.of(System.getProperty("javadropbox.openapi.spec"));
+  // Set for every test task in build.gradle; the fallback is for IDEs that run tests themselves,
+  // from the project's root.
+  private static final Path COMMITTED =
+      Path.of(System.getProperty("javadropbox.openapi.spec", "frontend/openapi.json"));
   private static final boolean UPDATE = Boolean.getBoolean("javadropbox.openapi.update");
 
   @Autowired private MockMvc mockMvc;
@@ -47,6 +55,8 @@ class OpenApiSpecTests {
                 .andReturn()
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8)
+                // The pretty printer ends lines the platform's way; the file always uses \n.
+                .replace("\r\n", "\n")
             + "\n";
 
     if (UPDATE) {
@@ -54,7 +64,7 @@ class OpenApiSpecTests {
       return;
     }
     assertThat(COMMITTED).exists();
-    String committed = Files.readString(COMMITTED);
+    String committed = Files.readString(COMMITTED).replace("\r\n", "\n");
     assertThat(committed.equals(live))
         .as(
             "%s is out of date with the controllers. Run ./gradlew openApiSpec, then npm run"

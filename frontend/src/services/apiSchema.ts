@@ -168,6 +168,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/demo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the demo account and limits */
+        get: operations["info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/files": {
         parameters: {
             query?: never;
@@ -588,6 +605,18 @@ export interface components {
             expiresAt?: string;
             username?: string;
         };
+        DemoInfo: {
+            /** Format: int64 */
+            maxShareMinutes?: number;
+            /** Format: int64 */
+            maxUploadBytes?: number;
+            /** Format: date-time */
+            nextReset?: string;
+            password?: string;
+            /** Format: int64 */
+            storageLimitBytes?: number;
+            username?: string;
+        };
         Entry: {
             isDirectory?: boolean;
             /** Format: date-time */
@@ -947,6 +976,26 @@ export interface operations {
                     "*/*": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    info: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DemoInfo"];
                 };
             };
         };
