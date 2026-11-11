@@ -1,6 +1,8 @@
 package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.model.User;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -20,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 public class AccountSessions {
 
+  private static final Logger log = LoggerFactory.getLogger(AccountSessions.class);
+
   private final JdbcTemplate jdbc;
 
   public AccountSessions(JdbcTemplate jdbc) {
@@ -30,7 +34,10 @@ public class AccountSessions {
   @Transactional(propagation = Propagation.MANDATORY)
   public void end(User account) {
     account.bumpSessionVersion();
-    // Their attributes go with them (ON DELETE CASCADE).
-    jdbc.update("DELETE FROM spring_session WHERE principal_name = ?", account.getUsername());
+    // The table V9 creates for Spring Session (see SessionConfig); their attributes go with them
+    // (ON DELETE CASCADE).
+    int ended =
+        jdbc.update("DELETE FROM spring_session WHERE principal_name = ?", account.getUsername());
+    log.info("Ending {} session(s) of \"{}\"", ended, account.getUsername());
   }
 }

@@ -212,6 +212,8 @@ public class DemoService implements ApplicationRunner {
       return;
     }
     boolean changed = false;
+    // Unlike a reset link, this leaves the sessions alone: everyone shares the account, and its
+    // password is on the sign-in page, so a new one keeps nobody out who was in.
     if (!passwordEncoder.matches(password, user.getPassword())) {
       user.setPassword(passwordEncoder.encode(password));
       changed = true;

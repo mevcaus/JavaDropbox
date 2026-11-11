@@ -107,7 +107,7 @@ erDiagram
         varchar role "ROLE_ADMIN or ROLE_USER"
         boolean enabled
         bigint quota_bytes "null for no limit"
-        int session_version "bumped to end its sessions"
+        int session_version "catches a sign-in during a change"
     }
     file_metadata {
         bigint id PK

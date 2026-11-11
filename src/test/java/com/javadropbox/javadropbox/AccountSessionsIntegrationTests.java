@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AccountSessions;
+import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,7 @@ class AccountSessionsIntegrationTests {
 
   @BeforeEach
   void setUp() {
+    TestDatabase.wipe(jdbc);
     ada = users.save(new User("ada", "unused", User.ROLE_USER));
     users.save(new User("bob", "unused", User.ROLE_USER));
     signIn("ada");
@@ -76,6 +78,25 @@ class AccountSessionsIntegrationTests {
             });
 
     assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isEqualTo(2);
+  }
+
+  // A request that loaded its session before the deletion saves it when it ends: that must not
+  // bring the session back.
+  @Test
+  @DisplayName("a request already under way when its session is deleted does not bring it back")
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  void requestUnderWayDoesNotRestoreTheSession() {
+    SessionRepository repository = sessionRepository;
+    Session session = repository.createSession();
+    session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, "ada");
+    repository.save(session);
+    Session underWay = repository.findById(session.getId());
+    underWay.setLastAccessedTime(Instant.now());
+
+    inTransaction(() -> accountSessions.end(ada));
+    repository.save(underWay);
+
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
   }
 
   // Outside a transaction the sessions would be gone even if the change then failed.
