@@ -21,6 +21,7 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AccountService;
 import com.javadropbox.javadropbox.service.SearchIndex;
+import jakarta.servlet.http.Cookie;
 import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -35,7 +36,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -351,12 +351,12 @@ class AdminIntegrationTests {
   @Test
   @DisplayName("a disabled account cannot sign in and its session ends at once; enabled, it can")
   void disablingEndsSessionsAndSignIns() throws Exception {
-    MockHttpSession session = session("bob");
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isOk());
+    Cookie session = session("bob");
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isOk());
 
     setEnabled(bob, false).andExpect(status().isOk());
 
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     signIn("bob", PASSWORD).andExpect(status().isUnauthorized());
     mockMvc
         .perform(get("/api/admin/users").with(ADMIN))
@@ -408,16 +408,16 @@ class AdminIntegrationTests {
   @Test
   @DisplayName("a session left idle while its account is disabled and enabled again has ended")
   void reenablingDoesNotBringSessionsBack() throws Exception {
-    MockHttpSession session = session("bob");
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isOk());
+    Cookie session = session("bob");
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isOk());
 
     // No request from the session in between: by the time it makes one, the account is enabled
     // again, so only the session version can tell that it ended.
     setEnabled(bob, false).andExpect(status().isOk());
     setEnabled(bob, true).andExpect(status().isOk());
 
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isUnauthorized());
-    mockMvc.perform(get("/api/files").session(session("bob"))).andExpect(status().isOk());
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/files").cookie(session("bob"))).andExpect(status().isOk());
   }
 
   @Test
@@ -491,8 +491,8 @@ class AdminIntegrationTests {
   @Test
   @DisplayName("a new role ends the account's sessions, and it signs back in with that role")
   void roleChangeEndsSessions() throws Exception {
-    MockHttpSession session = session("bob");
-    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isForbidden());
+    Cookie session = session("bob");
+    mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isForbidden());
 
     mockMvc
         .perform(
@@ -502,25 +502,25 @@ class AdminIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
 
-    mockMvc.perform(get("/api/me").session(session)).andExpect(status().isUnauthorized());
-    MockHttpSession again = session("bob");
-    mockMvc.perform(get("/api/admin/users").session(again)).andExpect(status().isOk());
+    mockMvc.perform(get("/api/me").cookie(session)).andExpect(status().isUnauthorized());
+    Cookie again = session("bob");
+    mockMvc.perform(get("/api/admin/users").cookie(again)).andExpect(status().isOk());
   }
 
   @Test
   @DisplayName("an admin can be made a user while another remains, and signs back in as one")
   void anAdminCanBeMadeAUser() throws Exception {
     User dana = users.save(new User("dana", passwordEncoder.encode(PASSWORD), User.ROLE_ADMIN));
-    MockHttpSession session = session("dana");
-    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isOk());
+    Cookie session = session("dana");
+    mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isOk());
 
     setRole(dana, "USER").andExpect(status().isOk());
 
     assertThat(users.findById(dana.getId()).orElseThrow().getRole()).isEqualTo(User.ROLE_USER);
-    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isUnauthorized());
-    MockHttpSession again = session("dana");
-    mockMvc.perform(get("/api/me").session(again)).andExpect(jsonPath("$.role").value("USER"));
-    mockMvc.perform(get("/api/admin/users").session(again)).andExpect(status().isForbidden());
+    mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isUnauthorized());
+    Cookie again = session("dana");
+    mockMvc.perform(get("/api/me").cookie(again)).andExpect(jsonPath("$.role").value("USER"));
+    mockMvc.perform(get("/api/admin/users").cookie(again)).andExpect(status().isForbidden());
   }
 
   @Test
@@ -549,11 +549,11 @@ class AdminIntegrationTests {
   @Test
   @DisplayName("a reset link sets a new password once, and ends the account's sessions")
   void passwordReset() throws Exception {
-    MockHttpSession session = session("bob");
+    Cookie session = session("bob");
     String token = passwordReset(bob);
 
     // Until the link is used, nothing has changed.
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isOk());
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isOk());
     mockMvc
         .perform(get("/api/reset-password/" + token).with(anonymous()))
         .andExpect(jsonPath("$.username").value("bob"));
@@ -566,7 +566,7 @@ class AdminIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
 
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     signIn("bob", PASSWORD).andExpect(status().isUnauthorized());
     signIn("bob", "a brand new password").andExpect(status().isOk());
     mockMvc
@@ -706,13 +706,12 @@ class AdminIntegrationTests {
         .andExpect(status().isOk());
   }
 
-  // A real session, signed in through the login form like a browser's.
-  private MockHttpSession session(String username) throws Exception {
-    return (MockHttpSession)
-        signIn(username, PASSWORD)
-            .andExpect(status().isOk())
-            .andReturn()
-            .getRequest()
-            .getSession(false);
+  // The cookie of a real session, signed in through the login form like a browser's.
+  private Cookie session(String username) throws Exception {
+    return signIn(username, PASSWORD)
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getCookie("JSESSIONID");
   }
 }

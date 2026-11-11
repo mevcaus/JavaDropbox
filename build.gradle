@@ -38,6 +38,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.flywaydb:flyway-core'
+	// Sessions in PostgreSQL, so a restart doesn't sign everyone out.
+	implementation 'org.springframework.session:spring-session-jdbc'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.5'
 
 	// Search: an index embedded in the app, and the text of PDFs for it.

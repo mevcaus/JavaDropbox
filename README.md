@@ -147,9 +147,14 @@ erDiagram
         bigint user_id FK "a reset's account"
         timestamptz expires_at
     }
+    spring_session {
+        char primary_id PK
+        varchar principal_name "the signed-in account's username"
+        bigint expiry_time
+    }
 ```
 
-The schema is owned by seven versioned [Flyway](https://documentation.red-gate.com/flyway) migrations; Hibernate only validates that the entities match it.
+`spring_session` and its attributes hold the sessions, through Spring Session; they name their account by username rather than by a foreign key. The schema is owned by nine versioned [Flyway](https://documentation.red-gate.com/flyway) migrations; Hibernate only validates that the entities match it.
 
 ## How it works
 
@@ -281,7 +286,7 @@ The alternative was one shared tree with ownership checks on every row. That wou
 
 Storing files as blobs ([above](#why-does-the-database-list-what-exists-and-the-store-hold-blobs)) will take this folder out of the store, and with it the guarantee that a path has nowhere else to go. Each account will keep a tree of its own, but the tree will be its rows, so isolation will rest on the queries instead: every lookup by path takes the signed-in account and finds only its rows, every lookup by id checks the owner, and every endpoint gets a test that another account's items are a `404`.
 
-Sessions are checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
+Sessions are kept in PostgreSQL with Spring Session JDBC rather than in the server's memory, so a restart or a deploy doesn't sign anyone out. Only signing in starts one: refused requests and share links don't, so an anonymous visitor writes no row. They are also checked against their account on every request: a version number on the account, recorded at sign-in, is bumped when it is disabled, its role changes or its password is reset, so its other sessions end at once rather than whenever they would expire.
 
 ### Why a setup filter and a setup code?
 Rather than shipping hardcoded credentials, the app detects first-run state (no users in the database) and redirects every request to a setup page. This is a filter inside Spring Security's chain, ahead of form login, so setup is reachable without authentication. Reachable without authentication also means reachable by whoever finds the server first, so creating the account also needs a one-time code that the server prints to its log (the approach Jupyter takes): whoever installed the server can read it, someone who merely found the address cannot.
@@ -325,7 +330,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 - Existing installs upgrade with their files, versions and share links intact under the first account
 
 **Security**
-- Spring Security form login with sessions, BCrypt passwords and cookie-based CSRF protection
+- Spring Security form login with sessions kept in PostgreSQL, so restarts don't sign anyone out, BCrypt passwords and cookie-based CSRF protection
 - `ADMIN` and `USER` roles; metrics and account management for admins only
 - Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy
 - Path safety, as above; paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one record
@@ -344,7 +349,7 @@ File operations are async thunks (upload, delete, fetch, create folder). `create
 
 | Layer | Technology |
 |-------|-----------|
-| **Backend** | Java 21, Spring Boot 3.5, Spring Security 6, Spring Data JPA / Hibernate |
+| **Backend** | Java 21, Spring Boot 3.5, Spring Security 6, Spring Session JDBC, Spring Data JPA / Hibernate |
 | **Database** | PostgreSQL, Flyway migrations |
 | **Storage** | The local filesystem, or S3 and compatible services through the AWS SDK for Java 2 |
 | **Search** | Apache Lucene (embedded), Apache PDFBox for the text of PDFs |

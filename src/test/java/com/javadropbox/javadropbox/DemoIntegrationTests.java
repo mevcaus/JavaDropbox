@@ -20,6 +20,7 @@ import com.javadropbox.javadropbox.service.DemoService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
+import jakarta.servlet.http.Cookie;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -40,7 +41,6 @@ import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -237,7 +237,7 @@ class DemoIntegrationTests {
     assertThat(users.findByUsername("demo").orElseThrow().getQuotaBytes()).isEqualTo(quota);
     // Reported to the demo as its own use against that quota.
     mockMvc
-        .perform(get("/api/storage").session(signIn()))
+        .perform(get("/api/storage").cookie(signIn()))
         .andExpect(jsonPath("$.quotaBytes").value(50 * 1024 * 1024));
   }
 
@@ -260,7 +260,7 @@ class DemoIntegrationTests {
   @Test
   @DisplayName("a disabled demo account is enabled again, without bringing its old sessions back")
   void disabledDemoAccountIsEnabled() throws Exception {
-    MockHttpSession session = signIn();
+    Cookie session = signIn();
     User account = users.findByUsername("demo").orElseThrow();
     account.setEnabled(false);
     users.save(account);
@@ -271,8 +271,8 @@ class DemoIntegrationTests {
     assertThat(after.isEnabled()).isTrue();
     assertThat(after.isAdmin()).isFalse();
     assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
-    mockMvc.perform(get("/api/files").session(session)).andExpect(status().isUnauthorized());
-    mockMvc.perform(get("/api/files").session(signIn())).andExpect(status().isOk());
+    mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/files").cookie(signIn())).andExpect(status().isOk());
   }
 
   @Test
@@ -281,8 +281,8 @@ class DemoIntegrationTests {
     User account = users.findByUsername("demo").orElseThrow();
     account.setRole(User.ROLE_ADMIN);
     users.save(account);
-    MockHttpSession session = signIn();
-    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isOk());
+    Cookie session = signIn();
+    mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isOk());
 
     demo.run(new DefaultApplicationArguments());
 
@@ -290,23 +290,19 @@ class DemoIntegrationTests {
     assertThat(after.isAdmin()).isFalse();
     assertThat(after.isEnabled()).isTrue();
     assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
-    mockMvc.perform(get("/api/admin/users").session(session)).andExpect(status().isUnauthorized());
-    mockMvc.perform(get("/api/admin/users").session(signIn())).andExpect(status().isForbidden());
+    mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/admin/users").cookie(signIn())).andExpect(status().isForbidden());
   }
 
-  // A session of the demo account, signed in through the login form like a browser's.
-  private MockHttpSession signIn() throws Exception {
-    return (MockHttpSession)
-        mockMvc
-            .perform(
-                post("/login")
-                    .param("username", "demo")
-                    .param("password", "javadropbox")
-                    .with(csrf()))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getRequest()
-            .getSession(false);
+  // The session cookie of the demo account, signed in through the login form like a browser's.
+  private Cookie signIn() throws Exception {
+    return mockMvc
+        .perform(
+            post("/login").param("username", "demo").param("password", "javadropbox").with(csrf()))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getCookie("JSESSIONID");
   }
 
   // The demo account's folder.

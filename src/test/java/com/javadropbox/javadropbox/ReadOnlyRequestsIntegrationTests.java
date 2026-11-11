@@ -30,6 +30,11 @@ import org.springframework.test.web.servlet.MockMvc;
  * Downloads and previews only read. A PDF viewer or the text preview makes a request for every
  * range it reads, and share links are fetched by anyone, so a write on each would be a write on
  * every one of those. While a test here runs, every table refuses inserts, updates and deletes.
+ *
+ * <p>Except the session tables: a signed-in request records when its session was last used, so that
+ * it expires after being idle whichever instance served it. That is one update of one row by its
+ * key. MockMvc's signed-in and anonymous test users are kept in a session of their own too, so
+ * SessionStoreIntegrationTests checks over real HTTP that a share link starts no session.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -138,7 +143,8 @@ class ReadOnlyRequestsIntegrationTests {
   private List<String> tables() {
     return jdbc.queryForList(
         "SELECT quote_ident(tablename) FROM pg_tables WHERE schemaname = current_schema()"
-            + " AND tablename <> 'flyway_schema_history'",
+            + " AND tablename NOT IN"
+            + " ('flyway_schema_history', 'spring_session', 'spring_session_attributes')",
         String.class);
   }
 }
