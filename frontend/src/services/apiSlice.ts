@@ -16,12 +16,26 @@ export type PickedFile = { file: File; relativePath: string };
  */
 export const apiSlice = generatedApi
     .enhanceEndpoints({
+        // Files: one tag for the whole tree, which comes back as one answer. Once it's listed per
+        // folder (#228), each folder can have its own. Versions: a file's, by its id. ShareLinks:
+        // an item's active links, by its path.
+        addTagTypes: ['Files', 'Versions', 'ShareLinks'],
         endpoints: {
             getFileTree: { providesTags: ['Files'] },
             uploadFiles: { invalidatesTags: ['Files'] },
             deleteItem: { invalidatesTags: ['Files'] },
             createFolder: { invalidatesTags: ['Files'] },
-            restoreVersion: { invalidatesTags: ['Files'] },
+            listFileVersions: { providesTags: (_result, _error, { fileId }) => [{ type: 'Versions', id: fileId }] },
+            // A restore changes the file, and in place it also keeps the current content as a version.
+            restoreVersion: {
+                invalidatesTags: (_result, _error, { fileId }) => ['Files', { type: 'Versions', id: fileId }],
+            },
+            listShareLinks: { providesTags: (_result, _error, { path }) => [{ type: 'ShareLinks', id: path }] },
+            createShareLink: {
+                invalidatesTags: (_result, _error, { body }) => [{ type: 'ShareLinks', id: body.path }],
+            },
+            // A link's id doesn't say whose item it shares, so every list of links is asked again.
+            revokeShareLink: { invalidatesTags: ['ShareLinks'] },
         },
     })
     .injectEndpoints({
@@ -63,4 +77,9 @@ export const {
     useUploadFolderMutation,
     useDeleteItemMutation,
     useCreateFolderMutation,
+    useListFileVersionsQuery,
+    useRestoreVersionMutation,
+    useListShareLinksQuery,
+    useCreateShareLinkMutation,
+    useRevokeShareLinkMutation,
 } = apiSlice;

@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import { Link2, Loader2 } from 'lucide-react';
-import api from '../services/api';
+import { useCreateShareLinkMutation, useListShareLinksQuery, useRevokeShareLinkMutation } from '../services/apiSlice';
 import { useToast } from '../hooks/useToast';
 import { useDemoInfo } from '../hooks/useDemoInfo';
 import { readableError } from '../utils/errors';
@@ -23,46 +23,27 @@ const expirationOptions = (maxMinutes) => {
     return allowed.length > 0 ? allowed : [{ label: `${maxMinutes} minutes`, minutes: maxMinutes }];
 };
 
-// Keyed by path, so sharing another item starts from a fresh dialog: no link, error or spinner from
-// the previous one carries over, and its late answers land in a dialog that is gone.
+// Keyed by path, so sharing another item starts from a fresh dialog with its own request: no link,
+// error or spinner from the previous one carries over, and its late answers land in a dialog that is
+// gone.
 const ShareModal = ({ isOpen, onClose, item }) =>
     item ? <ShareDialog key={item.path} isOpen={isOpen} onClose={onClose} item={item} /> : null;
 
 const ShareDialog = ({ isOpen, onClose, item }) => {
     const [expirationMinutes, setExpirationMinutes] = useState(EXPIRATION_OPTIONS[2].minutes);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [shareUrl, setShareUrl] = useState(null);
-    // Counts requests, so only the latest one's answer is shown.
-    const requestRef = useRef(0);
+    const [createShareLink, created] = useCreateShareLinkMutation();
     // The public demo only allows short links. Until its limits have loaded, all choices show.
     const options = expirationOptions(useDemoInfo()?.maxShareMinutes);
     // A choice the limit rules out (such as the default) falls back to the longest one allowed.
     const minutes = options.some((opt) => opt.minutes === expirationMinutes)
         ? expirationMinutes
         : options[options.length - 1].minutes;
+    const shareUrl = created.data?.url ?? null;
+    const error = created.error ? readableError(created.error, 'Failed to create share link.') : null;
 
-    const handleGenerate = async () => {
-        const request = ++requestRef.current;
-        const isCurrent = () => request === requestRef.current;
-        setLoading(true);
-        setError(null);
-
-        try {
-            const params = new URLSearchParams();
-            params.append('path', item.path);
-            params.append('expirationMinutes', minutes);
-
-            const response = await api.post('/api/share', params, {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            });
-
-            if (isCurrent()) setShareUrl(response.data.url);
-        } catch (err) {
-            if (isCurrent()) setError(readableError(err, 'Failed to create share link.'));
-        } finally {
-            if (isCurrent()) setLoading(false);
-        }
+    // The outcome shows from the mutation's own state; a failure isn't thrown on to anyone.
+    const handleGenerate = () => {
+        createShareLink({ body: { path: item.path, expirationMinutes: minutes } });
     };
 
     const kind = item.isDirectory ? 'folder' : 'file';
@@ -113,12 +94,12 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
                     </p>
                 </div>
             )}
-            {/* Keyed by the new link, so generating one loads the list again. */}
-            <ActiveLinks key={shareUrl} path={item.path} />
+            {/* A new link refreshes this list through its cache tag. */}
+            <ActiveLinks path={item.path} />
             <ModalActions>
                 {!shareUrl && (
-                    <button type="button" disabled={loading} className={primaryButton.blue} onClick={handleGenerate}>
-                        {loading ? <Loader2 className="animate-spin h-5 w-5" /> : 'Generate link'}
+                    <button type="button" disabled={created.isLoading} className={primaryButton.blue} onClick={handleGenerate}>
+                        {created.isLoading ? <Loader2 className="animate-spin h-5 w-5" /> : 'Generate link'}
                     </button>
                 )}
                 <button type="button" className={secondaryButton} onClick={onClose}>
@@ -132,35 +113,26 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
 // The item's links that still work, each with a Revoke button. Only a hash of a link's token is
 // stored, so a link's URL cannot be shown again here.
 const ActiveLinks = ({ path }) => {
-    const [links, setLinks] = useState([]);
-    const [error, setError] = useState(null);
-    const [revoking, setRevoking] = useState(null);
+    const { data: links = [], error: loadError } = useListShareLinksQuery({ path });
+    const [revokeShareLink, revoking] = useRevokeShareLinkMutation();
     const headingId = useId();
     const { addToast } = useToast();
 
-    useEffect(() => {
-        let cancelled = false;
-        api.get('/api/share', { params: { path } })
-            .then((response) => !cancelled && setLinks(response.data))
-            .catch((err) => !cancelled && setError(readableError(err, 'Could not load the active links.')));
-        return () => {
-            cancelled = true;
-        };
-    }, [path]);
-
+    // A revoked link drops out when the list is asked again, which revoking does through its tag.
     const revoke = async (link) => {
-        setRevoking(link.id);
-        setError(null);
         try {
-            await api.delete(`/api/share/${link.id}`);
-            setLinks((current) => current.filter((l) => l.id !== link.id));
+            await revokeShareLink({ id: link.id }).unwrap();
             addToast('Link revoked', 'success');
-        } catch (err) {
-            setError(readableError(err, 'Could not revoke the link.'));
-        } finally {
-            setRevoking(null);
+        } catch {
+            // Shown below, from the mutation's state.
         }
     };
+
+    const failure = revoking.error ?? loadError;
+    const error = failure
+        ? readableError(failure, revoking.error ? 'Could not revoke the link.' : 'Could not load the active links.')
+        : null;
+    const revokingId = revoking.isLoading ? revoking.originalArgs.id : null;
 
     if (links.length === 0 && !error) return null;
 
@@ -185,12 +157,12 @@ const ActiveLinks = ({ path }) => {
                                 </div>
                                 <button
                                     type="button"
-                                    disabled={revoking !== null}
+                                    disabled={revokingId !== null}
                                     onClick={() => revoke(link)}
                                     aria-label={`Revoke the link that expires ${formatDate(link.expiresAt)}`}
                                     className="text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
                                 >
-                                    {revoking === link.id ? 'Revoking…' : 'Revoke'}
+                                    {revokingId === link.id ? 'Revoking…' : 'Revoke'}
                                 </button>
                             </li>
                         ))}

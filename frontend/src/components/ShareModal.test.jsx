@@ -1,10 +1,19 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render as renderWithoutStore, screen, within } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { makeStore } from '../redux/store';
 import userEvent from '@testing-library/user-event';
 import ShareModal from './ShareModal';
 import api from '../services/api';
 import { resetDemoInfo } from '../services/demo';
 import { formatDate } from '../utils/date';
+
+// The dialogs get their data through the API slice, so they need a store. rerender keeps it, as the
+// app keeps one store while dialogs open and close.
+const render = (ui) => {
+    const store = makeStore();
+    return renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+};
 
 vi.mock('../services/api');
 
@@ -103,8 +112,8 @@ describe('ShareModal', () => {
         expect(api.post.mock.calls[0][0]).toBe('/api/share');
         expect(postedParams().get('path')).toBe('documents/document.pdf');
         expect(postedParams().get('expirationMinutes')).toBe('60');
-        expect(api.post.mock.calls[0][2].headers['Content-Type'])
-            .toBe('application/x-www-form-urlencoded');
+        // A form, as /api/share takes it: axios sends URLSearchParams as application/x-www-form-urlencoded.
+        expect(postedParams()).toBeInstanceOf(URLSearchParams);
 
         expect(await screen.findByDisplayValue(SHARE_URL)).toBeInTheDocument();
         // The form is replaced by the result, so there is nothing left to re-submit
@@ -241,7 +250,7 @@ describe('ShareModal', () => {
         renderModal();
 
         const list = await screen.findByRole('list', { name: /Active links/i });
-        expect(api.get).toHaveBeenCalledWith('/api/share', { params: { path: 'documents/document.pdf' } });
+        expect(api.get).toHaveBeenCalledWith('/api/share', expect.objectContaining({ params: { path: 'documents/document.pdf' } }));
         expect(within(list).getAllByRole('listitem')).toHaveLength(2);
         expect(within(list).getByText(`Expires ${formatDate(LINK.expiresAt)}`)).toBeInTheDocument();
         expect(within(list).getAllByRole('button', { name: /Revoke/i })).toHaveLength(2);
@@ -256,16 +265,24 @@ describe('ShareModal', () => {
 
     it('revokes a link and removes it from the list', async () => {
         const user = userEvent.setup();
-        api.get.mockResolvedValueOnce({ data: [LINK, OTHER_LINK] });
-        api.delete.mockResolvedValueOnce({ data: { message: 'Share link revoked' } });
+        // The list is asked again after the revoke, and no longer has the revoked link. Answered by
+        // URL, since the dialog also asks for the demo's limits.
+        let revoked = false;
+        api.get.mockImplementation((url) =>
+            Promise.resolve({ data: url === '/api/share' ? (revoked ? [OTHER_LINK] : [LINK, OTHER_LINK]) : null }),
+        );
+        api.delete.mockImplementationOnce(() => {
+            revoked = true;
+            return Promise.resolve({ data: { message: 'Share link revoked' } });
+        });
         renderModal();
 
         const list = await screen.findByRole('list', { name: /Active links/i });
         await user.click(within(list).getAllByRole('button', { name: /Revoke/i })[0]);
 
-        expect(api.delete).toHaveBeenCalledWith('/api/share/7');
+        expect(api.delete).toHaveBeenCalledWith('/api/share/7', expect.anything());
         expect(addToast).toHaveBeenCalledWith('Link revoked', 'success');
-        expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+        await vi.waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(1));
         expect(within(list).queryByText(`Expires ${formatDate(LINK.expiresAt)}`)).not.toBeInTheDocument();
     });
 
@@ -309,12 +326,14 @@ describe('ShareModal', () => {
 
     it('ignores a list that arrives after a different item is shown', async () => {
         let resolveFirst;
-        api.get.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+        api.get.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; })).mockResolvedValue({ data: [] });
         const { rerender } = renderModal();
 
         const otherFile = { name: 'photo.png', path: 'photo.png', isDirectory: false };
         rerender(<ShareModal isOpen onClose={vi.fn()} item={otherFile} />);
-        await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/share', { params: { path: 'photo.png' } }));
+        await vi.waitFor(() =>
+            expect(api.get).toHaveBeenCalledWith('/api/share', expect.objectContaining({ params: { path: 'photo.png' } })),
+        );
         resolveFirst({ data: [LINK] });
 
         // Let the stale response settle before checking it was dropped.
