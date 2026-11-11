@@ -37,14 +37,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # Nothing here pushes, so the token needn't stay in .git/config.
+        persist-credentials: false
 
     # build-mode none for all three: CodeQL reads the Java sources without compiling them, so the
-    # job needs no JDK or Gradle, and nothing in the backend is generated at build time.
+    # job needs no JDK or Gradle and runs none of the repository's code, and nothing in the backend
+    # is generated at build time. security-extended adds the security queries the default suite
+    # leaves out for being less precise.
     - name: Initialize CodeQL
       uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
       with:
         languages: ${{ matrix.language }}
         build-mode: none
+        queries: security-extended
 
     - name: Analyze
       uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3

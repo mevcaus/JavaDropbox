@@ -385,12 +385,12 @@ flowchart LR
     Build & Docker --> Deploy["Deploy demo<br/>on main, once both pass"]
     Deploy --> Fly["Fly.io<br/>javadropbox.mevcaus.dev"]
     Gradle & Frontend --> Badges["Coverage badges<br/>on main, once CI passes,<br/>to the badges branch"]
-    Push --> CodeQL["CodeQL<br/>Java, TypeScript and the workflows,<br/>also weekly"]
+    Push --> CodeQL["CodeQL<br/>Java, JavaScript and the workflows,<br/>also weekly"]
 ```
 
 Each run puts its coverage in the job summary and uploads the full report as the `backend-coverage` or `frontend-coverage` artifact, so a drop can be looked at without running anything locally.
 
-**CodeQL** analyzes the backend, the frontend, the end-to-end tests and these workflows on every pull request, on every push to `main` and once a week. What it finds shows under the repository's Security tab, and on a pull request as annotations on the changed lines.
+**CodeQL** analyzes the backend, the frontend, the end-to-end tests and these workflows with its `security-extended` queries on every pull request, on every push to `main` and once a week. What it finds shows under the repository's Security tab, and on a pull request as annotations on the changed lines.
 
 ## Live demo
 
