@@ -17,6 +17,7 @@ import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ValueConstants;
 import org.springframework.web.method.HandlerMethod;
 
@@ -31,6 +32,10 @@ import org.springframework.web.method.HandlerMethod;
  * a form or multipart, this builds the body from the method's {@code @RequestParam}s: one field
  * each, under its name, with the schema springdoc gave it, required unless it is optional or has a
  * default. Those parameters are then left out of the query.
+ *
+ * <p>Building the spec fails when a field can't be found, or an endpoint mixes a form with {@code
+ * RequestPart}, rather than leaving a field in the query. A form bound to an object ({@code
+ * ModelAttribute}) isn't handled.
  */
 @Component
 public class FormRequestBodies implements OperationCustomizer {
@@ -42,27 +47,31 @@ public class FormRequestBodies implements OperationCustomizer {
 
   @Override
   public Operation customize(Operation operation, HandlerMethod handler) {
-    RequestMapping mapping =
-        AnnotatedElementUtils.findMergedAnnotation(handler.getMethod(), RequestMapping.class);
-    if (mapping == null) {
-      return operation;
-    }
-    List<String> consumes = List.of(mapping.consumes()).stream().filter(FORMS::contains).toList();
+    List<String> consumes = consumes(handler).stream().filter(FORMS::contains).toList();
     if (consumes.isEmpty()) {
       return operation;
     }
 
     Map<String, Schema> fields = new LinkedHashMap<>();
     List<String> required = new ArrayList<>();
+    String endpoint = handler.getBeanType().getSimpleName() + "." + handler.getMethod().getName();
     for (java.lang.reflect.Parameter parameter : handler.getMethod().getParameters()) {
-      RequestParam param = parameter.getAnnotation(RequestParam.class);
+      if (AnnotatedElementUtils.hasAnnotation(parameter, RequestPart.class)) {
+        // Its part is already in the body springdoc made, which this would replace.
+        throw new IllegalStateException(
+            endpoint + " mixes @RequestPart with a form; FormRequestBodies can't describe it.");
+      }
+      // Merged, so @RequestParam("files") reads as the name "files".
+      RequestParam param =
+          AnnotatedElementUtils.findMergedAnnotation(parameter, RequestParam.class);
       if (param == null) {
         continue;
       }
       String name = !param.name().isEmpty() ? param.name() : parameter.getName();
       Schema<?> schema = schemaOf(operation, name);
       if (schema == null) {
-        continue;
+        throw new IllegalStateException(
+            "springdoc left " + endpoint + "'s form field \"" + name + "\" out of the spec.");
       }
       fields.put(name, schema);
       if (param.required() && param.defaultValue().equals(ValueConstants.DEFAULT_NONE)) {
@@ -93,6 +102,18 @@ public class FormRequestBodies implements OperationCustomizer {
       }
     }
     return operation;
+  }
+
+  // The method's consumes, or its controller's when the method declares none, as Spring decides.
+  private static List<String> consumes(HandlerMethod handler) {
+    RequestMapping method =
+        AnnotatedElementUtils.findMergedAnnotation(handler.getMethod(), RequestMapping.class);
+    if (method != null && method.consumes().length > 0) {
+      return List.of(method.consumes());
+    }
+    RequestMapping type =
+        AnnotatedElementUtils.findMergedAnnotation(handler.getBeanType(), RequestMapping.class);
+    return type == null ? List.of() : List.of(type.consumes());
   }
 
   // Where springdoc put the field: as a query parameter, as a property of the body it made, or as

@@ -278,7 +278,8 @@ class OpenApiSpecTests {
   // Spring reads a @RequestParam from the query string and a form alike; the spec has to say which
   // one the endpoint wants, or a generated client puts passwords in URLs (FormRequestBodies).
   @Test
-  @DisplayName("takes form and multipart fields as a named body, never a password or file in a URL")
+  @DisplayName(
+      "takes form and multipart fields as a named body, and no change takes a field in its URL")
   void formsAreBodies() throws Exception {
     List<String> problems = new ArrayList<>();
     liveSpec()
@@ -313,11 +314,10 @@ class OpenApiSpecTests {
                               .forEach(
                                   parameter -> {
                                     String name = parameter.path("name").asText();
-                                    boolean secret = name.equals("password") || name.equals("code");
-                                    boolean file =
-                                        parameter.path("schema").toString().contains("binary");
-                                    if (parameter.path("in").asText().equals("query")
-                                        && (secret || file)) {
+                                    // The one field a change takes in its URL: how to restore.
+                                    boolean allowed =
+                                        name.equals("mode") && path.getKey().endsWith("/restore");
+                                    if (parameter.path("in").asText().equals("query") && !allowed) {
                                       problems.add(where + " takes " + name + " in the query");
                                     }
                                   });

@@ -31,6 +31,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
@@ -103,7 +104,9 @@ public class SecurityConfig {
 
     LoginThrottleFilter throttle = new LoginThrottleFilter(limiter, loginRequest);
 
-    http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
+    // Ahead of everything that reads parameters, sign-in and CSRF included.
+    http.addFilterBefore(new SecretsInUrlFilter(json), CsrfFilter.class)
+        .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(throttle, UsernamePasswordAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
