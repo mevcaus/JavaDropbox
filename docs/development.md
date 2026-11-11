@@ -157,6 +157,7 @@ JavaDropbox/
 │   │       ├── ImportService.java       # Gives files copied into an account's folder rows of their own
 │   │       ├── SearchIndex.java         # What a search index does: changes, reconciles, searches
 │   │       ├── LuceneSearchIndex.java   # Lucene index of names and text, kept in step with the store
+│   │       ├── IndexableItems.java      # What any search index may index: the accounts' items, and their text
 │   │       ├── SearchService.java       # Checks searches and their hits against the store
 │   │       ├── TextExtractor.java       # Text of text files, PDFs (PDFBox) and .docx
 │   │       ├── FileVersionService.java  # Archiving, pruning and looking up versions
