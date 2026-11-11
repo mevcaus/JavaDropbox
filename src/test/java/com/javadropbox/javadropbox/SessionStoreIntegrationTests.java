@@ -75,6 +75,9 @@ class SessionStoreIntegrationTests {
     String session = HttpTestClient.cookieValue(login, "JSESSIONID");
     assertThat(jdbc.queryForList("SELECT principal_name FROM spring_session", String.class))
         .containsExactly("owner");
+    // server.servlet.session.timeout, 30 minutes unless it is set.
+    assertThat(jdbc.queryForList("SELECT max_inactive_interval FROM spring_session", Integer.class))
+        .containsExactly(1800);
 
     http.postForm("/logout", Map.of(), http.withCsrf(Map.of("Cookie", "JSESSIONID=" + session)));
     assertThat(sessions()).isZero();
@@ -126,6 +129,7 @@ class SessionStoreIntegrationTests {
 
     assertThat(http.get("/api/me", Map.of("Cookie", "JSESSIONID=" + session)).statusCode())
         .isEqualTo(401);
+    assertThat(sessions()).isZero();
     assertThat(
             http.postForm(
                     "/logout", Map.of(), http.withCsrf(Map.of("Cookie", "JSESSIONID=" + session)))

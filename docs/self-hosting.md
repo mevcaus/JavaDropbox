@@ -141,13 +141,14 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.search.index-directory` | `.javadropbox/search-index` in the serving directory | Where the search index is kept |
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
-| `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out |
+| `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
+| `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute) |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
 
-Sessions are kept in the database, so restarting the server doesn't sign anyone out, and neither do most upgrades. The upgrade that moved them there from the server's memory signs everyone out once, and so does any later one that changes what a session stores, such as a new major version of Spring Security: a session the new version can't read is signed out on its next request.
+Sessions are kept in the database, so restarting the server doesn't sign anyone out, and neither do most upgrades. The upgrade that moved them there from the server's memory signs everyone out once, and so does any later one that changes what a session stores, such as a new major version of Spring Security: a session the new version can't read is signed out on its next request. Each session row holds the account's username and the address it signed in from, so a database backup holds them too.
 
 `app.share.jwt-secret` (`APP_SHARE_JWT_SECRET`) is gone: share links are stored on the server and no longer signed. The app refuses to start while it is set, so remove it when upgrading. A `.javadropbox/share-jwt.key` left by an earlier version is deleted on startup.
 

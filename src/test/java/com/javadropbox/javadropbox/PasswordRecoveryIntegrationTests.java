@@ -3,12 +3,14 @@ package com.javadropbox.javadropbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +71,24 @@ class PasswordRecoveryIntegrationTests {
     assertThat(users.findByUsername("owner").orElseThrow().getId()).isEqualTo(ownerId);
     assertThat(jdbc.queryForObject("SELECT count(*) FROM file_versions", Integer.class))
         .isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("deleting the account's sessions with the documented DELETE signs it out")
+  void deletingTheSessionsSignsTheAccountOut() throws Exception {
+    Cookie session =
+        login("owner", "forgotten-password")
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getCookie("JSESSIONID");
+    mockMvc.perform(get("/api/me").cookie(session)).andExpect(status().isOk());
+
+    // The documented statement, with the account's username.
+    assertThat(jdbc.update("DELETE FROM spring_session WHERE principal_name = 'owner'"))
+        .isEqualTo(1);
+
+    mockMvc.perform(get("/api/me").cookie(session)).andExpect(status().isUnauthorized());
   }
 
   private ResultActions login(String username, String password) throws Exception {
