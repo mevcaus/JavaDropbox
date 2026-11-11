@@ -9,6 +9,7 @@ import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
@@ -46,6 +47,7 @@ class FileDatesIntegrationTests {
 
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -77,6 +79,9 @@ class FileDatesIntegrationTests {
       username = "testadmin",
       roles = {"ADMIN"})
   void filesApiReturnsIso8601Timestamps() throws Exception {
+    // Copied in by hand, so listed once it is imported.
+    imports.importFiles(owner.getId(), "test");
+
     mockMvc
         .perform(get("/api/files"))
         .andExpect(status().isOk())

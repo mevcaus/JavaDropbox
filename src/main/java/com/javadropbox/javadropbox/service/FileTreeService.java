@@ -5,33 +5,29 @@ import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
-import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
-import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Builds the file tree the UI browses: what is in one account's folder. The {@link FileStore} is
- * the source of truth for what exists; the database adds ids, owners and dates for items the app
- * created.
+ * Builds the file tree the UI browses: what is in one account's folder, read from the account's
+ * rows in one query. The database is the list of what exists; the store is never looked at here.
+ * Files added to the store outside the app show up once they are imported.
  */
 @Service
 public class FileTreeService {
-
-  private static final String UNTRACKED_OWNER = "system";
 
   private static final Logger log = LoggerFactory.getLogger(FileTreeService.class);
 
@@ -40,93 +36,103 @@ public class FileTreeService {
           .reversed()
           .thenComparing(FileTreeNode::getName, String.CASE_INSENSITIVE_ORDER);
 
-  private final StoragePaths storagePaths;
-  private final FileStore store;
   private final FileMetadataRepository files;
 
-  public FileTreeService(StoragePaths storagePaths, FileStore store, FileMetadataRepository files) {
-    this.storagePaths = storagePaths;
-    this.store = store;
+  public FileTreeService(FileMetadataRepository files) {
     this.files = files;
   }
 
   /** Everything in an account's folder. */
   @Transactional(readOnly = true)
   public List<FileTreeNode> tree(User user) {
-    StoragePath folder = storagePaths.home(user).resolve("");
-    return tree(folder);
+    return build("", files.findAllOf(user.getId()));
   }
 
   /** The tree below one folder, built the same way: what a shared folder's page lists. */
   @Transactional(readOnly = true)
   public List<FileTreeNode> tree(StoragePath folder) {
-    Map<String, FileMetadata> metadata = metadata(folder.home().userId());
-    // The folder's key in the store, and each node's key in the account's folder, both end where
-    // the part below the folder starts.
-    String top = folder.storeKey();
-    String homePrefix = folder.home().key() + "/";
+    long ownerId = folder.home().userId();
+    if (folder.isRoot()) {
+      return build("", files.findAllOf(ownerId));
+    }
+    return build(
+        folder.key(), files.findAllBelow(ownerId, FileMetadataRepository.below(folder.key())));
+  }
+
+  // The nodes below the folder at top ("" for the account's root), from rows that are all below
+  // it. Parents come before what they hold, as shorter paths sort first. A row whose parent has no
+  // row of its own (not expected, but not worth hiding the row over) gets a folder node made up
+  // for it. A row with rows below it is a folder, whatever it says, so a path is listed once.
+  // Rows the app wouldn't accept a path for today, left by older releases (a hidden name, an
+  // empty segment), are left out, as walking the store left them out.
+  private static List<FileTreeNode> build(String top, List<FileMetadata> rows) {
+    List<FileMetadata> listed = rows.stream().filter(row -> isListable(row.getPath())).toList();
+    Set<String> parents = new HashSet<>();
+    listed.forEach(row -> parents.add(parentKey(row.getPath())));
     List<FileTreeNode> topLevel = new ArrayList<>();
     Map<String, FileTreeNode> folders = new HashMap<>();
-    try {
-      // Folders come before what they hold, so each item's parent is there before it.
-      store.walk(
-          top,
-          entry -> {
-            if (entry.key().equals(top)) {
-              return FileVisitResult.CONTINUE;
-            }
-            // Hidden entries include upload scratch files and the app's own folders.
-            if (entry.name().startsWith(".")) {
-              return FileVisitResult.SKIP_SUBTREE;
-            }
-            String parentKey = entry.key().substring(0, entry.key().lastIndexOf('/'));
-            FileTreeNode parent = folders.get(parentKey);
-            if (parent == null && !parentKey.equals(top)) {
-              return FileVisitResult.SKIP_SUBTREE;
-            }
-            String key = entry.key().substring(homePrefix.length());
-            FileTreeNode node = node(entry, key, metadata);
-            (parent == null ? topLevel : parent.getChildren()).add(node);
-            if (entry.isDirectory()) {
-              folders.put(entry.key(), node);
-            }
-            return FileVisitResult.CONTINUE;
-          });
-    } catch (IOException e) {
-      log.warn("Could not list {}: {}", top, e.toString());
-    }
+    listed.stream()
+        .sorted(Comparator.comparingInt((FileMetadata row) -> depth(row.getPath())))
+        .forEach(
+            row -> {
+              FileTreeNode node = node(row, parents.contains(row.getPath()));
+              childrenOf(parentKey(row.getPath()), top, row, topLevel, folders).add(node);
+              if (node.getIsDirectory()) {
+                folders.put(row.getPath(), node);
+              }
+            });
     finish(topLevel);
     return topLevel;
   }
 
-  // One query for every row, rather than one per item stored.
-  private Map<String, FileMetadata> metadata(long ownerId) {
-    return files.findAllOf(ownerId).stream()
-        .collect(Collectors.toMap(FileMetadata::getPath, Function.identity()));
+  private static List<FileTreeNode> childrenOf(
+      String parent,
+      String top,
+      FileMetadata row,
+      List<FileTreeNode> topLevel,
+      Map<String, FileTreeNode> folders) {
+    if (parent.equals(top)) {
+      return topLevel;
+    }
+    FileTreeNode folder = folders.get(parent);
+    if (folder == null) {
+      log.debug("Listing a folder with no row of its own for the rows below it");
+      folder = new FileTreeNode(lastSegment(parent), true, 0, parent);
+      folder.setOwnerName(ownerName(row));
+      childrenOf(parentKey(parent), top, row, topLevel, folders).add(folder);
+      folders.put(parent, folder);
+    }
+    return folder.getChildren();
   }
 
-  private static FileTreeNode node(Entry entry, String key, Map<String, FileMetadata> metadata) {
-    FileTreeNode node = new FileTreeNode(entry.name(), entry.isDirectory(), entry.size(), key);
-
-    FileMetadata row = metadata.get(key);
-    if (row != null) {
-      node.setId(row.getId());
-      node.setCreatedDate(row.getCreatedAt());
-      node.setLastModified(row.getUpdatedAt());
-      node.setOwnerName(row.getOwner() != null ? row.getOwner().getUsername() : UNTRACKED_OWNER);
-    } else {
-      node.setCreatedDate(entry.created());
-      node.setLastModified(entry.modified());
-      node.setOwnerName(UNTRACKED_OWNER);
-    }
-    if (!entry.isDirectory()) {
-      node.setPreviewType(PreviewType.of(entry.name()).orElse(null));
+  private static FileTreeNode node(FileMetadata row, boolean hasChildren) {
+    boolean isDirectory = hasChildren || Boolean.TRUE.equals(row.getIsDirectory());
+    FileTreeNode node =
+        new FileTreeNode(
+            row.getFilename(),
+            isDirectory,
+            isDirectory || row.getSize() == null ? 0 : row.getSize(),
+            row.getPath());
+    describe(node, row);
+    if (!isDirectory) {
+      node.setPreviewType(PreviewType.of(row.getFilename()).orElse(null));
     }
     return node;
   }
 
-  // Sorts each folder's contents and adds up its size. A folder whose dates the store does not
-  // know, as in S3 where one exists only because something is in it, takes the latest of what is.
+  private static void describe(FileTreeNode node, FileMetadata row) {
+    node.setId(row.getId());
+    node.setCreatedDate(row.getCreatedAt());
+    node.setLastModified(row.getUpdatedAt());
+    node.setOwnerName(ownerName(row));
+  }
+
+  private static String ownerName(FileMetadata row) {
+    return row.getOwner().getUsername();
+  }
+
+  // Sorts each folder's contents and adds up its size. A folder with no dates of its own takes the
+  // latest of what it holds.
   private static void finish(List<FileTreeNode> nodes) {
     for (FileTreeNode node : nodes) {
       if (node.getIsDirectory()) {
@@ -149,5 +155,30 @@ public class FileTreeService {
         .filter(Objects::nonNull)
         .max(Comparator.naturalOrder())
         .orElse(null);
+  }
+
+  private static boolean isListable(String path) {
+    if (path == null || path.isEmpty()) {
+      return false;
+    }
+    for (String segment : path.split("/", -1)) {
+      if (segment.isEmpty() || segment.startsWith(".")) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static int depth(String path) {
+    return (int) path.chars().filter(c -> c == '/').count();
+  }
+
+  private static String parentKey(String path) {
+    int slash = path.lastIndexOf('/');
+    return slash < 0 ? "" : path.substring(0, slash);
+  }
+
+  private static String lastSegment(String path) {
+    return path.substring(path.lastIndexOf('/') + 1);
   }
 }

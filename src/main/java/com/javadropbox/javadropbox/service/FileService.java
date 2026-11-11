@@ -303,9 +303,6 @@ public class FileService {
     User user = authService.requireCurrentUser();
     try {
       StoragePath target = storagePaths.home(user).resolveItem(path);
-      if (!store.exists(target.storeKey())) {
-        throw new NotFoundException("Not found: " + target.key());
-      }
 
       inTransaction(
           () -> {
@@ -313,18 +310,26 @@ public class FileService {
             // run before anything irreversible happens in the store, so a database problem stops
             // it.
             versions.discardAllAtOrBelow(user.getId(), target.key());
-            files.deleteAtOrBelow(
-                user.getId(), target.key(), FileMetadataRepository.below(target.key()));
+            int rows =
+                files.deleteAtOrBelow(
+                    user.getId(), target.key(), FileMetadataRepository.below(target.key()));
 
-            // A concurrent delete of the same item got here first: the deletes above waited for
-            // its row locks and found nothing, and now the store has nothing either.
-            if (!store.exists(target.storeKey())) {
+            // The list shows rows, so an item removed from the store behind the app's back is
+            // still listed, and deleting it takes away just its rows. Nothing in either is what a
+            // concurrent delete of the same item leaves: the deletes above waited for its row
+            // locks and found nothing.
+            boolean stored = store.exists(target.storeKey());
+            if (!stored && rows == 0) {
               throw new NotFoundException("Not found: " + target.key());
             }
-            try {
-              store.deleteRecursively(target.storeKey());
-            } catch (NoSuchFileException e) {
-              throw new NotFoundException("Not found: " + target.key());
+            if (stored) {
+              try {
+                store.deleteRecursively(target.storeKey());
+              } catch (NoSuchFileException e) {
+                if (rows == 0) {
+                  throw new NotFoundException("Not found: " + target.key());
+                }
+              }
             }
             history.recordDeletion(target.key(), target.name(), user);
             searchIndex.changed(target);

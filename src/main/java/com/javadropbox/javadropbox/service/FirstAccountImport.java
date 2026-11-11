@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox.service;
 
+import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.OneTimeStepRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
@@ -25,12 +26,22 @@ import org.springframework.stereotype.Component;
  * account's. Once everything at the top has been moved and the folder imported, it is recorded as
  * done (a move or an import that failed is tried again at the next start), and from then on nothing
  * at the top of the store is moved: a start only names what is there in the log.
+ *
+ * <p>The first start of the release whose file list comes from rows also imports every account's
+ * folder once, so that files copied in by hand, listed until then, stay listed. That is recorded
+ * per account and then as a whole; setup records it as done, as a new install has no other account.
  */
 @Component
 public class FirstAccountImport {
 
   /** The name it is recorded as done under. */
   static final String STEP = "first-account-import";
+
+  /** Recorded once every account's folder has been imported, after upgrading. */
+  static final String EVERY_ACCOUNT_STEP = "every-account-import";
+
+  /** Recorded for each account whose folder that import has done, followed by its id. */
+  static final String ACCOUNT_STEP_PREFIX = "account-import:";
 
   /** Recorded by setup when the new account's folder held another database's files. */
   static final String FOREIGN_FOLDER = "first-account-folder-foreign";
@@ -80,7 +91,49 @@ public class FirstAccountImport {
               } else {
                 run(first, "the upgrade");
               }
+              if (steps.existsById(STEP) && !steps.existsById(EVERY_ACCOUNT_STEP)) {
+                importEveryAccount(first);
+              }
             });
+  }
+
+  /**
+   * Imports the folder of every account, once, at the first start of the release whose file list
+   * comes from rows: files copied in by hand were listed until then, and are kept listed. Each
+   * account is recorded as it is done, so a start that stops partway, or an account whose import is
+   * refused, is taken up again at the next start.
+   */
+  private void importEveryAccount(User first) {
+    boolean done = true;
+    for (User account : users.findAll()) {
+      String step = ACCOUNT_STEP_PREFIX + account.getId();
+      if (steps.existsById(step)
+          || (account.getId().equals(first.getId()) && steps.existsById(FOREIGN_FOLDER))) {
+        continue;
+      }
+      try {
+        imports.importFiles(account.getId(), "the upgrade");
+        steps.recordDone(step, Instant.now());
+      } catch (ConflictException e) {
+        // The first account's import went through, so the store is the right one: this account's
+        // rows describe files that are gone. Trying again at every start wouldn't change that.
+        log.warn(
+            "Left the files of \"{}\" unimported after the upgrade: {} Import them from the Users"
+                + " page once they are back.",
+            account.getUsername(),
+            e.getMessage());
+        steps.recordDone(step, Instant.now());
+      } catch (IOException | RuntimeException e) {
+        log.warn(
+            "Could not import the files of \"{}\" after the upgrade; the next start tries again: {}",
+            account.getUsername(),
+            e.getMessage());
+        done = false;
+      }
+    }
+    if (done) {
+      steps.recordDone(EVERY_ACCOUNT_STEP, Instant.now());
+    }
   }
 
   /**
@@ -108,6 +161,8 @@ public class FirstAccountImport {
       steps.recordDone(FOREIGN_FOLDER, Instant.now());
     }
     run(owner, "setup");
+    // A new install has no other account whose files need taking in.
+    steps.recordDone(EVERY_ACCOUNT_STEP, Instant.now());
   }
 
   // Recorded as done only once everything worked: the moves, and the import where there is one.
@@ -122,6 +177,8 @@ public class FirstAccountImport {
     if (importFolder) {
       try {
         imports.importFiles(owner.getId(), occasion);
+        // So the import of every account after upgrading doesn't walk this folder again.
+        steps.recordDone(ACCOUNT_STEP_PREFIX + owner.getId(), Instant.now());
       } catch (IOException | RuntimeException e) {
         log.error(
             "Could not import the files of \"{}\" after {}; the next start tries again. If the"

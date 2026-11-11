@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
@@ -44,7 +45,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * An install from before accounts had folders of their own, started with this version: its database
  * at V6, and its files and versions at the top of the serving directory, owned by whichever account
  * made them. Afterwards they are all the first account's, in its folder, with their ids, versions
- * and share links intact; the other account starts with nothing.
+ * and share links intact; the other account starts with nothing of the first account's.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -106,6 +107,18 @@ class UpgradeToAccountsIntegrationTests {
     Files.writeString(servingDir.resolve(".versions/11/v1"), "old");
     // The filesystem's own folder, at the top of a serving directory that is a mount point.
     Files.createDirectories(servingDir.resolve("lost+found"));
+    // A file copied by hand into the other account's folder, listed before the tree came from
+    // rows, and kept listed after.
+    long helperId;
+    try (Connection c = DATABASE.connect();
+        Statement s = c.createStatement();
+        ResultSet r = s.executeQuery("SELECT id FROM users WHERE username = 'helper'")) {
+      r.next();
+      helperId = r.getLong(1);
+    }
+    Path helpersFolder = servingDir.resolve(".users").resolve(String.valueOf(helperId));
+    Files.createDirectories(helpersFolder);
+    Files.writeString(helpersFolder.resolve("helper's notes.txt"), "copied in");
   }
 
   @Test
@@ -165,7 +178,7 @@ class UpgradeToAccountsIntegrationTests {
   @DisplayName("it is done once: what is put at the top of the store later stays there")
   void laterItemsAtTheTopStay() throws Exception {
     assertThat(DATABASE.column("SELECT name FROM one_time_steps"))
-        .containsExactly("first-account-import");
+        .contains("first-account-import", "every-account-import");
     assertThat(servingDir.resolve("lost+found")).isDirectory();
 
     Path later = servingDir.resolve("later.txt");
@@ -182,12 +195,15 @@ class UpgradeToAccountsIntegrationTests {
   }
 
   @Test
-  @DisplayName("the other account starts with nothing")
-  void otherAccountHasNothing() throws Exception {
+  @DisplayName("the other account has none of the first account's files, and keeps its own")
+  void otherAccountHasOnlyItsOwn() throws Exception {
     mockMvc
         .perform(get("/api/files").with(user("helper")))
         .andExpect(status().isOk())
-        .andExpect(content().json("[]"));
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].name").value("helper's notes.txt"))
+        .andExpect(jsonPath("$[0].id").isNotEmpty())
+        .andExpect(jsonPath("$[0].ownerName").value("helper"));
   }
 
   @Test

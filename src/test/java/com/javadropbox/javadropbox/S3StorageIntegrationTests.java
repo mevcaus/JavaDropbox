@@ -22,6 +22,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileStore;
 import com.javadropbox.javadropbox.service.FirstAccountImport;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.S3FileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
@@ -99,6 +100,7 @@ class S3StorageIntegrationTests {
   @Autowired private FileStore store;
   @Autowired private SearchIndex searchIndex;
   @Autowired private FirstAccountImport firstAccountImport;
+  @Autowired private ImportService importService;
   @Autowired private StorageSweeper sweeper;
   @Autowired private StoragePaths storagePaths;
   @Autowired private JdbcTemplate jdbc;
@@ -327,14 +329,18 @@ class S3StorageIntegrationTests {
   }
 
   @Test
-  @DisplayName("files another tool put in the bucket show up in the tree, downloads and search")
+  @DisplayName(
+      "files another tool put in the bucket download and search, and are listed once imported")
   void filesPutByOtherToolsShowUp() throws Exception {
     put(home + "imported/2023/minutes.txt", "minutes of the annual meeting");
 
+    // The tree lists rows, so it doesn't list them until they are imported.
+    mockMvc.perform(get("/api/files")).andExpect(content().json("[]"));
+    importService.importFiles(owner.getId(), "test");
     mockMvc
         .perform(get("/api/files"))
         .andExpect(jsonPath("$[0].name").value("imported"))
-        .andExpect(jsonPath("$[0].ownerName").value("system"))
+        .andExpect(jsonPath("$[0].ownerName").value("owner"))
         .andExpect(jsonPath("$[0].lastModified").isNotEmpty())
         .andExpect(jsonPath("$[0].children[0].children[0].name").value("minutes.txt"));
     mockMvc
@@ -526,7 +532,7 @@ class S3StorageIntegrationTests {
     assertThat(metadata.findPathsOf(owner.getId()))
         .containsExactlyInAnyOrder("uploaded.txt", "from before.txt");
     assertThat(jdbc.queryForList("SELECT name FROM one_time_steps", String.class))
-        .containsExactly("first-account-import");
+        .contains("first-account-import", "every-account-import");
   }
 
   @Test
