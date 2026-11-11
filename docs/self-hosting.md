@@ -115,7 +115,7 @@ docker compose exec postgres psql -U postgres -d javadropbox \
 
 `UPDATE 1` means it worked; the new password applies from the next sign-in, without a restart, and your files are untouched. `SELECT username FROM users` lists the accounts if you've forgotten the name too. A disabled admin can be enabled again the same way, with `UPDATE users SET enabled = true WHERE username = 'admin'`.
 
-A password changed this way doesn't end the account's sessions, and since sessions are kept in the database, neither does a restart. If you think someone else is signed in as you, delete the account's sessions too:
+A change made this way, to a password, a role or whether an account is enabled, doesn't end the account's sessions, and since sessions are kept in the database, neither does a restart. Delete the account's sessions too, for instance if you think someone else is signed in as you:
 
 ```bash
 docker compose exec postgres psql -U postgres -d javadropbox \

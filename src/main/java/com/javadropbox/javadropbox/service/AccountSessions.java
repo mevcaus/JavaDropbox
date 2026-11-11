@@ -27,13 +27,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>The change writes the new version first, which locks the account's row, and deletes the
  *       sessions after.
- *   <li>The sign-in stores its session first (spring.session.jdbc.flush-mode=immediate commits it
- *       when the sign-in is put in the session), then reads the version, waiting for that lock.
+ *   <li>The sign-in stores its session first (SessionConfig has Spring Session commit it as soon as
+ *       the sign-in is put in it), then reads the version, waiting for that lock.
  * </ul>
  *
  * If the sign-in reads first, its session was there to be deleted. If the change writes first, the
  * sign-in waits for it to commit and sees the new version. Either way nothing has to be checked on
- * every request.
+ * every request, which also means every way of signing in has to call {@link #isCurrent}.
  */
 @Component
 public class AccountSessions {
@@ -48,7 +48,11 @@ public class AccountSessions {
     this.users = users;
   }
 
-  /** Ends the account's sessions as part of the current transaction, which there must be. */
+  /**
+   * Ends the account's sessions as part of the current transaction, which there must be. The
+   * account must have been loaded in that transaction: it is saved as it is, with whatever else the
+   * change set on it.
+   */
   @Transactional(propagation = Propagation.MANDATORY)
   public void end(User account) {
     account.bumpSessionVersion();

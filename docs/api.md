@@ -9,7 +9,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
 | `POST` | `/setup` | ❌ | Create the first account, an admin (`code`, `username`, `password`); only while none exists |
-| `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded): `{username, role}`. A disabled account is refused like a wrong password (`401`) |
+| `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded): `{username, role}`. A disabled account is refused like a wrong password (`401`), and so, rarely, is a sign-in to an account an admin changes while it is being checked; signing in again works if the account can still sign in |
 | `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user: `{username, role}`, where `role` is `ADMIN` or `USER` |
 | `GET` | `/api/invite/{token}` | ❌ | What an invitation is for: `{username, expiresAt}`; `404` once used, withdrawn or expired |

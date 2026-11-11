@@ -7,6 +7,7 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AccountSessions;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
@@ -22,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -159,20 +161,10 @@ public class SecurityConfig {
                           }
                         })
                     // Answered like /api/me, so the app knows the role without asking again.
-                    // By now the new session is stored (spring.session.jdbc.flush-mode=immediate),
-                    // so a change to the account from here on deletes it; one made while the
-                    // password was being checked is caught here (see AccountSessions).
                     .successHandler(
                         (req, res, auth) -> {
                           throttle.recordSuccess(req);
-                          if (auth.getPrincipal() instanceof AccountDetails account
-                              && !accountSessions.isCurrent(
-                                  account.getUsername(), account.sessionVersion())) {
-                            log.info(
-                                "Refused a sign-in of \"{}\": the account changed meanwhile",
-                                account.getUsername());
-                            SecurityContextHolder.clearContext();
-                            req.getSession().invalidate();
+                          if (!stillCurrent(req, auth, accountSessions)) {
                             res.setStatus(401);
                             return;
                           }
@@ -211,6 +203,38 @@ public class SecurityConfig {
                         }));
 
     return http.build();
+  }
+
+  /**
+   * Whether a sign-in that has just been stored still has its account as the password was checked
+   * against: a change made meanwhile refuses it (see AccountSessions). By now the new session is in
+   * the database (SessionConfig flushes it at once), so a change from here on deletes it instead.
+   * Every way of signing in has to make this check, as nothing checks a session after this.
+   *
+   * <p>Fails closed: unless the check says the account is current, the new session is ended before
+   * anything is answered, whether the account changed, the principal is not one this app made, or
+   * the check itself failed (the exception then goes on to answer a 500).
+   */
+  private static boolean stillCurrent(
+      HttpServletRequest request, Authentication auth, AccountSessions accountSessions) {
+    boolean current = false;
+    try {
+      current =
+          auth.getPrincipal() instanceof AccountDetails account
+              && accountSessions.isCurrent(account.getUsername(), account.sessionVersion());
+      if (!current) {
+        log.info("Refused a sign-in of \"{}\": the account changed meanwhile", auth.getName());
+      }
+      return current;
+    } finally {
+      if (!current) {
+        SecurityContextHolder.clearContext();
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+          session.invalidate();
+        }
+      }
+    }
   }
 
   /**

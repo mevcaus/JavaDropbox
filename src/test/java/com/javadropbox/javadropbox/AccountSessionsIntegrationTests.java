@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AccountSessions;
-import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -80,8 +79,8 @@ class AccountSessionsIntegrationTests {
     assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isEqualTo(2);
   }
 
-  // A request that loaded its session before the deletion saves it when it ends: that must not
-  // bring the session back.
+  // A request that loaded its session before the deletion and then changes it (Spring Session
+  // writes the change at once): that must not bring the session back.
   @Test
   @DisplayName("a request already under way when its session is deleted does not bring it back")
   @SuppressWarnings({"rawtypes", "unchecked"})
@@ -91,9 +90,9 @@ class AccountSessionsIntegrationTests {
     session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, "ada");
     repository.save(session);
     Session underWay = repository.findById(session.getId());
-    underWay.setLastAccessedTime(Instant.now());
 
     inTransaction(() -> accountSessions.end(ada));
+    underWay.setAttribute("written-after", "the deletion");
     repository.save(underWay);
 
     assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();

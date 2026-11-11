@@ -5,10 +5,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AccountSessions;
+import java.net.http.HttpResponse;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -78,8 +80,8 @@ class SignInRaceIntegrationTests {
   }
 
   @Test
-  @DisplayName("a change once the session is stored deletes it, and refuses the sign-in")
-  void changeAfterTheSessionIsStored() throws Exception {
+  @DisplayName("a change between storing the session and checking it refuses the sign-in")
+  void changeBeforeTheCheck() throws Exception {
     CompletableFuture<Integer> storedBeforeTheCheck = new CompletableFuture<>();
     doAnswer(
             call -> {
@@ -93,6 +95,41 @@ class SignInRaceIntegrationTests {
     assertThat(http.login("ada", "correct-horse", Map.of()).statusCode()).isEqualTo(401);
     // spring.session.jdbc.flush-mode=immediate: the session was there for the change to delete.
     assertThat(storedBeforeTheCheck.get()).isEqualTo(1);
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
+  }
+
+  @Test
+  @DisplayName("a change after the check deletes the session the sign-in stored")
+  void changeAfterTheCheck() throws Exception {
+    doAnswer(
+            call -> {
+              boolean current = (boolean) call.callRealMethod();
+              demoteInAnotherRequest();
+              return current;
+            })
+        .when(accountSessions)
+        .isCurrent(anyString(), anyInt());
+
+    HttpResponse<String> login = http.login("ada", "correct-horse", Map.of());
+
+    assertThat(login.statusCode()).isEqualTo(200);
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
+    String session = HttpTestClient.cookieValue(login, "JSESSIONID");
+    assertThat(http.get("/api/me", Map.of("Cookie", "JSESSIONID=" + session)).statusCode())
+        .isEqualTo(401);
+  }
+
+  // Fails closed: a sign-in that could not be checked keeps no session.
+  @Test
+  @DisplayName("a check that fails ends the session it was checking")
+  void failedCheckEndsTheSession() {
+    doThrow(new IllegalStateException("the database went away"))
+        .when(accountSessions)
+        .isCurrent(anyString(), anyInt());
+
+    HttpResponse<String> login = http.login("ada", "correct-horse", Map.of());
+
+    assertThat(login.statusCode()).isEqualTo(500);
     assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
   }
 
