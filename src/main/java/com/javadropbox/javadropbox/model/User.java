@@ -116,7 +116,10 @@ public class User {
     return sessionVersion;
   }
 
-  /** Ends every session the account has; see {@link #getSessionVersion}. */
+  /**
+   * Bumps the session version, so every session the account has is signed out on its next request.
+   * AccountSessions calls this and also deletes the sessions; use that rather than this alone.
+   */
   public void endSessions() {
     sessionVersion++;
   }

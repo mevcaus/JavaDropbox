@@ -271,6 +271,7 @@ class DemoIntegrationTests {
     assertThat(after.isEnabled()).isTrue();
     assertThat(after.isAdmin()).isFalse();
     assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
+    assertThat(sessionsOfTheDemoAccount()).isZero();
     mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     mockMvc.perform(get("/api/files").cookie(signIn())).andExpect(status().isOk());
   }
@@ -290,6 +291,7 @@ class DemoIntegrationTests {
     assertThat(after.isAdmin()).isFalse();
     assertThat(after.isEnabled()).isTrue();
     assertThat(after.getSessionVersion()).isGreaterThan(account.getSessionVersion());
+    assertThat(sessionsOfTheDemoAccount()).isZero();
     mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isUnauthorized());
     mockMvc.perform(get("/api/admin/users").cookie(signIn())).andExpect(status().isForbidden());
   }
@@ -326,5 +328,10 @@ class DemoIntegrationTests {
   private void clear() throws IOException {
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
+  }
+
+  private int sessionsOfTheDemoAccount() {
+    return jdbc.queryForObject(
+        "SELECT count(*) FROM spring_session WHERE principal_name = 'demo'", Integer.class);
   }
 }
