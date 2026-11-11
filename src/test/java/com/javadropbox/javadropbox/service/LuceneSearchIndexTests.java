@@ -27,8 +27,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-@DisplayName("Search index")
-class SearchIndexTests {
+@DisplayName("Lucene search index")
+class LuceneSearchIndexTests {
 
   private static final Duration INDEXING = Duration.ofSeconds(30);
 
@@ -41,7 +41,7 @@ class SearchIndexTests {
   private Home home;
   private Path files;
   private final AtomicInteger extracted = new AtomicInteger();
-  private final List<SearchIndex> opened = new ArrayList<>();
+  private final List<LuceneSearchIndex> opened = new ArrayList<>();
 
   // Counts the files whose text is read.
   private final TextExtractor extractor =
@@ -63,7 +63,7 @@ class SearchIndexTests {
 
   @AfterEach
   void tearDown() throws Exception {
-    for (SearchIndex index : opened) {
+    for (LuceneSearchIndex index : opened) {
       index.close();
     }
   }
@@ -73,7 +73,7 @@ class SearchIndexTests {
   void reconcileReadsOnlyWhatChanged() throws Exception {
     Path a = Files.writeString(files.resolve("a.txt"), "alpha");
     Files.writeString(files.resolve("b.txt"), "beta");
-    SearchIndex index = open();
+    LuceneSearchIndex index = open();
     reconcile(index);
     assertThat(extracted).hasValue(2);
 
@@ -91,12 +91,12 @@ class SearchIndexTests {
   @DisplayName("until it has caught up, it searches what was indexed before and says so")
   void searchesTheLastIndexWhileCatchingUp() throws Exception {
     Files.writeString(files.resolve("old.txt"), "remembered");
-    SearchIndex first = open();
+    LuceneSearchIndex first = open();
     reconcile(first);
     first.close();
     opened.remove(first);
 
-    SearchIndex second = open();
+    LuceneSearchIndex second = open();
     SearchIndex.Hits hits = second.search(home, "", "remembered", 10);
     assertThat(hits.complete()).isFalse();
     assertThat(hits.hits()).extracting(SearchIndex.Hit::path).containsExactly("old.txt");
@@ -109,7 +109,7 @@ class SearchIndexTests {
   @DisplayName("an index it cannot read is rebuilt")
   void rebuildsAnUnreadableIndex() throws Exception {
     Files.writeString(files.resolve("kept.txt"), "survivor");
-    SearchIndex first = open();
+    LuceneSearchIndex first = open();
     reconcile(first);
     first.close();
     opened.remove(first);
@@ -123,7 +123,7 @@ class SearchIndexTests {
       }
     }
 
-    SearchIndex second = open();
+    LuceneSearchIndex second = open();
     reconcile(second);
 
     assertThat(paths(second, "survivor")).containsExactly("kept.txt");
@@ -142,7 +142,7 @@ class SearchIndexTests {
     }
     Files.writeString(files.resolve("real.txt"), "ghost story");
 
-    SearchIndex index = open();
+    LuceneSearchIndex index = open();
     reconcile(index);
 
     assertThat(paths(index, "ghost")).containsExactly("real.txt");
@@ -154,7 +154,7 @@ class SearchIndexTests {
     Files.writeString(files.resolve("a*b.txt"), "");
     Files.writeString(files.resolve("c?d.txt"), "");
     Files.writeString(files.resolve("plain.txt"), "");
-    SearchIndex index = open();
+    LuceneSearchIndex index = open();
     reconcile(index);
 
     assertThat(paths(index, "*")).containsExactly("a*b.txt");
@@ -164,7 +164,7 @@ class SearchIndexTests {
   @Test
   @DisplayName("while another writer holds the index, changes wait for it rather than being lost")
   void waitsForAnotherWriter() throws Exception {
-    SearchIndex index = open();
+    LuceneSearchIndex index = open();
     reconcile(index);
     Files.writeString(files.resolve("late.txt"), "patience");
 
@@ -191,7 +191,7 @@ class SearchIndexTests {
     Files.writeString(homes.resolve("loose.txt"), "shared word");
     Files.createDirectories(homes.resolve("stray"));
     Files.writeString(homes.resolve("stray/stray.txt"), "shared word");
-    SearchIndex index = open();
+    LuceneSearchIndex index = open();
     reconcile(index);
 
     assertThat(paths(index, "shared")).containsExactly("mine.txt");
@@ -203,8 +203,9 @@ class SearchIndexTests {
     assertThat(paths(index, "1")).isEmpty();
   }
 
-  private SearchIndex open() throws IOException {
-    SearchIndex index = new SearchIndex(storagePaths, store, extractor, indexDir.toString());
+  private LuceneSearchIndex open() throws IOException {
+    LuceneSearchIndex index =
+        new LuceneSearchIndex(storagePaths, store, extractor, indexDir.toString());
     opened.add(index);
     return index;
   }
