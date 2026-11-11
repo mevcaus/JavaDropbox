@@ -22,9 +22,12 @@ WORKDIR /app
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle gradle
 COPY src src
-COPY --from=frontend /frontend/dist frontend/dist
 # The Gradle distribution and dependency jars stay in the cache mount, so a source change
 # does not download them again. (A "dependencies" layer would only hold the POMs.)
+# Compiled before the bundle is copied in, so this runs while the frontend stage is still
+# building rather than waiting for it; the bootJar below then only packs the jar.
+RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon classes
+COPY --from=frontend /frontend/dist frontend/dist
 RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar -PbundleFrontend
 
 # 3. The runtime image.
