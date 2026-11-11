@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.model.User;
+import com.javadropbox.javadropbox.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
@@ -15,11 +16,20 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Auth", description = "Endpoints for authentication check")
 public class AuthController {
 
+  private final AuthService authService;
+
+  public AuthController(AuthService authService) {
+    this.authService = authService;
+  }
+
   @GetMapping("/me")
   @Operation(
       summary = "Get current authenticated user",
       description = "The signed-in user's username, and role: ADMIN or USER.")
   public Map<String, String> getCurrentUser(Authentication authentication) {
+    // A 401 for a session whose account is gone, as for every endpoint that acts on the account's
+    // files. The app asks this when it loads, so such a session is shown as signed out.
+    authService.requireCurrentUser();
     return describe(authentication);
   }
 

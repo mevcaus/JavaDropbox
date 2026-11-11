@@ -115,7 +115,6 @@ JavaDropbox/
 │   │   ├── config/
 │   │   │   ├── SecurityConfig.java      # Filter chain, CORS, form login, SPA routes
 │   │   │   ├── SetupFilter.java         # First-run redirect filter
-│   │   │   ├── AccountSessionFilter.java  # Ends sessions of disabled or changed accounts
 │   │   │   ├── SessionConfig.java       # Sessions in PostgreSQL: unreadable ones sign out, not fail
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
@@ -162,7 +161,7 @@ JavaDropbox/
 │   │       ├── SetupService.java        # Setup code + first account
 │   │       ├── AccountService.java      # Admins: list, disable, roles, quotas
 │   │       ├── AccountLinkService.java  # Invitations and password resets: one-time links
-│   │       ├── AccountSessions.java     # Deletes an account's sessions when it changes
+│   │       ├── AccountSessions.java     # Deletes an account's sessions when it changes, checks sign-ins
 │   │       ├── ShareLinkService.java    # Share links: random tokens, stored hashed, bound to their item
 │   │       ├── StorageQuota.java        # Account quotas, previous versions included
 │   │       ├── DemoService.java         # Live demo: shared account, daily reset, sample files

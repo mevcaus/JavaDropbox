@@ -5,10 +5,13 @@ import com.javadropbox.javadropbox.controller.AuthController;
 import com.javadropbox.javadropbox.controller.SpaController;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.AccountSessions;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -19,10 +22,10 @@ import org.springframework.http.MediaType;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -38,6 +41,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+  private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
   private static final String X_FRAME_OPTIONS = "X-Frame-Options";
 
@@ -84,18 +89,20 @@ public class SecurityConfig {
 
   @Bean
   public SecurityFilterChain securityFilterChain(
-      HttpSecurity http, LoginAttemptLimiter limiter, ObjectMapper json) throws Exception {
+      HttpSecurity http,
+      LoginAttemptLimiter limiter,
+      AccountSessions accountSessions,
+      ObjectMapper json)
+      throws Exception {
     // One matcher decides both which requests form login authenticates and which the throttle
     // checks, so the two cannot disagree about a URL such as /logi%6E.
     RequestMatcher loginRequest =
         PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/login");
 
     LoginThrottleFilter throttle = new LoginThrottleFilter(limiter, loginRequest);
-    AccountSessionFilter accountSessionFilter = new AccountSessionFilter(userRepository);
 
     http.addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(throttle, UsernamePasswordAuthenticationFilter.class)
-        .addFilterBefore(accountSessionFilter, AnonymousAuthenticationFilter.class)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .authorizeHttpRequests(
             auth ->
@@ -152,10 +159,23 @@ public class SecurityConfig {
                           }
                         })
                     // Answered like /api/me, so the app knows the role without asking again.
+                    // By now the new session is stored (spring.session.jdbc.flush-mode=immediate),
+                    // so a change to the account from here on deletes it; one made while the
+                    // password was being checked is caught here (see AccountSessions).
                     .successHandler(
                         (req, res, auth) -> {
                           throttle.recordSuccess(req);
-                          accountSessionFilter.signedIn(req, auth);
+                          if (auth.getPrincipal() instanceof AccountDetails account
+                              && !accountSessions.isCurrent(
+                                  account.getUsername(), account.sessionVersion())) {
+                            log.info(
+                                "Refused a sign-in of \"{}\": the account changed meanwhile",
+                                account.getUsername());
+                            SecurityContextHolder.clearContext();
+                            req.getSession().invalidate();
+                            res.setStatus(401);
+                            return;
+                          }
                           res.setStatus(200);
                           res.setContentType(MediaType.APPLICATION_JSON_VALUE);
                           json.writeValue(res.getWriter(), AuthController.describe(auth));
