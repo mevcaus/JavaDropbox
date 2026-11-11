@@ -171,7 +171,13 @@ The files stored are the source of truth, and the index only mirrors them:
 
 A PDF or Word document that cannot be read, such as a damaged or password-protected one, is logged at `WARN` and is still found by its name.
 
-With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearch service instead, in one index the app makes the first time it writes to it, and searches find and show the same things. Every app server can then search what any of them stored. Each still reconciles every ten minutes, and a reconcile only reads again the files that changed. The app was tested against Elasticsearch 8.18.
+With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearch service instead, and searches find and show the same things. Every app server can then search what any of them stored. Each still reconciles every ten minutes, and a reconcile only reads again the files that changed. The app was tested against Elasticsearch 8.18 (OpenSearch isn't supported: Elasticsearch's client refuses it).
+
+- The app makes its index the first time it writes, as `javadropbox-1` (the setting's name and the format of the index), and reads and writes it through an alias called `javadropbox`. It won't touch an index called `javadropbox` that it didn't make, and turns search off with an error in the log instead. A newer version that changes the format makes `javadropbox-2`, moves the alias and deletes the old index; until it is filled, searches may miss files.
+- To rebuild the index, delete it (`DELETE /javadropbox-1`). The app makes it again and fills it, at the next search or change.
+- The index holds the text of every account's files, so reach the service over `https`, and give the app an account that can only use its own index: `create_index`, `delete_index`, `manage` (refresh and aliases), `read` and `write` on `javadropbox*`. Snapshots of the service keep deleted files' text.
+- While the service can't be reached, changes wait and are tried again every five seconds, logged once; searches fail.
+- A cluster with `search.allow_expensive_queries: false` refuses every search: finding a word anywhere in a name, or as the start of one, needs those queries.
 
 ## Observability
 

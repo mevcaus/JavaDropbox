@@ -11,7 +11,7 @@ import org.testcontainers.elasticsearch.ElasticsearchContainer;
  */
 public final class ElasticsearchTestSupport {
 
-  // The version of the client Spring Boot manages.
+  // The release line of the client the app uses.
   static final String IMAGE = "docker.elastic.co/elasticsearch/elasticsearch:8.18.6";
 
   private static ElasticsearchContainer shared;

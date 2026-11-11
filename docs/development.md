@@ -222,7 +222,7 @@ A migration that disables accounts, changes their role or their password also ha
 ## Tests
 
 ```bash
-./gradlew test             # backend; Docker must be running (PostgreSQL in Testcontainers)
+./gradlew test             # backend; Docker must be running (PostgreSQL, S3Mock and Elasticsearch in Testcontainers)
 ./gradlew check            # the tests, plus the coverage minimums and the format check
 cd frontend && npm test    # frontend; add -- --coverage for the report and its thresholds
 ```

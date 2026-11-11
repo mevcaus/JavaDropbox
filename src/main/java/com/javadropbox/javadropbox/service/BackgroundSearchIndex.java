@@ -99,6 +99,11 @@ abstract class BackgroundSearchIndex implements SearchIndex {
     caughtUp = true;
   }
 
+  /** Records that the index has lost what it held, and is behind the store until filled again. */
+  final void markBehind() {
+    caughtUp = false;
+  }
+
   /** Whether the index has caught up with the store since the server started. */
   final boolean isCaughtUp() {
     return caughtUp;

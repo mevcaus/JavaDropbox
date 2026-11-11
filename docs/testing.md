@@ -1,6 +1,6 @@
 # Testing
 
-The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integration testing. Every test that uses a database runs against **PostgreSQL 15 via Testcontainers**, on the schema the Flyway migrations build, and the S3 storage tests run against **[S3Mock](https://github.com/adobe/S3Mock) via Testcontainers**, so Docker must be running.
+The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integration testing. Every test that uses a database runs against **PostgreSQL 15 via Testcontainers**, on the schema the Flyway migrations build, the S3 storage tests run against **[S3Mock](https://github.com/adobe/S3Mock) via Testcontainers**, and the Elasticsearch search tests against **Elasticsearch 8.18 via Testcontainers** (a large image, pulled once), so Docker must be running.
 
 ```bash
 # Run all backend tests
