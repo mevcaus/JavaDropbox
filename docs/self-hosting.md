@@ -141,6 +141,10 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.share.max-expiration` | `7d` | Longest lifetime a share link can be given |
 | `javadropbox.search.max-file-size` | `50MB` | Files larger than this are found by name only, without their text being read; `0` searches names alone |
 | `javadropbox.search.index-directory` | `.javadropbox/search-index` in the serving directory | Where the search index is kept |
+| `javadropbox.search.backend` | `lucene` | `lucene` for an index inside the app, or `elasticsearch` for one on an Elasticsearch service that several app servers can share (see [Search](#search)) |
+| `javadropbox.search.elasticsearch.url` | `http://localhost:9200` | With `elasticsearch`: where the service is |
+| `javadropbox.search.elasticsearch.username` / `.password` | none | With `elasticsearch`: the account to use, if the service asks for one |
+| `javadropbox.search.elasticsearch.index` | `javadropbox` | With `elasticsearch`: the index's name, which has to be different for each app that shares one service |
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
@@ -166,6 +170,8 @@ The files stored are the source of truth, and the index only mirrors them:
 - To rebuild the index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
 
 A PDF or Word document that cannot be read, such as a damaged or password-protected one, is logged at `WARN` and is still found by its name.
+
+With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearch service instead, in one index the app makes the first time it writes to it, and searches find and show the same things. Every app server can then search what any of them stored. Each still reconciles every ten minutes, and a reconcile only reads again the files that changed. The app was tested against Elasticsearch 8.18.
 
 ## Observability
 

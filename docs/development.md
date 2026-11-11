@@ -126,6 +126,7 @@ JavaDropbox/
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
 │   │   │   ├── StartupBanner.java       # Logs the bound port and where files are stored
 │   │   │   ├── StorageConfig.java       # The file store: the serving directory, or an S3 bucket
+│   │   │   ├── SearchConfig.java        # Which search index: Lucene inside the app, or Elasticsearch
 │   │   │   ├── UploadSpoolConfig.java   # Uploads arrive in .javadropbox/uploads, not java.io.tmpdir
 │   │   │   ├── DemoResetFilter.java     # Live demo: runs the daily reset when it falls due
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
@@ -160,6 +161,7 @@ JavaDropbox/
 │   │       ├── SearchIndex.java         # What a search index does: changes, reconciles, searches
 │   │       ├── BackgroundSearchIndex.java # Keeps any search index in step: a background worker, reconciles
 │   │       ├── LuceneSearchIndex.java   # Lucene index of names and text, kept in step with the store
+│   │       ├── ElasticsearchSearchIndex.java # The same index on Elasticsearch, for several app servers
 │   │       ├── IndexableItems.java      # What any search index may index: the accounts' items, and their text
 │   │       ├── SearchService.java       # Checks searches and their hits against the store
 │   │       ├── TextExtractor.java       # Text of text files, PDFs (PDFBox) and .docx
