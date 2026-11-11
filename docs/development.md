@@ -73,6 +73,7 @@ JavaDropbox/
 │   ├── gradle.yml                  # Backend build + tests, Docker image build, dependency graph
 │   ├── frontend-ci.yml             # Frontend lint, type check, tests, production build
 │   ├── deploy-demo.yml             # Deploys the live demo once CI passes on main
+│   ├── codeql.yml                  # CodeQL on Java, TypeScript and the workflows
 │   └── coverage-badges.yml         # The README's coverage badges, once CI passes on main
 ├── .github/scripts/                # coverage.py (job summaries, badge files), publish-badge.sh
 ├── frontend/                       # React SPA (Vite)
