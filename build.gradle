@@ -3,6 +3,7 @@ plugins {
 	id 'org.springframework.boot' version '3.5.6'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'com.diffplug.spotless' version '6.25.0'
+	id 'jacoco'
 }
 
 group = 'com.javadropbox'
@@ -112,6 +113,54 @@ tasks.register('openApiSpec', Test) {
 	filter { includeTestsMatching 'com.javadropbox.javadropbox.OpenApiSpecTests' }
 	systemProperty 'javadropbox.openapi.update', 'true'
 	outputs.upToDateWhen { false }
+}
+
+// Coverage of the backend by the tests. ./gradlew check writes the report to
+// build/reports/jacoco/test/html and fails when coverage falls below the minimums.
+jacoco {
+	// Ahead of the version Gradle 8.14 brings (0.8.13). JaCoCo has to read the class files of the
+	// Java version the tests run on, so move this up with the toolchain.
+	toolVersion = '0.8.16'
+}
+
+tasks.named('test') {
+	// Only the app's classes, which are all the report reads. The agent otherwise instruments
+	// every class of Spring, Hibernate and the rest as the test JVMs load them.
+	jacoco.includes = ['com.javadropbox.*', 'db.migration.*']
+}
+
+tasks.named('openApiSpec') {
+	// Runs one test to write a file, so its coverage means nothing.
+	jacoco.enabled = false
+}
+
+tasks.named('jacocoTestReport') {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}
+
+// Just under the coverage when they were set (91.6% of lines, 83.0% of branches), about 20 lines
+// and 14 branches of slack, so coverage can't fall more than about half a point. Raise them as
+// coverage rises.
+tasks.named('jacocoTestCoverageVerification') {
+	violationRules {
+		rule {
+			limit {
+				counter = 'LINE'
+				minimum = 0.91
+			}
+			limit {
+				counter = 'BRANCH'
+				minimum = 0.82
+			}
+		}
+	}
+}
+
+tasks.named('check') {
+	dependsOn 'jacocoTestReport', 'jacocoTestCoverageVerification'
 }
 
 // Local runs use the dev profile (application-dev.properties) unless told otherwise.

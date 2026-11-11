@@ -176,7 +176,7 @@ JavaDropbox/
 │   ├── application-dev.properties  # Local development (bootRun)
 │   └── application-demo.properties # The live demo: shared account, small limits
 ├── src/test/                       # See testing.md
-├── build.gradle                    # Dependencies, Spring Boot plugin, Spotless, -PbundleFrontend
+├── build.gradle                    # Dependencies, Spring Boot plugin, Spotless, JaCoCo, -PbundleFrontend
 ├── compose.yaml                    # PostgreSQL, plus the app itself behind the "app" profile
 ├── Dockerfile                      # Multi-stage: frontend bundle -> Gradle build -> JRE runtime
 ├── fly.toml                        # The live demo on Fly.io
@@ -211,10 +211,11 @@ A migration that disables accounts, changes their role or their password also ha
 
 ```bash
 ./gradlew test             # backend; Docker must be running (PostgreSQL in Testcontainers)
+./gradlew check            # the tests, plus the coverage minimums and the format check
 cd frontend && npm test    # frontend
 ```
 
-[testing.md](testing.md) describes what each suite covers.
+[testing.md](testing.md) describes what each suite covers, and the backend's [coverage minimums](testing.md#backend-coverage-minimums).
 
 ## Code style
 
