@@ -76,6 +76,7 @@ JavaDropbox/
 │   ├── codeql.yml                  # CodeQL on Java, JavaScript and the workflows
 │   └── coverage-badges.yml         # The README's coverage badges, once CI passes on main
 ├── .github/scripts/                # coverage.py (job summaries, badge files), publish-badge.sh
+├── .trivyignore                    # Vulnerabilities the image scan accepts, with why
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
 │   │   ├── components/

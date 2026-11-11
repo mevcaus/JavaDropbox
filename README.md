@@ -379,7 +379,7 @@ flowchart LR
 
     subgraph Gradle["Java CI with Gradle"]
         Build["build<br/>tests on PostgreSQL<br/>coverage minimums<br/>Spotless format check"]
-        Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests"]
+        Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests,<br/>Trivy image scan"]
     end
 
     Frontend["Frontend CI<br/>lint · type check · API types up to date ·<br/>test with coverage thresholds · production build"]
@@ -393,6 +393,8 @@ flowchart LR
 Each run puts its coverage in the job summary and uploads the full report as the `backend-coverage` or `frontend-coverage` artifact, so a drop can be looked at without running anything locally.
 
 **CodeQL** analyzes the backend, the frontend, the end-to-end tests and these workflows with its `security-extended` queries on every pull request, on every push to `main` and once a week. What it finds shows under the repository's Security tab, and on a pull request as annotations on the changed lines.
+
+**Trivy** scans the image the `docker` job builds for known vulnerabilities, in Alpine's packages and in the jar's libraries. A fixable high or critical one fails the build. Everything it finds goes under the Security tab too. `.trivyignore` lists the ones accepted, each with the reason.
 
 ## Live demo
 

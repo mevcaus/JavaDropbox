@@ -123,6 +123,19 @@ npm test -- --coverage
 
 The badges in the README show the share of lines covered on `main`. The `build` and `frontend` jobs turn their report into a [shields.io endpoint](https://shields.io/badges/endpoint-badge) file (`.github/scripts/coverage.py`), and on pushes to `main` keep it as an artifact. Once a CI workflow passes on `main`, the **Coverage badges** workflow commits that file to the `badges` branch, which holds nothing else (`.github/scripts/publish-badge.sh`). It leaves the badge alone if `main` has moved on since, because the newer commit's run will publish its own if it passes. It is a workflow of its own, so the demo's deploy never waits on it and the token that can push never reaches a job that runs the build. Pull requests get the job summary and the artifacts but don't touch the badges.
 
+### Image vulnerability scan
+
+The `docker` job scans the image it built with **[Trivy](https://trivy.dev)**, after the end-to-end tests. It fails on a high or critical vulnerability with a fix available, in Alpine's packages or in a library in the jar. The full results, every severity, go under the repository's Security tab (the `trivy` job uploads them). `.trivyignore` lists the vulnerabilities the build accepts, each with why, such as ones only fixed in a major version the app isn't on yet. To run the same scan on an image built locally:
+
+```bash
+docker compose --profile app build app
+docker save "$(docker compose --profile app config --format json | jq -r .name)-app" -o /tmp/image.tar
+docker run --rm -v /tmp:/work -v "$PWD/.trivyignore:/trivyignore:ro" -e TRIVY_IGNOREFILE=/trivyignore \
+  aquasec/trivy:0.76.1 image --input /work/image.tar --severity HIGH,CRITICAL --ignore-unfixed
+```
+
+When it fails, move the library to a fixed version: through the Spring Boot version, or with a version pin ahead of its BOM in `build.gradle`'s `ext` block. Add to `.trivyignore` only what can't be fixed yet, with the reason and the issue that will fix it.
+
 ### End-to-End Tests
 
 The backend and frontend suites each mock the other side, so a mismatch between them (an endpoint path, a CSRF header, a response shape) passes both. The **Playwright** tests in `e2e/` close that gap: they drive the real app in Chromium against the Docker Compose stack, the same image, PostgreSQL database and storage volume a user runs.

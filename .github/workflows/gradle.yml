@@ -75,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      trivy-sarif: ${{ steps.sarif.outcome == 'success' }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -130,9 +132,70 @@ jobs:
       if: failure()
       run: docker compose --profile app logs
 
+    # Known vulnerabilities in the image the steps above ran. Trivy runs from its own image, pinned by
+    # digest, on a saved copy of ours, so it gets neither the Docker socket nor a token. It goes after
+    # the end-to-end tests, so a finding doesn't hide whether they pass.
+    - name: Save the image for Trivy
+      id: image
+      if: ${{ !cancelled() }}
+      run: |
+        image="$(docker compose --profile app config --format json | jq -r .name)-app"
+        docker save "$image" -o "$RUNNER_TEMP/image.tar"
+
+    # Every finding as SARIF, for the Security tab (the trivy job uploads it), then the gate: fixable
+    # high and critical vulnerabilities fail the build. .trivyignore lists the ones accepted, and why.
+    - name: Scan the image with Trivy
+      if: ${{ !cancelled() && steps.image.outcome == 'success' }}
+      env:
+        TRIVY: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+      run: |
+        trivy() {
+          docker run --rm -v "$RUNNER_TEMP:/work" -v "$PWD/.trivyignore:/trivyignore:ro" \
+            -e TRIVY_CACHE_DIR=/work/trivy-cache -e TRIVY_IGNOREFILE=/trivyignore "$TRIVY" image --input /work/image.tar "$@"
+        }
+        trivy --format sarif --output /work/trivy.sarif
+        trivy --skip-db-update --skip-java-db-update --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+
+    - name: Keep the Trivy results
+      id: sarif
+      if: ${{ !cancelled() && hashFiles(format('{0}/trivy.sarif', runner.temp)) != '' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: trivy-sarif
+        path: ${{ runner.temp }}/trivy.sarif
+        retention-days: 1
+
     - name: Stop the app
       if: always()
       run: docker compose --profile app down --volumes
+
+  # Puts Trivy's results under the Security tab. A job of its own, so the token that can write
+  # them never reaches the job that builds the image and runs its tests.
+  trivy:
+
+    needs: docker
+    # Also when the scan failed the build, as long as it got as far as writing its results.
+    if: ${{ !cancelled() && needs.docker.outputs.trivy-sarif == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    # The upload reads the commit and ref from the checkout.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: trivy-sarif
+        path: ${{ runner.temp }}/trivy
+
+    - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      with:
+        sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
+        category: trivy
 
   dependency-submission:
 

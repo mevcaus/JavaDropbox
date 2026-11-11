@@ -1,0 +1,8 @@
+# Vulnerabilities Trivy reports in the image that the build accepts, each with why. The Trivy step in
+# .github/workflows/gradle.yml fails on any other fixable high or critical one.
+
+# spring-webmvc 6.2: fixed only in Spring Framework 7 (Spring Boot 4, #383). Both are in
+# features the app doesn't use: XsltView (remote code execution), and server-sent events rendered
+# through a view. No controller returns a view or an emitter.
+CVE-2026-47884
+CVE-2026-47890
