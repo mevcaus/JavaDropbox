@@ -1,10 +1,10 @@
 package com.javadropbox.javadropbox.controller;
 
+import com.javadropbox.javadropbox.dto.CurrentUser;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.Map;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,7 +27,7 @@ public class AuthController {
       operationId = "getCurrentUser",
       summary = "Get current authenticated user",
       description = "The signed-in user's username, and role: ADMIN or USER.")
-  public Map<String, String> getCurrentUser(Authentication authentication) {
+  public CurrentUser getCurrentUser(Authentication authentication) {
     // A 401 for a session whose account is gone, as for every endpoint that acts on the account's
     // files. The app asks this when it loads, so such a session is shown as signed out.
     authService.requireCurrentUser();
@@ -35,11 +35,11 @@ public class AuthController {
   }
 
   /** Who is signed in, as /api/me and a successful sign-in answer it. */
-  public static Map<String, String> describe(Authentication authentication) {
+  public static CurrentUser describe(Authentication authentication) {
     boolean admin =
         authentication.getAuthorities().stream()
             .map(GrantedAuthority::getAuthority)
             .anyMatch(User.ROLE_ADMIN::equals);
-    return Map.of("username", authentication.getName(), "role", admin ? "ADMIN" : "USER");
+    return new CurrentUser(authentication.getName(), admin ? "ADMIN" : "USER");
   }
 }

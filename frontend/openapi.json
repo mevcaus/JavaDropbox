@@ -94,10 +94,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/NewLink"
                 }
               }
             },
@@ -126,10 +123,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -188,10 +182,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -249,10 +240,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/NewLink"
                 }
               }
             },
@@ -289,10 +277,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -328,10 +313,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -378,10 +360,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -440,10 +419,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -579,10 +555,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -618,10 +591,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -721,10 +691,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -744,10 +711,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/CurrentUser"
                 }
               }
             },
@@ -808,10 +772,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -921,10 +882,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/NewLink"
                 }
               }
             },
@@ -953,10 +911,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -1018,10 +973,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "string"
-                  }
+                  "$ref" : "#/components/schemas/Message"
                 }
               }
             },
@@ -1189,6 +1141,18 @@
           }
         },
         "required" : [ "expiresAt", "username" ]
+      },
+      "CurrentUser" : {
+        "type" : "object",
+        "properties" : {
+          "role" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "role", "username" ]
       },
       "DemoInfo" : {
         "type" : "object",
@@ -1417,6 +1381,28 @@
           }
         },
         "required" : [ "createdAt", "createdBy", "expiresAt", "id", "quotaBytes", "role", "username" ]
+      },
+      "Message" : {
+        "type" : "object",
+        "properties" : {
+          "message" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "message" ]
+      },
+      "NewLink" : {
+        "type" : "object",
+        "properties" : {
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "url" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "expiresAt", "url" ]
       },
       "SearchResult" : {
         "type" : "object",

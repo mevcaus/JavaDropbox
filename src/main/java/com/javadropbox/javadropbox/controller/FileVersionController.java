@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.FileVersionDto;
+import com.javadropbox.javadropbox.dto.Message;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FileService;
@@ -9,7 +10,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -51,12 +51,12 @@ public class FileVersionController {
       description =
           "Restores a version over the live file (OVERWRITE, which keeps the live file as a new"
               + " version) or next to it (COPY). Another account's file is a 404.")
-  public Map<String, String> restoreVersion(
+  public Message restoreVersion(
       @PathVariable Long fileId,
       @PathVariable int version,
       @RequestParam(defaultValue = "OVERWRITE") RestoreMode mode)
       throws IOException {
     fileService.restoreVersion(fileId, version, mode);
-    return Map.of("message", "Version " + version + " restored");
+    return new Message("Version " + version + " restored");
   }
 }

@@ -1,6 +1,8 @@
 package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.Download;
+import com.javadropbox.javadropbox.dto.Message;
+import com.javadropbox.javadropbox.dto.NewLink;
 import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.dto.ShareLinkDto;
 import com.javadropbox.javadropbox.dto.SharedItemDto;
@@ -17,7 +19,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
@@ -66,7 +67,7 @@ public class ShareController {
       summary = "Create share link",
       description =
           "Creates a time-limited share link for a specific path. Requires authentication.")
-  public Map<String, String> createShareLink(
+  public NewLink createShareLink(
       @RequestParam String path,
       @RequestParam(required = false) Long expirationMinutes,
       HttpServletRequest request)
@@ -90,7 +91,7 @@ public class ShareController {
             .build()
             .toUriString();
 
-    return Map.of("url", shareUrl, "expiresAt", link.expiresAt().toString());
+    return new NewLink(shareUrl, link.expiresAt());
   }
 
   @GetMapping("/api/share")
@@ -109,9 +110,9 @@ public class ShareController {
       operationId = "revokeShareLink",
       summary = "Revoke share link",
       description = "Revokes a share link so it stops working at once. Requires authentication.")
-  public Map<String, String> revokeShareLink(@PathVariable Long id) {
+  public Message revokeShareLink(@PathVariable Long id) {
     shareLinkService.revoke(id);
-    return Map.of("message", "Share link revoked");
+    return new Message("Share link revoked");
   }
 
   @GetMapping("/share/{token}")

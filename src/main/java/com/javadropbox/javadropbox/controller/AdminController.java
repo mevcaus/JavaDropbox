@@ -3,6 +3,8 @@ package com.javadropbox.javadropbox.controller;
 import com.javadropbox.javadropbox.dto.AccountDto;
 import com.javadropbox.javadropbox.dto.ImportResult;
 import com.javadropbox.javadropbox.dto.InviteDto;
+import com.javadropbox.javadropbox.dto.Message;
+import com.javadropbox.javadropbox.dto.NewLink;
 import com.javadropbox.javadropbox.service.AccountLinkService;
 import com.javadropbox.javadropbox.service.AccountLinkService.CreatedLink;
 import com.javadropbox.javadropbox.service.AccountService;
@@ -13,7 +15,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.List;
-import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,9 +65,9 @@ public class AdminController {
               + " opening until it is enabled again. The invitations and password reset links it"
               + " made are withdrawn for good. Not for your own account, or the last admin who can"
               + " sign in (409).")
-  public Map<String, String> setEnabled(@PathVariable Long id, @RequestParam boolean enabled) {
+  public Message setEnabled(@PathVariable Long id, @RequestParam boolean enabled) {
     accounts.setEnabled(id, enabled);
-    return Map.of("message", enabled ? "Account enabled" : "Account disabled");
+    return new Message(enabled ? "Account enabled" : "Account disabled");
   }
 
   @PutMapping("/users/{id}/role")
@@ -76,9 +77,9 @@ public class AdminController {
       description =
           "ADMIN or USER. The account's sessions end, so it signs in again with the new role. Not"
               + " for your own account, or the last admin who can sign in (409).")
-  public Map<String, String> setRole(@PathVariable Long id, @RequestParam String role) {
+  public Message setRole(@PathVariable Long id, @RequestParam String role) {
     accounts.setRole(id, role);
-    return Map.of("message", "Role changed");
+    return new Message("Role changed");
   }
 
   @PutMapping("/users/{id}/quota")
@@ -89,10 +90,9 @@ public class AdminController {
           "The most the account may store, previous versions included, as a size such as 500MB"
               + " or 5GB, or a number of bytes. Empty for no limit. Uploads and restores that would"
               + " go over it are refused with 507.")
-  public Map<String, String> setQuota(
-      @PathVariable Long id, @RequestParam(defaultValue = "") String quota) {
+  public Message setQuota(@PathVariable Long id, @RequestParam(defaultValue = "") String quota) {
     accounts.setQuota(id, quota);
-    return Map.of("message", "Quota changed");
+    return new Message("Quota changed");
   }
 
   @PostMapping("/users/{id}/password-reset")
@@ -103,7 +103,7 @@ public class AdminController {
           "A one-time link, valid for a day, at which the account's user chooses a new password;"
               + " using it ends the account's sessions. The URL is only returned here, and a new"
               + " link replaces the previous one.")
-  public Map<String, String> resetPassword(@PathVariable Long id, HttpServletRequest request) {
+  public NewLink resetPassword(@PathVariable Long id, HttpServletRequest request) {
     return linkResponse(accountLinks.passwordReset(id), "/reset-password/", request);
   }
 
@@ -140,7 +140,7 @@ public class AdminController {
               + " (as for the quota endpoint; none if left out). The URL is only returned here. A"
               + " new invitation for the same username replaces the previous one; a username an"
               + " account already has is a 409.")
-  public Map<String, String> invite(
+  public NewLink invite(
       @RequestParam String username,
       @RequestParam(defaultValue = "USER") String role,
       @RequestParam(defaultValue = "") String quota,
@@ -153,19 +153,18 @@ public class AdminController {
       operationId = "revokeInvite",
       summary = "Withdraw an invitation",
       description = "Its link stops working at once.")
-  public Map<String, String> revokeInvite(@PathVariable Long id) {
+  public Message revokeInvite(@PathVariable Long id) {
     accountLinks.revokeInvite(id);
-    return Map.of("message", "Invitation withdrawn");
+    return new Message("Invitation withdrawn");
   }
 
-  private static Map<String, String> linkResponse(
-      CreatedLink link, String route, HttpServletRequest request) {
+  private static NewLink linkResponse(CreatedLink link, String route, HttpServletRequest request) {
     String url =
         ServletUriComponentsBuilder.fromRequestUri(request)
             .replacePath(route + link.token())
             .replaceQuery(null)
             .build()
             .toUriString();
-    return Map.of("url", url, "expiresAt", link.expiresAt().toString());
+    return new NewLink(url, link.expiresAt());
   }
 }

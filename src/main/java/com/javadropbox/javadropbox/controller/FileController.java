@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox.controller;
 
 import com.javadropbox.javadropbox.dto.Download;
 import com.javadropbox.javadropbox.dto.FileTreeNode;
+import com.javadropbox.javadropbox.dto.Message;
 import com.javadropbox.javadropbox.dto.Preview;
 import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FileService;
@@ -15,7 +16,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -106,12 +106,12 @@ public class FileController {
       description =
           "Stores one or more files in the folder at path (the root when empty). A file that"
               + " already exists is replaced and its previous content kept as a version.")
-  public Map<String, String> upload(
+  public Message upload(
       @RequestParam("files") MultipartFile[] files,
       @RequestParam(value = "path", defaultValue = "") String path)
       throws IOException {
     int stored = fileService.upload(files, path);
-    return Map.of("message", "Uploaded " + stored + (stored == 1 ? " file" : " files"));
+    return new Message("Uploaded " + stored + (stored == 1 ? " file" : " files"));
   }
 
   @DeleteMapping("/api/files")
@@ -119,9 +119,9 @@ public class FileController {
       operationId = "deleteItem",
       summary = "Delete a file or folder",
       description = "Deletes the item at path, a folder with everything in it, and its versions.")
-  public Map<String, String> delete(@RequestParam String path) throws IOException {
+  public Message delete(@RequestParam String path) throws IOException {
     fileService.delete(path);
-    return Map.of("message", "Deleted " + path);
+    return new Message("Deleted " + path);
   }
 
   @PostMapping("/api/folders")
@@ -129,9 +129,9 @@ public class FileController {
       operationId = "createFolder",
       summary = "Create a folder",
       description = "Creates a folder called name inside the folder at path.")
-  public Map<String, String> createFolder(
+  public Message createFolder(
       @RequestParam(defaultValue = "") String path, @RequestParam String name) throws IOException {
     fileService.createFolder(path, name);
-    return Map.of("message", "Created folder " + name);
+    return new Message("Created folder " + name);
   }
 }

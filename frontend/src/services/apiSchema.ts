@@ -605,6 +605,10 @@ export interface components {
             expiresAt: string;
             username: string;
         };
+        CurrentUser: {
+            role: string;
+            username: string;
+        };
         DemoInfo: {
             /** Format: int64 */
             maxShareMinutes: number;
@@ -698,6 +702,14 @@ export interface components {
             quotaBytes: number | null;
             role: string;
             username: string;
+        };
+        Message: {
+            message: string;
+        };
+        NewLink: {
+            /** Format: date-time */
+            expiresAt: string;
+            url: string;
         };
         SearchResult: {
             isDirectory: boolean;
@@ -806,9 +818,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["NewLink"];
                 };
             };
         };
@@ -830,9 +840,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -876,9 +884,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -922,9 +928,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["NewLink"];
                 };
             };
         };
@@ -948,9 +952,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -974,9 +976,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1039,9 +1039,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1063,9 +1061,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1156,9 +1152,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1181,9 +1175,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1252,9 +1244,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1274,9 +1264,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["CurrentUser"];
                 };
             };
         };
@@ -1322,9 +1310,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1393,9 +1379,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["NewLink"];
                 };
             };
         };
@@ -1417,9 +1401,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
@@ -1463,9 +1445,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: string;
-                    };
+                    "*/*": components["schemas"]["Message"];
                 };
             };
         };
