@@ -357,7 +357,7 @@ class AdminIntegrationTests {
     setEnabled(bob, false).andExpect(status().isOk());
 
     // Deleted already, not just turned away on the next request.
-    assertThat(sessionsOf("bob")).isZero();
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isZero();
     mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     signIn("bob", PASSWORD).andExpect(status().isUnauthorized());
     mockMvc
@@ -504,7 +504,7 @@ class AdminIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
 
-    assertThat(sessionsOf("bob")).isZero();
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isZero();
     mockMvc.perform(get("/api/me").cookie(session)).andExpect(status().isUnauthorized());
     Cookie again = session("bob");
     mockMvc.perform(get("/api/admin/users").cookie(again)).andExpect(status().isOk());
@@ -519,7 +519,7 @@ class AdminIntegrationTests {
 
     setRole(dana, "USER").andExpect(status().isOk());
 
-    assertThat(sessionsOf("dana")).isZero();
+    assertThat(TestDatabase.sessionsOf(jdbc, "dana")).isZero();
     assertThat(users.findById(dana.getId()).orElseThrow().getRole()).isEqualTo(User.ROLE_USER);
     mockMvc.perform(get("/api/admin/users").cookie(session)).andExpect(status().isUnauthorized());
     Cookie again = session("dana");
@@ -570,7 +570,7 @@ class AdminIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
 
-    assertThat(sessionsOf("bob")).isZero();
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isZero();
     mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isUnauthorized());
     signIn("bob", PASSWORD).andExpect(status().isUnauthorized());
     signIn("bob", "a brand new password").andExpect(status().isOk());
@@ -718,10 +718,5 @@ class AdminIntegrationTests {
         .andReturn()
         .getResponse()
         .getCookie("JSESSIONID");
-  }
-
-  private int sessionsOf(String username) {
-    return jdbc.queryForObject(
-        "SELECT count(*) FROM spring_session WHERE principal_name = ?", Integer.class, username);
   }
 }

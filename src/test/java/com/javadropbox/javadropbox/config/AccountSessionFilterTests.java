@@ -52,7 +52,7 @@ class AccountSessionFilterTests {
     Authentication signIn = signInAs(new AccountDetails(account));
     // An admin demotes the account while its password is being checked.
     account.setRole(User.ROLE_USER);
-    account.endSessions();
+    account.bumpSessionVersion();
 
     filter.signedIn(requestInSession(), signIn);
     nextRequest(signIn);

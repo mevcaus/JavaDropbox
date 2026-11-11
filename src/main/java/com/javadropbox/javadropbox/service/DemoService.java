@@ -170,7 +170,8 @@ public class DemoService implements ApplicationRunner {
   // and no setup code is ever printed.
   @Override
   public void run(ApplicationArguments args) throws IOException {
-    ensureAccount();
+    // In one transaction, so the account's sessions end along with the change that ends them.
+    transactions.executeWithoutResult(status -> ensureAccount());
     nextReset = resetTimeAfter(lastReset());
     resetIfDue();
   }

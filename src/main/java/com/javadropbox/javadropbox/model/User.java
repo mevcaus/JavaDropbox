@@ -117,10 +117,10 @@ public class User {
   }
 
   /**
-   * Bumps the session version, so every session the account has is signed out on its next request.
-   * AccountSessions calls this and also deletes the sessions; use that rather than this alone.
+   * Signs every session the account has out on its next request. AccountSessions calls this and
+   * also deletes the sessions; use that rather than this alone.
    */
-  public void endSessions() {
+  public void bumpSessionVersion() {
     sessionVersion++;
   }
 }

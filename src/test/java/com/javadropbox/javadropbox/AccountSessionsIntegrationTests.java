@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
@@ -16,12 +17,13 @@ import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Ending an account's sessions deletes them from spring_session, all of that account's and nobody
- * else's, once the change that ends them commits: a change that rolls back signs nobody out.
+ * else's, as part of the change that ends them: a change that rolls back signs nobody out.
  */
 @SpringBootTest
 @DisplayName("Ending an account's sessions")
@@ -50,17 +52,17 @@ class AccountSessionsIntegrationTests {
   }
 
   @Test
-  @DisplayName("deletes every session of the account, and no other, once the change commits")
-  void deletesTheAccountsSessionsOnCommit() {
-    new TransactionTemplate(transactionManager)
-        .executeWithoutResult(
-            status -> {
-              accountSessions.end(ada);
-              assertThat(sessionsOf("ada")).isEqualTo(2);
-            });
+  @DisplayName("deletes every session of the account, and no other, and bumps its version")
+  void deletesTheAccountsSessions() {
+    int before = ada.getSessionVersion();
 
-    assertThat(sessionsOf("ada")).isZero();
-    assertThat(sessionsOf("bob")).isEqualTo(1);
+    inTransaction(() -> accountSessions.end(ada));
+
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
+    assertThat(TestDatabase.sessionsOf(jdbc, "bob")).isEqualTo(1);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session_attributes", Integer.class))
+        .isEqualTo(1);
+    assertThat(ada.getSessionVersion()).isGreaterThan(before);
   }
 
   @Test
@@ -73,18 +75,20 @@ class AccountSessionsIntegrationTests {
               status.setRollbackOnly();
             });
 
-    assertThat(sessionsOf("ada")).isEqualTo(2);
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isEqualTo(2);
   }
 
+  // Outside a transaction the sessions would be gone even if the change then failed.
   @Test
-  @DisplayName("bumps the session version as well")
-  void bumpsTheSessionVersion() {
-    int before = ada.getSessionVersion();
+  @DisplayName("refuses to run outside a transaction")
+  void needsATransaction() {
+    assertThatThrownBy(() -> accountSessions.end(ada))
+        .isInstanceOf(IllegalTransactionStateException.class);
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isEqualTo(2);
+  }
 
-    accountSessions.end(ada);
-
-    assertThat(ada.getSessionVersion()).isGreaterThan(before);
-    assertThat(sessionsOf("ada")).isZero();
+  private void inTransaction(Runnable work) {
+    new TransactionTemplate(transactionManager).executeWithoutResult(status -> work.run());
   }
 
   // A session as signing in leaves one: indexed by the account's username. Raw, because the type
@@ -95,10 +99,5 @@ class AccountSessionsIntegrationTests {
     Session session = repository.createSession();
     session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, username);
     repository.save(session);
-  }
-
-  private int sessionsOf(String username) {
-    return jdbc.queryForObject(
-        "SELECT count(*) FROM spring_session WHERE principal_name = ?", Integer.class, username);
   }
 }

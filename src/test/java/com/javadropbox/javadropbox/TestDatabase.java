@@ -21,4 +21,10 @@ final class TestDatabase {
     jdbc.execute("DELETE FROM spring_session");
     jdbc.execute("DELETE FROM one_time_steps");
   }
+
+  /** How many sessions the account signed in as {@code username} has. */
+  static int sessionsOf(JdbcTemplate jdbc, String username) {
+    return jdbc.queryForObject(
+        "SELECT count(*) FROM spring_session WHERE principal_name = ?", Integer.class, username);
+  }
 }
