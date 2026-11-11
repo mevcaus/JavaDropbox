@@ -119,6 +119,7 @@ erDiagram
         varchar filename
         boolean is_directory
         bigint size
+        varchar content_hash "SHA-256 of what the app stored, a hint until blobs"
     }
     file_versions {
         bigint id PK
@@ -126,6 +127,7 @@ erDiagram
         int version "unique per file"
         varchar stored_filename
         bigint size
+        varchar content_hash "SHA-256 when known, a hint until blobs"
     }
     file_history {
         bigint id PK

@@ -12,10 +12,10 @@ import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
+import com.javadropbox.javadropbox.service.FileVersionService.StoredCopy;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
@@ -251,8 +251,15 @@ public class FileService {
     String scratch = store.scratchBeside(target.storeKey());
     try {
       long size;
-      try (InputStream in = upload.getInputStream()) {
+      String hash;
+      try (HashingInputStream in = new HashingInputStream(upload.getInputStream())) {
         size = store.write(scratch, in, lengthOf(upload));
+        // The hash has to describe exactly what the store holds.
+        if (in.count() != size) {
+          throw new IllegalStateException(
+              "Hashed " + in.count() + " bytes of an upload the store wrote " + size + " of");
+        }
+        hash = in.hex();
       }
       quota.refuseIfOver(user, size);
 
@@ -284,6 +291,7 @@ public class FileService {
             moveIntoPlace(scratch, target.storeKey(), replacing);
 
             resize(file, size);
+            file.setContentHash(hash);
             file.setUpdatedAt(Instant.now());
             history.recordSuccess(file, ChangeType.UPLOAD, user, null);
             searchIndex.changed(target);
@@ -410,7 +418,7 @@ public class FileService {
             // instead of archiving under the same version number.
             FileMetadata current =
                 files.lockById(fileId).orElseThrow(() -> new NotFoundException("File not found"));
-            String source = versions.storedCopy(current, number);
+            StoredCopy source = versions.storedCopy(current, number);
             if (mode == RestoreMode.COPY) {
               restoreAsCopy(current, source, number, user);
             } else {
@@ -423,7 +431,7 @@ public class FileService {
     }
   }
 
-  private void restoreInPlace(FileMetadata file, String source, int number, User user)
+  private void restoreInPlace(FileMetadata file, StoredCopy source, int number, User user)
       throws IOException {
     Home home = storagePaths.home(user);
     StoragePath live = home.resolveItem(file.getPath());
@@ -431,7 +439,7 @@ public class FileService {
     createFolders(home, missingFolders(parent), user);
     String scratch = store.scratchBeside(live.storeKey());
     try {
-      store.copy(source, scratch);
+      store.copy(source.key(), scratch);
       quota.refuseIfOver(user, sizeOfScratch(scratch));
       quota.mustFit(user.getId());
       Optional<Entry> current = store.stat(live.storeKey());
@@ -449,12 +457,13 @@ public class FileService {
     }
 
     resize(file, sizeOf(live));
+    file.setContentHash(source.contentHash());
     file.setUpdatedAt(Instant.now());
     history.recordSuccess(file, ChangeType.RESTORE, user, "Restored version " + number);
     searchIndex.changed(live);
   }
 
-  private void restoreAsCopy(FileMetadata file, String source, int number, User user)
+  private void restoreAsCopy(FileMetadata file, StoredCopy source, int number, User user)
       throws IOException {
     Home home = storagePaths.home(user);
     StoragePath parent = home.resolve(parentKey(file.getPath()));
@@ -463,7 +472,7 @@ public class FileService {
     // shows up under its name half-written.
     String scratch = store.scratchBeside(home.resolveItem(file.getPath()).storeKey());
     try {
-      store.copy(source, scratch);
+      store.copy(source.key(), scratch);
       quota.refuseIfOver(user, sizeOfScratch(scratch));
       quota.mustFit(user.getId());
       CopyTarget claimed = claimCopyName(parent, file.getFilename(), number, user);
@@ -473,6 +482,9 @@ public class FileService {
 
       FileMetadata copy = claimed.row();
       resize(copy, sizeOf(target));
+      // After the copy is in place, as for an upload, so its hash isn't taken for an older one's.
+      copy.setUpdatedAt(Instant.now());
+      copy.setContentHash(source.contentHash());
       history.recordSuccess(
           copy,
           ChangeType.RESTORE,

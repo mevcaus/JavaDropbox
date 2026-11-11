@@ -10,6 +10,7 @@ import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
+import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,7 +97,9 @@ public class FileVersionService {
     // content goes back over it.
     OnRollback.undo(
         "archiving " + live.key() + " as " + target, () -> store.replace(target, live.key()));
-    versions.save(new FileVersion(file, number, stored, live.size(), user));
+    String hash =
+        unchangedSince(live, file.getSize(), file.getUpdatedAt()) ? file.getContentHash() : null;
+    versions.save(new FileVersion(file, number, stored, live.size(), hash, user));
     quota.add(file.getOwner().getId(), live.size());
     file.setCurrentVersion(number + 1);
 
@@ -117,22 +120,38 @@ public class FileVersionService {
   }
 
   /**
-   * The key in the store of one version's stored copy.
+   * One version's stored copy.
+   *
+   * @param key where it is in the store
+   * @param contentHash its SHA-256, or null where it isn't known or the copy looks changed since
+   */
+  public record StoredCopy(String key, String contentHash) {}
+
+  /**
+   * One version's stored copy, which is there.
    *
    * @throws NotFoundException if the version does not exist or its file is missing
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public String storedCopy(FileMetadata file, int number) throws IOException {
+  public StoredCopy storedCopy(FileMetadata file, int number) throws IOException {
     FileVersion version =
         versions.findByFileMetadataOrderByVersionDesc(file).stream()
             .filter(v -> v.getVersion() == number)
             .findFirst()
             .orElseThrow(() -> new NotFoundException("Version " + number + " not found"));
     String stored = resolve(version.getStoredFilename());
-    if (store.stat(stored).filter(entry -> !entry.isDirectory()).isEmpty()) {
-      throw new NotFoundException("The stored copy of version " + number + " is missing");
-    }
-    return stored;
+    Entry copy =
+        store
+            .stat(stored)
+            .filter(entry -> !entry.isDirectory())
+            .orElseThrow(
+                () ->
+                    new NotFoundException("The stored copy of version " + number + " is missing"));
+    String hash =
+        unchangedSince(copy, version.getSize(), version.getCreatedAt())
+            ? version.getContentHash()
+            : null;
+    return new StoredCopy(stored, hash);
   }
 
   /**
@@ -184,6 +203,26 @@ public class FileVersionService {
     versions.delete(version);
     String stored = resolve(version.getStoredFilename());
     AfterCommit.run("remove " + stored, () -> store.delete(stored));
+  }
+
+  /**
+   * Whether stored content still looks like what its row describes: the same size, and not changed
+   * since the row was written. A hash recorded for it is only carried on when it does, since
+   * content edited outside the app, even to the same length, has another hash. A store that doesn't
+   * know when the content changed, or whose clock is ahead of the app's, gives no hint.
+   *
+   * <p>Neither check is proof, so such a hash is a hint, which has to be checked against the
+   * content before anything is keyed by it. Edits it misses: a copy that keeps its old modification
+   * time; one within the store's precision of the app's write (a few milliseconds on a disk, a
+   * second in S3); any while the store's clock is behind the app's; and a release from before V13
+   * changing content without clearing the hash.
+   */
+  static boolean unchangedSince(Entry content, Long recordedSize, Instant recordedAt) {
+    return recordedSize != null
+        && recordedSize == content.size()
+        && content.modified() != null
+        && recordedAt != null
+        && !content.modified().isAfter(recordedAt);
   }
 
   // Rows are written by the app, but a row pointing anywhere else would be the store's to lose.

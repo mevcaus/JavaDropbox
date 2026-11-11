@@ -94,6 +94,7 @@ class FileOperationsIntegrationTests {
   @AfterEach
   void tearDown() throws IOException {
     TestDatabase.assertUsageMatchesRows(jdbc);
+    ContentHashes.assertTrustedHashesMatch(jdbc, servingDir);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
@@ -367,6 +368,105 @@ class FileOperationsIntegrationTests {
     mockMvc
         .perform(get("/api/files"))
         .andExpect(jsonPath("$[?(@.name == 'copied in.txt')].id").isNotEmpty());
+  }
+
+  // --- content hashes ----------------------------------------------------------
+
+  @Test
+  @DisplayName(
+      "an upload records the SHA-256 of its content, and a replace moves it to the version")
+  void uploadsRecordTheirHash() throws Exception {
+    upload("", "h.txt", "first");
+    assertThat(metadata.findByPath(owner.getId(), "h.txt").orElseThrow().getContentHash())
+        .isEqualTo(sha256("first"));
+
+    upload("", "h.txt", "second");
+
+    assertThat(metadata.findByPath(owner.getId(), "h.txt").orElseThrow().getContentHash())
+        .isEqualTo(sha256("second"));
+    assertThat(versions.findAll())
+        .singleElement()
+        .extracting(FileVersion::getContentHash)
+        .isEqualTo(
+            sha256("first")); // The live file and its version: the check after each test finds them
+    // where it looks.
+    assertThat(ContentHashes.assertTrustedHashesMatch(jdbc, servingDir)).isEqualTo(2);
+  }
+
+  @Test
+  @DisplayName("a restore, in place or as a copy, gives the file its version's hash")
+  void restoresCarryTheVersionsHash() throws Exception {
+    upload("", "r.txt", "one");
+    upload("", "r.txt", "two");
+    long id = idOf("r.txt");
+
+    restore(id, 1, "COPY");
+    restore(id, 1, "OVERWRITE");
+
+    assertThat(metadata.findByPath(owner.getId(), "r_v1.txt").orElseThrow().getContentHash())
+        .isEqualTo(sha256("one"));
+    assertThat(metadata.findById(id).orElseThrow().getContentHash()).isEqualTo(sha256("one"));
+    // What the restore replaced is kept as a version, with its own hash.
+    assertThat(versions.findAll()).extracting(FileVersion::getContentHash).contains(sha256("two"));
+  }
+
+  @Test
+  @DisplayName("a file changed outside the app to another length is archived without a hash")
+  void contentChangedByHandIsArchivedWithoutAHash() throws Exception {
+    upload("", "e.txt", "app");
+    Files.writeString(home.resolve("e.txt"), "edited by hand");
+
+    upload("", "e.txt", "new");
+
+    assertThat(versions.findAll()).singleElement().extracting(FileVersion::getContentHash).isNull();
+  }
+
+  @Test
+  @DisplayName("a file edited by hand to the same length is archived without a hash")
+  void sameLengthEditIsArchivedWithoutAHash() throws Exception {
+    upload("", "s.txt", "abc");
+    later(Files.writeString(home.resolve("s.txt"), "xyz"));
+
+    upload("", "s.txt", "new");
+
+    assertThat(versions.findAll()).singleElement().extracting(FileVersion::getContentHash).isNull();
+  }
+
+  @Test
+  @DisplayName("a stored version edited by hand is restored without a hash")
+  void versionEditedByHandIsRestoredWithoutAHash() throws Exception {
+    upload("", "v.txt", "one");
+    upload("", "v.txt", "two");
+    long id = idOf("v.txt");
+    later(Files.writeString(servingDir.resolve(".versions/" + id + "/v1"), "ONE"));
+
+    restore(id, 1, "COPY");
+
+    assertThat(metadata.findByPath(owner.getId(), "v_v1.txt").orElseThrow().getContentHash())
+        .isNull();
+  }
+
+  @Test
+  @DisplayName("an upload over a file with no row hashes the upload, and keeps no hash for the old")
+  void uploadOverAnUntrackedFile() throws Exception {
+    Files.writeString(home.resolve("u.txt"), "by hand");
+
+    upload("", "u.txt", "uploaded");
+
+    assertThat(metadata.findByPath(owner.getId(), "u.txt").orElseThrow().getContentHash())
+        .isEqualTo(sha256("uploaded"));
+    assertThat(versions.findAll()).singleElement().extracting(FileVersion::getContentHash).isNull();
+  }
+
+  @Test
+  @DisplayName("a file copied in by hand and imported has no hash, as its content was never read")
+  void importedFilesHaveNoHash() throws Exception {
+    Files.writeString(home.resolve("copied.txt"), "by hand");
+
+    imports.importFiles(owner.getId(), "test");
+
+    assertThat(metadata.findByPath(owner.getId(), "copied.txt").orElseThrow().getContentHash())
+        .isNull();
   }
 
   // --- deleting --------------------------------------------------------------
@@ -975,6 +1075,20 @@ class FileOperationsIntegrationTests {
         Files.delete(path);
       }
     }
+  }
+
+  private static String sha256(String content) throws Exception {
+    return java.util.HexFormat.of()
+        .formatHex(
+            java.security.MessageDigest.getInstance("SHA-256")
+                .digest(content.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  // Edited a little after the app wrote it, as by hand. Set outright, since a filesystem stamps
+  // times from a clock coarse enough that an edit made at once can look older than the app's write.
+  private static Path later(Path path) throws IOException {
+    Files.setLastModifiedTime(path, FileTime.from(Instant.now().plusSeconds(5)));
+    return path;
   }
 
   // Last modified two hours ago, i.e. not something a request could still be writing.
