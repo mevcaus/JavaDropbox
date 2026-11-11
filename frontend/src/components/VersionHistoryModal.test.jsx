@@ -96,7 +96,25 @@ describe('VersionHistoryModal', () => {
         expect(screen.getAllByRole('button', { name: 'Restore' })[1]).toBeEnabled();
     });
 
-    // The dialog stays mounted from one file to the next, as Dashboard renders it.
+    // A version added since (by uploading over the file, here or in another tab) shows when the
+    // dialog opens again.
+    it('lists the versions again each time it opens', async () => {
+        api.get.mockResolvedValue({ data: VERSIONS });
+        const onClose = vi.fn();
+        // One store throughout, as in the app, so the first list is still cached when it reopens.
+        const { rerender } = render(<VersionHistoryModal isOpen file={FILE} onClose={onClose} />);
+        await screen.findByText('Version 2');
+
+        rerender(<VersionHistoryModal isOpen={false} file={FILE} onClose={onClose} />);
+        rerender(<VersionHistoryModal isOpen file={FILE} onClose={onClose} />);
+
+        await vi.waitFor(() =>
+            expect(api.get.mock.calls.filter(([url]) => url === '/api/files/7/versions')).toHaveLength(2),
+        );
+    });
+
+    // The modal stays rendered from one file to the next, as Dashboard renders it; the dialog inside
+    // is keyed by file, so each file's is a new one.
     describe('when a restore for another file is still running', () => {
         const A = { id: 1, name: 'a.txt' };
         const B = { id: 2, name: 'b.txt' };

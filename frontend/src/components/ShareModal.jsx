@@ -23,9 +23,9 @@ const expirationOptions = (maxMinutes) => {
     return allowed.length > 0 ? allowed : [{ label: `${maxMinutes} minutes`, minutes: maxMinutes }];
 };
 
-// Keyed by path, so sharing another item starts from a fresh dialog with its own request: no link,
-// error or spinner from the previous one carries over, and its late answers land in a dialog that is
-// gone.
+// Keyed by path, so sharing another item starts from a fresh dialog with its own request to make a
+// link: no link, error or spinner from the previous one carries over, and its late answers land in a
+// dialog that is gone. The list of links is per item regardless (see ActiveLinks).
 const ShareModal = ({ isOpen, onClose, item }) =>
     item ? <ShareDialog key={item.path} isOpen={isOpen} onClose={onClose} item={item} /> : null;
 
@@ -113,7 +113,9 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
 // The item's links that still work, each with a Revoke button. Only a hash of a link's token is
 // stored, so a link's URL cannot be shown again here.
 const ActiveLinks = ({ path }) => {
-    const { data: links = [], error: loadError } = useListShareLinksQuery({ path });
+    // Listed again each time the dialog opens, so links that expired, or went with a deleted item,
+    // don't show. currentData is only ever this path's, never another item's while this one loads.
+    const { currentData: links = [], error: loadError } = useListShareLinksQuery({ path }, { refetchOnMountOrArgChange: true });
     const [revokeShareLink, revoking] = useRevokeShareLinkMutation();
     const headingId = useId();
     const { addToast } = useToast();

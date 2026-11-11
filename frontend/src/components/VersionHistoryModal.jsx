@@ -13,11 +13,16 @@ import { secondaryButton } from './modalStyles';
  * place (the current content is kept as a new version first) or next to it as a copy.
  */
 const VersionHistoryModal = ({ isOpen, onClose, file }) =>
-    // Mounted while open and keyed by file, so each opening has its own query and restore.
+    // Mounted while open and keyed by file, so each file's dialog has its own restore.
     isOpen && file ? <VersionHistoryDialog key={file.id} onClose={onClose} file={file} /> : null;
 
 const VersionHistoryDialog = ({ onClose, file }) => {
-    const { data: versions, error: loadError } = useListFileVersionsQuery({ fileId: file.id });
+    // Listed again each time the dialog opens, so a version added since (by uploading over the file,
+    // here or in another tab) shows. currentData is only ever this file's.
+    const { currentData: versions, error: loadError } = useListFileVersionsQuery(
+        { fileId: file.id },
+        { refetchOnMountOrArgChange: true },
+    );
     const [restoreVersion, restoring] = useRestoreVersionMutation();
     const { addToast } = useToast();
 

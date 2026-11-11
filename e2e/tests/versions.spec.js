@@ -36,6 +36,22 @@ test.describe('a file uploaded twice', () => {
         await expect(versions.filter({ hasText: 'Version 2' })).toHaveCount(1);
     });
 
+    // The dialog lists the versions again when it reopens, rather than the list it showed before.
+    test('lists a version added since the history was last open', async ({ page }) => {
+        await action(page, 'Versions of', 'plan.txt').click();
+        const dialog = page.getByRole('dialog', { name: 'Versions of plan.txt' });
+        const versions = dialog.getByRole('listitem');
+        await expect(versions).toHaveCount(1);
+        await dialog.getByRole('button', { name: 'Done' }).click();
+        await expect(dialog).toBeHidden();
+
+        await upload(page, textFile('plan.txt', 'third draft\n'));
+        await action(page, 'Versions of', 'plan.txt').click();
+
+        await expect(versions).toHaveCount(2);
+        await expect(versions.filter({ hasText: 'Version 2' })).toHaveCount(1);
+    });
+
     test('restores the earlier version as a copy', async ({ page }) => {
         await action(page, 'Versions of', 'plan.txt').click();
         const dialog = page.getByRole('dialog', { name: 'Versions of plan.txt' });

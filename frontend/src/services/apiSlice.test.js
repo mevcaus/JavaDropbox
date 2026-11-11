@@ -193,6 +193,22 @@ describe('refreshing versions and share links', () => {
         expect(paths).toEqual(['a.txt', 'b.txt', 'a.txt']);
     });
 
+    // Uploading over a file keeps its old content as a version; a delete takes versions and links.
+    it('refreshes the versions after an upload, and the versions and links after a delete', async () => {
+        await store.dispatch(apiSlice.endpoints.listFileVersions.initiate({ fileId: 7 }));
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
+        api.post.mockResolvedValueOnce({ data: { message: 'Uploaded 1 file' } });
+        api.delete.mockResolvedValueOnce({ data: { message: 'Deleted a.txt' } });
+
+        await store.dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } }));
+        await settle();
+        expect([gets('/api/files/7/versions'), gets('/api/share')]).toEqual([2, 1]);
+
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }));
+        await settle();
+        expect([gets('/api/files/7/versions'), gets('/api/share')]).toEqual([3, 2]);
+    });
+
     // A link's id doesn't say whose item it shares.
     it('refreshes every list of links after a revoke', async () => {
         await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
