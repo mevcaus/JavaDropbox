@@ -32,7 +32,7 @@ public class ShareLinkService {
   private final ShareLinkRepository links;
   private final FileMetadataRepository files;
   private final StoragePaths storagePaths;
-  private final FileStore store;
+  private final FileContents contents;
   private final FileService fileService;
   private final FileTreeService fileTree;
   private final AuthService authService;
@@ -41,14 +41,14 @@ public class ShareLinkService {
       ShareLinkRepository links,
       FileMetadataRepository files,
       StoragePaths storagePaths,
-      FileStore store,
+      FileContents contents,
       FileService fileService,
       FileTreeService fileTree,
       AuthService authService) {
     this.links = links;
     this.files = files;
     this.storagePaths = storagePaths;
-    this.store = store;
+    this.contents = contents;
     this.fileService = fileService;
     this.fileTree = fileTree;
     this.authService = authService;
@@ -76,8 +76,8 @@ public class ShareLinkService {
             .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
     // As the link's pages would find it, or it would only ever be a 404.
     boolean stored =
-        store
-            .stat(target.storeKey())
+        contents
+            .of(target)
             .filter(entry -> entry.isDirectory() == Boolean.TRUE.equals(file.getIsDirectory()))
             .isPresent();
     if (!stored) {
@@ -165,7 +165,7 @@ public class ShareLinkService {
     }
     StoragePath target = storagePaths.home(file.getOwner()).resolveItem(link.getPath());
     boolean isDirectory = Boolean.TRUE.equals(file.getIsDirectory());
-    Entry item = store.stat(target.storeKey()).orElseThrow(ShareLinkService::linkNotFound);
+    Entry item = contents.of(target).orElseThrow(ShareLinkService::linkNotFound);
     if (item.isDirectory() != isDirectory) {
       throw linkNotFound();
     }

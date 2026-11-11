@@ -18,6 +18,7 @@ class FileVersionServiceTests {
           .withBean(FileMetadataRepository.class, () -> mock(FileMetadataRepository.class))
           .withBean(FileStore.class, () -> mock(FileStore.class))
           .withBean(StorageQuota.class, () -> mock(StorageQuota.class))
+          .withBean(FileContents.class)
           .withBean(FileVersionService.class);
 
   @Test

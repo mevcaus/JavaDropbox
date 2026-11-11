@@ -54,6 +54,7 @@ public class FileService {
 
   private final StoragePaths storagePaths;
   private final FileStore store;
+  private final FileContents contents;
   private final FileMetadataRepository files;
   private final FileVersionService versions;
   private final FileHistoryService history;
@@ -67,6 +68,7 @@ public class FileService {
   public FileService(
       StoragePaths storagePaths,
       FileStore store,
+      FileContents contents,
       FileMetadataRepository files,
       FileVersionService versions,
       FileHistoryService history,
@@ -78,6 +80,7 @@ public class FileService {
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.store = store;
+    this.contents = contents;
     this.files = files;
     this.versions = versions;
     this.history = history;
@@ -559,7 +562,7 @@ public class FileService {
           name + ".zip", out -> FolderArchive.write(store, target.storeKey(), name, out));
     }
     return new Download.FileDownload(
-        store.resource(item), target.name(), contentType(target.name()));
+        contents.resource(item), target.name(), contentType(target.name()));
   }
 
   // By the name's extension, as the system's own MIME types have it.
@@ -596,12 +599,12 @@ public class FileService {
                     new BadRequestException(
                         "This kind of file cannot be previewed: " + target.key()));
     return new Preview(
-        store.resource(item), target.name(), type, PreviewType.contentType(target.name()));
+        contents.resource(item), target.name(), type, PreviewType.contentType(target.name()));
   }
 
   private Entry find(StoragePath target) throws IOException {
-    return store
-        .stat(target.storeKey())
+    return contents
+        .of(target)
         .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
   }
 

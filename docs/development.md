@@ -161,6 +161,7 @@ JavaDropbox/
 │   │       ├── LocalFileStore.java      # The serving directory on disk, with symlinks refused before each operation
 │   │       ├── S3FileStore.java         # A bucket in S3 or a service with its API: folder markers, moves as copies
 │   │       ├── FirstAccountImport.java  # Gives an upgraded install's files to the first account, once
+│   │       ├── FileContents.java        # Where a file's or version's content is in the store
 │   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree, from the account's rows
 │   │       ├── ImportService.java       # Gives files copied into an account's folder rows of their own
