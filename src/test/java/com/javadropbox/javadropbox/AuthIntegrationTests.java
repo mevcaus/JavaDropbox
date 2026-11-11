@@ -101,6 +101,7 @@ class AuthIntegrationTests {
     assertThat(cookie).as("SPA has no way to obtain a CSRF token without this cookie").isNotNull();
     assertThat(cookie.getValue()).isNotEmpty();
     assertThat(cookie.isHttpOnly()).as("the SPA must be able to read this cookie").isFalse();
+    assertThat(cookie.getAttribute("SameSite")).isEqualTo("Lax");
   }
 
   @Test

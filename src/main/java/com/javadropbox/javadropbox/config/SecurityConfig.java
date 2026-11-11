@@ -49,6 +49,9 @@ public class SecurityConfig {
 
   private static final String X_FRAME_OPTIONS = "X-Frame-Options";
 
+  public static final String PERMISSIONS_POLICY =
+      "camera=(), geolocation=(), microphone=(), payment=(), usb=()";
+
   /** The built single-page app: its shell and assets load before anyone has signed in. */
   private static final String[] SPA_ASSETS = {"/index.html", "/assets/**", "/favicon.png"};
 
@@ -189,14 +192,16 @@ public class SecurityConfig {
                     .permitAll())
         .csrf(
             csrf ->
-                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                csrf.csrfTokenRepository(csrfTokenRepository())
                     .csrfTokenRequestHandler(csrfTokenRequestHandler()))
         // No response may be framed, as by default, unless it has already said otherwise: a PDF
         // preview allows the app's own pages (see DownloadResponses.preview). The stock writer
-        // would overwrite that when the response commits.
+        // would overwrite that when the response commits. No page may use the browser features
+        // the app has no use for, nor let a page it frames use them.
         .headers(
             headers ->
                 headers
+                    .permissionsPolicyHeader(policy -> policy.policy(PERMISSIONS_POLICY))
                     .frameOptions(frameOptions -> frameOptions.disable())
                     .addHeaderWriter(
                         (request, response) -> {
@@ -206,6 +211,16 @@ public class SecurityConfig {
                         }));
 
     return http.build();
+  }
+
+  /**
+   * The CSRF token as a cookie the app's script can read, which it sends back in a header. Sent
+   * with SameSite=Lax like the session cookie, so another site's requests don't carry it.
+   */
+  private static CookieCsrfTokenRepository csrfTokenRepository() {
+    CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    repository.setCookieCustomizer(cookie -> cookie.sameSite("Lax"));
+    return repository;
   }
 
   /**
