@@ -21,6 +21,7 @@ public class SetupController {
 
   @PostMapping("/setup")
   @Operation(
+      operationId = "completeSetup",
       summary = "Initial setup",
       description =
           "Creates the admin account. Only available while no account exists, and requires the"

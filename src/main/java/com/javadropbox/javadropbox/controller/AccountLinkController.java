@@ -31,6 +31,7 @@ public class AccountLinkController {
 
   @GetMapping("/api/invite/{token}")
   @Operation(
+      operationId = "describeInvite",
       summary = "Describe an invitation",
       description =
           "The username the invitation creates and when it expires. 404 once it has been used,"
@@ -41,6 +42,7 @@ public class AccountLinkController {
 
   @PostMapping("/api/invite/{token}")
   @Operation(
+      operationId = "acceptInvite",
       summary = "Accept an invitation",
       description =
           "Creates the invited account with this password (at least 8 characters), then the"
@@ -53,6 +55,7 @@ public class AccountLinkController {
 
   @GetMapping("/api/reset-password/{token}")
   @Operation(
+      operationId = "describePasswordReset",
       summary = "Describe a password reset link",
       description =
           "The account whose password the link sets and when it expires. 404 once it has been"
@@ -63,6 +66,7 @@ public class AccountLinkController {
 
   @PostMapping("/api/reset-password/{token}")
   @Operation(
+      operationId = "resetPassword",
       summary = "Reset a password",
       description =
           "Sets the account's new password (at least 8 characters) and ends its sessions, then the"
