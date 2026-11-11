@@ -1,0 +1,83 @@
+# ZAP's baseline scan of the running app, as an automation plan: crawl it for a minute, wait for the
+# passive scan rules to check what came back, and write the reports. Nothing is attacked. The
+# docker job in .github/workflows/gradle.yml runs it once the end-to-end tests pass, and fails on
+# any alert the rules below don't accept (docs/testing.md#running-app-scan).
+env:
+  contexts:
+    - name: app
+      urls:
+        - http://app:8080
+  parameters:
+    failOnError: true
+    progressToStdout: true
+
+jobs:
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 10
+      enableTags: false
+
+  - type: spider
+    parameters:
+      url: http://app:8080
+      maxDuration: 1
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  # Every alert counts as a warning, which fails the build, unless a rule here says otherwise. Each
+  # accepted one gives the reason. The reports below still list them.
+  - type: outputSummary
+    parameters:
+      format: Long
+      summaryFile: /zap/wrk/summary.json
+    rules:
+      # The app is a single-page app, so ZAP's crawler finds no links in its pages. It says so, and
+      # that is all this alert means.
+      - id: 10109
+        action: IGNORE
+        customMessage: "Modern Web Application: expected, the app is a single-page app"
+      # Matches words like "admin" or "select" in the minified bundle: route names and library code,
+      # not comments left in by mistake.
+      - id: 10027
+        action: IGNORE
+        customMessage: "Suspicious Comments: words in the minified bundle, not comments"
+      # Spring Security sends Cache-Control: no-store on every response, so nothing a signed-in user
+      # saw stays in a cache. Caching the hashed assets would be about speed, not security.
+      - id: 10049
+        action: IGNORE
+        customMessage: "Non-Storable Content: no-store is on purpose"
+      # Reports that a response sets a cookie a session could live in. Informational: the cookie is
+      # XSRF-TOKEN, which holds no session.
+      - id: 10112
+        action: IGNORE
+        customMessage: "Session Management Response Identified: informational"
+      # XSRF-TOKEN has to be readable by the app's script, which sends it back in a header. That is
+      # how Spring Security's cookie CSRF protection works, and it holds no session.
+      - id: 10010
+        action: IGNORE
+        customMessage: "Cookie No HttpOnly Flag: XSRF-TOKEN is read by the app's script"
+      # No Content-Security-Policy yet. Accepted until #401, which adds one.
+      - id: 10038
+        action: IGNORE
+        customMessage: "CSP Header Not Set: until #401"
+      # No Cross-Origin-Embedder-, Opener- or Resource-Policy yet. Accepted until #401, which
+      # adds them with the Content-Security-Policy.
+      - id: 90004
+        action: IGNORE
+        customMessage: "Cross-Origin policies missing: until #401"
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk
+      reportFile: zap.html
+      reportTitle: ZAP baseline scan
+
+  - type: report
+    parameters:
+      template: sarif-json
+      reportDir: /zap/wrk
+      reportFile: zap.sarif
+      reportTitle: ZAP baseline scan

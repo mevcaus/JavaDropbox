@@ -379,7 +379,7 @@ flowchart LR
 
     subgraph Gradle["Java CI with Gradle"]
         Build["build<br/>tests on PostgreSQL<br/>coverage minimums<br/>Spotless format check"]
-        Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests,<br/>Trivy image scan"]
+        Docker["docker<br/>build the image, compose up,<br/>health checks, Playwright tests,<br/>Trivy image scan, ZAP baseline scan"]
     end
 
     Frontend["Frontend CI<br/>lint · type check · API types up to date ·<br/>test with coverage thresholds · production build"]
@@ -395,6 +395,8 @@ Each run puts its coverage in the job summary and uploads the full report as the
 **CodeQL** analyzes the backend, the frontend, the end-to-end tests and these workflows with its `security-extended` queries on every pull request, on every push to `main` and once a week. What it finds shows under the repository's Security tab, and on a pull request as annotations on the changed lines.
 
 **Trivy** scans the image the `docker` job builds for known vulnerabilities, in Alpine's packages and in the jar's libraries. A fixable high or critical one fails the build. Everything it finds goes under the Security tab too, the accepted ones included. `.trivyignore` lists those, each with the reason.
+
+**ZAP** runs its baseline scan against the app the `docker` job started: it crawls it for a minute and checks the responses for missing headers, cookie flags, leaked information and the like, without attacking it. An alert fails the build unless `.github/zap/baseline.yaml` accepts it, with the reason. Its results go under the Security tab too, and the full report is the `zap-results` artifact.
 
 ## Live demo
 

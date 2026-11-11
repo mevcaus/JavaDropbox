@@ -129,7 +129,7 @@ The badges in the README show the share of lines covered on `main`. The `build` 
 
 ### Image vulnerability scan
 
-The `docker` job scans the image it built with **[Trivy](https://trivy.dev)**, after the end-to-end tests. It fails on a high or critical vulnerability with a fix available, in Alpine's packages or in a library in the jar, with an error pointing here. Every finding, any severity and the accepted ones too, goes under the repository's Security tab (the `trivy` job uploads them). Pull requests from forks get the scan but can't upload to the Security tab. `.trivyignore` lists the vulnerabilities the build accepts, each with why, such as ones only fixed in a major version the app isn't on yet.
+The `docker` job scans the image it built with **[Trivy](https://trivy.dev)**, after the end-to-end tests. It fails on a high or critical vulnerability with a fix available, in Alpine's packages or in a library in the jar, with an error pointing here. Every finding, any severity and the accepted ones too, goes under the repository's Security tab (the `security-results` job uploads them). Pull requests from forks get the scan but can't upload to the Security tab. `.trivyignore` lists the vulnerabilities the build accepts, each with why, such as ones only fixed in a major version the app isn't on yet.
 
 A vulnerability can be published against a library at any time, so the scan can start failing on a pull request that changed nothing near it, and on `main`, where it also holds back the demo's deploy and the backend coverage badge until it passes. The fix then goes in a pull request of its own: move the library to a fixed version, through the Spring Boot version or with a version pin ahead of its BOM in `build.gradle`'s `ext` block. Add to `.trivyignore` only what can't be fixed yet, with the reason and the issue that will fix it.
 
@@ -144,6 +144,27 @@ docker run --rm -v /tmp/image.tar:/image.tar:ro -v trivy-cache:/root/.cache/triv
 ```
 
 The Trivy image is pinned by digest in `.github/trivy/Dockerfile`, which Dependabot updates.
+
+### Running app scan
+
+After the end-to-end tests, the `docker` job runs **[ZAP](https://www.zaproxy.org)**'s baseline scan against the app it started, from inside the Compose network. ZAP crawls the app for a minute and checks every response with its passive rules: security headers, cookie flags, information leaks, caching. It doesn't attack anything or sign in, so it sees what a visitor who isn't signed in sees: the app shell, the sign-in and setup pages, the assets and the API's answers to them.
+
+The scan is an automation plan, `.github/zap/baseline.yaml`. Any alert fails the build with an error pointing here, unless a rule in that plan accepts it. Each accepted one says why, and the ones waiting on a fix link to its issue. Fix what it finds where you can. Accept an alert only when it's expected for this app, with the reason. The log lists every rule with PASS, WARN or IGNORE. The `zap-results` artifact holds the HTML report for 14 days, and every alert, accepted ones included, goes under the Security tab with the category `zap`, the same as Trivy's.
+
+ZAP runs from the image pinned by digest in `.github/zap/Dockerfile`, which Dependabot updates. As ZAP's own baseline does, it fetches its beta passive rules as it starts. Those cover the Permissions-Policy and cross-origin headers.
+
+To run the same scan locally against the stack:
+
+```bash
+docker compose --profile app up --build --wait
+mkdir -m 777 /tmp/zap
+docker run --rm --network "$(docker compose --profile app config --format json | jq -r .name)_default" \
+  -v /tmp/zap:/zap/wrk -v "$PWD/.github/zap/baseline.yaml:/zap/baseline.yaml:ro" \
+  "$(sed -n 's/^FROM //p' .github/zap/Dockerfile)" \
+  sh -c 'zap.sh -cmd -addoninstall pscanrulesBeta && zap.sh -cmd -silent -autorun /zap/baseline.yaml'
+```
+
+The report is then `/tmp/zap/zap.html`, and `/tmp/zap/summary.json` counts the alerts that would fail the build.
 
 ### End-to-End Tests
 
