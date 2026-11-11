@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.config;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.BeanDescription;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.introspect.AnnotatedField;
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import io.swagger.v3.core.converter.AnnotatedType;
 import io.swagger.v3.core.converter.ModelConverter;
 import io.swagger.v3.core.converter.ModelConverterContext;
+import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.media.Schema;
 import java.lang.annotation.Annotation;
@@ -23,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
+import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,9 +36,12 @@ import org.springframework.stereotype.Component;
  * nullable, {@code T | null} in the generated types, only when its type is marked with JSpecify's
  * {@link Nullable}: on a record component, or on a getter's return type. Unmarked means never null,
  * which is what {@link NullMarked} says, so every type in the spec has to be in a {@code
- * NullMarked} class or package. Building the spec fails, and with it the build, when one isn't,
- * when a field is marked with some other {@code @Nullable} that would be ignored, or when two types
- * would share a schema name.
+ * NullMarked} class or package. Building the spec fails when one isn't, when a field is marked with
+ * some other {@code @Nullable} that would be ignored, or when two types would share a schema name.
+ * springdoc swallows an exception from a converter and leaves the response out of the spec, so the
+ * problems are collected while the schemas are resolved and thrown afterwards, from {@link
+ * #customise}, where nothing catches them: /v3/api-docs fails, and with it OpenApiSpecTests and
+ * ./gradlew openApiSpec.
  *
  * <p>It also puts back a field that refers to its own type, which swagger-core leaves out when it
  * first meets that type inside another one.
@@ -44,12 +50,26 @@ import org.springframework.stereotype.Component;
  * body, which would need its own rules, since a client need not send every field.
  */
 @Component
-public class ResponseFieldsConverter implements ModelConverter {
+public class ResponseFieldsConverter implements ModelConverter, OpenApiCustomizer {
 
   private static final ObjectMapper JACKSON = new ObjectMapper();
 
-  // The type each schema name stands for.
-  private final Map<String, Class<?>> names = new ConcurrentHashMap<>();
+  // The type each schema name stands for, by class name: after a DevTools restart the same class
+  // comes from a new class loader.
+  private final Map<String, String> names = new ConcurrentHashMap<>();
+
+  // What the spec being built got wrong, for customise to report.
+  private final Set<String> problems = ConcurrentHashMap.newKeySet();
+
+  @Override
+  public void customise(OpenAPI openApi) {
+    List<String> found = problems.stream().sorted().toList();
+    problems.clear();
+    if (!found.isEmpty()) {
+      throw new IllegalStateException(
+          "The API spec can't say which fields are null:\n  " + String.join("\n  ", found));
+    }
+  }
 
   @Override
   public @Nullable Schema<?> resolve(
@@ -63,33 +83,38 @@ public class ResponseFieldsConverter implements ModelConverter {
     }
     JavaType javaType = JACKSON.constructType(type.getType());
     Class<?> raw = javaType.getRawClass();
-    if (!raw.getPackageName().startsWith("com.javadropbox")) {
+    // A field declared as one type and described as another (@Schema(implementation = ...)) is
+    // resolved as that other type on its own.
+    if (!raw.getPackageName().startsWith("com.javadropbox") || describedAsOther(type, raw)) {
       return resolved;
     }
     String name = name(resolved);
     Schema<?> model = name == null ? resolved : context.getDefinedModels().get(name);
     // Going by Jackson's fields rather than the schema's: swagger-core can leave a type with none,
     // when its only field refers back to it.
-    List<BeanPropertyDefinition> fields =
-        JACKSON.getSerializationConfig().introspect(javaType).findProperties();
+    BeanDescription description = JACKSON.getSerializationConfig().introspect(javaType);
+    List<BeanPropertyDefinition> fields = description.findProperties();
     if (model == null || raw.isEnum() || fields.isEmpty()) {
       return resolved;
     }
     if (name != null) {
-      Class<?> other = names.putIfAbsent(name, raw);
-      if (other != null && other != raw) {
-        throw new IllegalStateException(
-            "%s and %s would both be \"%s\" in the API spec. Give one a @Schema(name = ...)."
-                .formatted(other.getName(), raw.getName(), name));
+      String other = names.putIfAbsent(name, raw.getName());
+      if (other != null && !other.equals(raw.getName())) {
+        problems.add(
+            "%s and %s would both be \"%s\". Give one a @Schema(name = ...)."
+                .formatted(other, raw.getName(), name));
       }
     }
     if (!isNullMarked(raw)) {
-      throw new IllegalStateException(
-          ("%s is in the API spec but not @NullMarked, so whether its fields can be null is"
-                  + " unknown. Mark it or its package @NullMarked, and the fields that can be null"
-                  + " @Nullable.")
+      problems.add(
+          ("%s isn't @NullMarked. Mark it or its package @NullMarked, and the fields that can be"
+                  + " null @Nullable.")
               .formatted(raw.getName()));
+      return resolved;
     }
+    JsonInclude.Value classInclusion =
+        description.findPropertyInclusion(
+            JACKSON.getSerializationConfig().getDefaultPropertyInclusion(raw));
 
     for (BeanPropertyDefinition property : fields) {
       String field = property.getName();
@@ -105,11 +130,11 @@ public class ResponseFieldsConverter implements ModelConverter {
         model.addProperty(field, schema);
       }
       // A field Jackson may leave out can't be promised to be there.
-      if (isAlwaysWritten(property)
+      if (isAlwaysWritten(classInclusion.withOverrides(property.findInclusion()))
           && (model.getRequired() == null || !model.getRequired().contains(field))) {
         model.addRequiredItem(field);
       }
-      if (isNullable(property, raw)) {
+      if (isNullable(property, raw, problems)) {
         model.getProperties().put(field, orNull(schema));
       }
     }
@@ -141,13 +166,29 @@ public class ResponseFieldsConverter implements ModelConverter {
         || (fieldType.getContentType() != null && fieldType.getContentType().getRawClass() == type);
   }
 
-  private static boolean isAlwaysWritten(BeanPropertyDefinition property) {
-    JsonInclude.Include inclusion = property.findInclusion().getValueInclusion();
+  // swagger-core resolves the field's declared type to the other type's schema, and then resolves
+  // that type itself, with the same annotation still attached.
+  private static boolean describedAsOther(AnnotatedType type, Class<?> raw) {
+    if (type.getCtxAnnotations() == null) {
+      return false;
+    }
+    return Stream.of(type.getCtxAnnotations())
+        .anyMatch(
+            a ->
+                a instanceof io.swagger.v3.oas.annotations.media.Schema schema
+                    && schema.implementation() != Void.class
+                    && schema.implementation() != raw);
+  }
+
+  // The field's own @JsonInclude over its class's, over the mapper's default.
+  private static boolean isAlwaysWritten(JsonInclude.Value value) {
+    JsonInclude.Include inclusion = value.getValueInclusion();
     return inclusion == JsonInclude.Include.ALWAYS || inclusion == JsonInclude.Include.USE_DEFAULTS;
   }
 
   // A record component's annotations are on its field and its accessor alike.
-  private static boolean isNullable(BeanPropertyDefinition property, Class<?> owner) {
+  private static boolean isNullable(
+      BeanPropertyDefinition property, Class<?> owner, Set<String> problems) {
     List<Annotation> annotations = new ArrayList<>();
     AnnotatedMethod getter = property.getGetter();
     if (getter != null) {
@@ -159,22 +200,19 @@ public class ResponseFieldsConverter implements ModelConverter {
       annotations.addAll(List.of(field.getAnnotated().getAnnotatedType().getAnnotations()));
       annotations.addAll(List.of(field.getAnnotated().getAnnotations()));
     }
-    Stream<Class<? extends Annotation>> others =
-        annotations.stream()
-            .map(Annotation::annotationType)
-            .filter(a -> a.getSimpleName().equals("Nullable") && a != Nullable.class);
-    others
+    annotations.stream()
+        .map(Annotation::annotationType)
+        .filter(a -> a.getSimpleName().equals("Nullable") && a != Nullable.class)
         .findFirst()
         .ifPresent(
-            other -> {
-              throw new IllegalStateException(
-                  ("%s.%s is marked with %s, which the API spec ignores. Use %s.")
-                      .formatted(
-                          owner.getName(),
-                          property.getName(),
-                          other.getName(),
-                          Nullable.class.getName()));
-            });
+            other ->
+                problems.add(
+                    "%s.%s is marked with %s, which the API spec ignores. Use %s."
+                        .formatted(
+                            owner.getName(),
+                            property.getName(),
+                            other.getName(),
+                            Nullable.class.getName())));
     return annotations.stream().anyMatch(a -> a.annotationType() == Nullable.class);
   }
 
