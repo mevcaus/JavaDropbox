@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -p .",
     "api:types": "openapi-typescript openapi.json --output src/services/apiSchema.ts",
+    "api:client": "rtk-query-codegen-openapi openapi-config.cjs && node scripts/request-bodies.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@rtk-query/codegen-openapi": "^2.2.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

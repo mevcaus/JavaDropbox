@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
-import { SEARCH_ENDPOINT } from '../features/filesSlice';
+import { SEARCH_ENDPOINT } from '../features/files';
 import { readableError } from '../utils/errors';
 
 // How long typing has to pause before the server is asked, so a word typed quickly is one request

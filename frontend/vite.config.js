@@ -14,7 +14,16 @@ export default defineConfig({
       provider: 'v8',
       // Every source file, so one no test imports counts as uncovered instead of going unseen.
       include: ['src/**/*.{js,jsx,ts,tsx}'],
-      exclude: ['src/**/*.test.*', 'src/setupTests.js', 'src/test/**', 'src/services/apiSchema.ts'],
+      // The generated API files are left out, like the tests: npm run api:types and api:client
+      // write them from the spec.
+      exclude: [
+        'src/**/*.test.*',
+        'src/setupTests.js',
+        'src/test/**',
+        'src/services/apiSchema.ts',
+        'src/services/generatedApi.ts',
+        'src/services/requestBodies.ts',
+      ],
       // json-summary is what CI's job summary and badge are made from.
       reporter: ['text-summary', 'html', 'lcovonly', 'json-summary'],
       thresholds: {

@@ -22,8 +22,14 @@ const jsxUsesVars = {
 };
 
 export default defineConfig([
-  // apiSchema.ts is generated from openapi.json (npm run api:types).
-  globalIgnores(['dist', 'coverage', 'src/services/apiSchema.ts']),
+  // Generated from openapi.json (npm run api:types and api:client).
+  globalIgnores([
+    'dist',
+    'coverage',
+    'src/services/apiSchema.ts',
+    'src/services/generatedApi.ts',
+    'src/services/requestBodies.ts',
+  ]),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -47,6 +53,21 @@ export default defineConfig([
       // Only an explicit leading underscore opts out; a capitalised name is not exempt, so an
       // unused component import is reported like anything else.
       'no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
+    },
+  },
+  // Hooks come from apiSlice.ts, which adds the cache tags; the generated endpoints alone have none.
+  {
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    ignores: ['src/services/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['**/generatedApi', '**/generatedApi.*'], message: 'Import from services/apiSlice instead.' },
+          ],
+        },
+      ],
     },
   },
   // Files converted to TypeScript (#206) get the same hooks and refresh rules, parsed by

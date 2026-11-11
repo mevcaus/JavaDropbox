@@ -5,3 +5,5 @@
 # Written by ./gradlew openApiSpec and npm run api:types; collapsed in GitHub's diffs.
 /frontend/openapi.json text eol=lf linguist-generated=true
 /frontend/src/services/apiSchema.ts text eol=lf linguist-generated=true
+/frontend/src/services/generatedApi.ts text eol=lf linguist-generated=true
+/frontend/src/services/requestBodies.ts text eol=lf linguist-generated=true
