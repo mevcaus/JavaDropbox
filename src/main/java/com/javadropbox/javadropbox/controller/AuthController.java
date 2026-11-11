@@ -17,6 +17,7 @@ public class AuthController {
 
   @GetMapping("/me")
   @Operation(
+      operationId = "getCurrentUser",
       summary = "Get current authenticated user",
       description = "The signed-in user's username, and role: ADMIN or USER.")
   public Map<String, String> getCurrentUser(Authentication authentication) {

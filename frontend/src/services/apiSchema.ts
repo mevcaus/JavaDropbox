@@ -121,7 +121,7 @@ export interface paths {
          * Make a password reset link
          * @description A one-time link, valid for a day, at which the account's user chooses a new password; using it ends the account's sessions. The URL is only returned here, and a new link replaces the previous one.
          */
-        post: operations["resetPassword_1"];
+        post: operations["createPasswordResetLink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -176,7 +176,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get the demo account and limits */
-        get: operations["info"];
+        get: operations["getDemoInfo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -513,10 +513,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download shared file
-         * @description Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening /share/{token} as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as /share/{token}/download always does.
+         * Open a share link
+         * @description The file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening it as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as from /share/{token}/download.
          */
-        get: operations["downloadSharedFile"];
+        get: operations["openSharedItem"];
         put?: never;
         post?: never;
         delete?: never;
@@ -534,9 +534,9 @@ export interface paths {
         };
         /**
          * Download shared file
-         * @description Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening /share/{token} as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as /share/{token}/download always does.
+         * @description Downloads the file, or the folder as a zip, a share token opens. Publicly accessible.
          */
-        get: operations["downloadSharedFile_1"];
+        get: operations["downloadSharedItem"];
         put?: never;
         post?: never;
         delete?: never;
@@ -905,7 +905,7 @@ export interface operations {
             };
         };
     };
-    resetPassword_1: {
+    createPasswordResetLink: {
         parameters: {
             query?: never;
             header?: never;
@@ -981,7 +981,7 @@ export interface operations {
             };
         };
     };
-    info: {
+    getDemoInfo: {
         parameters: {
             query?: never;
             header?: never;
@@ -1470,7 +1470,7 @@ export interface operations {
             };
         };
     };
-    downloadSharedFile: {
+    openSharedItem: {
         parameters: {
             query?: never;
             header?: never;
@@ -1492,7 +1492,7 @@ export interface operations {
             };
         };
     };
-    downloadSharedFile_1: {
+    downloadSharedItem: {
         parameters: {
             query?: never;
             header?: never;

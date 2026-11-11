@@ -35,6 +35,7 @@ public class FileVersionController {
 
   @GetMapping("/{fileId}/versions")
   @Operation(
+      operationId = "getFileVersions",
       summary = "Get file versions",
       description =
           "Returns all versions of one of the signed-in user's files. Another account's file is a"
@@ -45,6 +46,7 @@ public class FileVersionController {
 
   @PostMapping("/{fileId}/versions/{version}/restore")
   @Operation(
+      operationId = "restoreVersion",
       summary = "Restore file version",
       description =
           "Restores a version over the live file (OVERWRITE, which keeps the live file as a new"

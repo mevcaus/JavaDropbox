@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.dto.AccountDto;
+import io.swagger.v3.oas.annotations.Hidden;
+import io.swagger.v3.oas.annotations.Operation;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,10 +17,12 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * The frontend's API types are generated from frontend/openapi.json (npm run api:types), so that
@@ -49,6 +53,10 @@ class OpenApiSpecTests {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
+
+  @Autowired
+  @Qualifier("requestMappingHandlerMapping")
+  private RequestMappingHandlerMapping handlerMapping;
 
   @Test
   @DisplayName("matches the spec the controllers describe")
@@ -154,6 +162,36 @@ class OpenApiSpecTests {
     assertThat(bodies)
         .as("ResponseFieldsConverter marks every field required, which is wrong for a request")
         .isEmpty();
+  }
+
+  // springdoc names an operation after its method, suffixing _1 on a clash, so a renamed method or
+  // a new endpoint would rename the hooks a client generated from the spec.
+  @Test
+  @DisplayName("gives every endpoint an id it sets itself, none repeated")
+  void everyOperationHasItsOwnId() throws Exception {
+    List<String> unnamed = new ArrayList<>();
+    handlerMapping
+        .getHandlerMethods()
+        .forEach(
+            (mapping, method) -> {
+              Class<?> controller = method.getBeanType();
+              boolean ours = controller.getPackageName().startsWith("com.javadropbox");
+              boolean hidden =
+                  controller.isAnnotationPresent(Hidden.class)
+                      || method.hasMethodAnnotation(Hidden.class);
+              Operation operation = method.getMethodAnnotation(Operation.class);
+              if (ours && !hidden && (operation == null || operation.operationId().isBlank())) {
+                unnamed.add(controller.getSimpleName() + "." + method.getMethod().getName());
+              }
+            });
+    assertThat(unnamed).as("endpoints without @Operation(operationId = ...)").isEmpty();
+
+    List<String> ids = new ArrayList<>();
+    liveSpec()
+        .path("paths")
+        .forEach(
+            path -> path.forEach(operation -> ids.add(operation.path("operationId").asText())));
+    assertThat(ids).doesNotHaveDuplicates().noneMatch(id -> id.matches(".*_\\d+$"));
   }
 
   private JsonNode liveSpec() throws Exception {

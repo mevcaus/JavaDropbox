@@ -23,6 +23,7 @@ public class HistoryController {
 
   @GetMapping("/api/history")
   @Operation(
+      operationId = "getHistory",
       summary = "Get file history",
       description =
           "Returns one page of the signed-in user's file operation history, newest first. Pages"

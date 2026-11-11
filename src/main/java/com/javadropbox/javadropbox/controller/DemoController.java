@@ -47,7 +47,7 @@ public class DemoController {
   }
 
   @GetMapping("/api/demo")
-  @Operation(summary = "Get the demo account and limits")
+  @Operation(operationId = "getDemoInfo", summary = "Get the demo account and limits")
   public DemoInfo info() {
     return new DemoInfo(
         demo.username(),

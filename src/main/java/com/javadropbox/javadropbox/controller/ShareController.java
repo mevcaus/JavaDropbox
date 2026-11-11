@@ -62,6 +62,7 @@ public class ShareController {
 
   @PostMapping("/api/share")
   @Operation(
+      operationId = "createShareLink",
       summary = "Create share link",
       description =
           "Creates a time-limited share link for a specific path. Requires authentication.")
@@ -94,6 +95,7 @@ public class ShareController {
 
   @GetMapping("/api/share")
   @Operation(
+      operationId = "listShareLinks",
       summary = "List share links",
       description =
           "Lists the links to a path that have not expired or been revoked, the soonest to expire"
@@ -104,6 +106,7 @@ public class ShareController {
 
   @DeleteMapping("/api/share/{id}")
   @Operation(
+      operationId = "revokeShareLink",
       summary = "Revoke share link",
       description = "Revokes a share link so it stops working at once. Requires authentication.")
   public Map<String, String> revokeShareLink(@PathVariable Long id) {
@@ -111,16 +114,33 @@ public class ShareController {
     return Map.of("message", "Share link revoked");
   }
 
-  @GetMapping({"/share/{token}", "/share/{token}/download"})
+  @GetMapping("/share/{token}")
   @Operation(
+      operationId = "openSharedItem",
+      summary = "Open a share link",
+      description =
+          "The file, or the folder as a zip, a share token opens. Publicly accessible. A browser"
+              + " opening it as a page gets the app's page for the link instead, which describes"
+              + " the item and previews it; every other client gets the download, as from"
+              + " /share/{token}/download.")
+  public ResponseEntity<Resource> openSharedItem(
+      @PathVariable String token, HttpServletResponse response) throws IOException {
+    return sendShared(token, response);
+  }
+
+  @GetMapping("/share/{token}/download")
+  @Operation(
+      operationId = "downloadSharedItem",
       summary = "Download shared file",
       description =
-          "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A"
-              + " browser opening /share/{token} as a page gets the app's page for the link"
-              + " instead, which describes the item and previews it; every other client gets the"
-              + " download, as /share/{token}/download always does.")
-  public ResponseEntity<Resource> downloadSharedFile(
+          "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible.")
+  public ResponseEntity<Resource> downloadSharedItem(
       @PathVariable String token, HttpServletResponse response) throws IOException {
+    return sendShared(token, response);
+  }
+
+  private ResponseEntity<Resource> sendShared(String token, HttpServletResponse response)
+      throws IOException {
     // Whatever the reason a link does not open, the public gets a bare 404: the messages name
     // paths, which are none of their business.
     Download download;
@@ -135,6 +155,7 @@ public class ShareController {
 
   @GetMapping("/share/{token}/info")
   @Operation(
+      operationId = "describeSharedItem",
       summary = "Describe shared item",
       description =
           "The name, size and expiry of what a share token opens, how it can be previewed, and"
@@ -150,6 +171,7 @@ public class ShareController {
 
   @GetMapping("/share/{token}/preview")
   @Operation(
+      operationId = "previewSharedFile",
       summary = "Preview shared file",
       description =
           "The file a share token opens, served for display in the browser as"

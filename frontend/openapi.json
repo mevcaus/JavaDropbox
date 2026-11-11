@@ -234,7 +234,7 @@
     "/api/admin/users/{id}/password-reset" : {
       "post" : {
         "description" : "A one-time link, valid for a day, at which the account's user chooses a new password; using it ends the account's sessions. The URL is only returned here, and a new link replaces the previous one.",
-        "operationId" : "resetPassword_1",
+        "operationId" : "createPasswordResetLink",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -344,7 +344,7 @@
     },
     "/api/demo" : {
       "get" : {
-        "operationId" : "info",
+        "operationId" : "getDemoInfo",
         "responses" : {
           "200" : {
             "content" : {
@@ -1034,8 +1034,8 @@
     },
     "/share/{token}" : {
       "get" : {
-        "description" : "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening /share/{token} as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as /share/{token}/download always does.",
-        "operationId" : "downloadSharedFile",
+        "description" : "The file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening it as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as from /share/{token}/download.",
+        "operationId" : "openSharedItem",
         "parameters" : [ {
           "in" : "path",
           "name" : "token",
@@ -1057,14 +1057,14 @@
             "description" : "OK"
           }
         },
-        "summary" : "Download shared file",
+        "summary" : "Open a share link",
         "tags" : [ "Share" ]
       }
     },
     "/share/{token}/download" : {
       "get" : {
-        "description" : "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible. A browser opening /share/{token} as a page gets the app's page for the link instead, which describes the item and previews it; every other client gets the download, as /share/{token}/download always does.",
-        "operationId" : "downloadSharedFile_1",
+        "description" : "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible.",
+        "operationId" : "downloadSharedItem",
         "parameters" : [ {
           "in" : "path",
           "name" : "token",

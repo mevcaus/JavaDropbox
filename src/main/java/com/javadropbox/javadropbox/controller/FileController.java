@@ -55,6 +55,7 @@ public class FileController {
 
   @GetMapping("/api/storage")
   @Operation(
+      operationId = "getStorageUsage",
       summary = "Get storage use",
       description =
           "The bytes the signed-in user stores, previous versions included, and their quota"
@@ -65,6 +66,7 @@ public class FileController {
 
   @GetMapping("/api/files")
   @Operation(
+      operationId = "getFileTree",
       summary = "Get file tree",
       description = "The whole tree of files and folders, folders first, each sorted by name.")
   public List<FileTreeNode> getFileTree() {
@@ -73,6 +75,7 @@ public class FileController {
 
   @GetMapping("/api/files/download")
   @Operation(
+      operationId = "download",
       summary = "Download a file or folder",
       description = "The file at the path, or a folder as a zip streamed as it is built.")
   public ResponseEntity<Resource> download(@RequestParam String path, HttpServletResponse response)
@@ -84,6 +87,7 @@ public class FileController {
 
   @GetMapping("/api/files/preview")
   @Operation(
+      operationId = "preview",
       summary = "Preview a file",
       description =
           "The file at the path served for display in the browser: images and PDFs as"
@@ -97,6 +101,7 @@ public class FileController {
 
   @PostMapping("/api/files")
   @Operation(
+      operationId = "upload",
       summary = "Upload files",
       description =
           "Stores one or more files in the folder at path (the root when empty). A file that"
@@ -111,6 +116,7 @@ public class FileController {
 
   @DeleteMapping("/api/files")
   @Operation(
+      operationId = "delete",
       summary = "Delete a file or folder",
       description = "Deletes the item at path, a folder with everything in it, and its versions.")
   public Map<String, String> delete(@RequestParam String path) throws IOException {
@@ -120,6 +126,7 @@ public class FileController {
 
   @PostMapping("/api/folders")
   @Operation(
+      operationId = "createFolder",
       summary = "Create a folder",
       description = "Creates a folder called name inside the folder at path.")
   public Map<String, String> createFolder(
