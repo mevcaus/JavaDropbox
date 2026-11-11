@@ -36,6 +36,7 @@ public class ShareLinkService {
   private final FileService fileService;
   private final FileTreeService fileTree;
   private final AuthService authService;
+  private final FileRows rows;
 
   public ShareLinkService(
       ShareLinkRepository links,
@@ -44,7 +45,8 @@ public class ShareLinkService {
       FileStore store,
       FileService fileService,
       FileTreeService fileTree,
-      AuthService authService) {
+      AuthService authService,
+      FileRows rows) {
     this.links = links;
     this.files = files;
     this.storagePaths = storagePaths;
@@ -52,6 +54,7 @@ public class ShareLinkService {
     this.fileService = fileService;
     this.fileTree = fileTree;
     this.authService = authService;
+    this.rows = rows;
   }
 
   /** A newly created link. The token is only ever available here, when the link is made. */
@@ -74,7 +77,7 @@ public class ShareLinkService {
             .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
     // An item with no row yet gets one, waiting for an import or upload giving it one meanwhile.
     Instant added = Instant.now();
-    files.insertIfAbsent(
+    rows.addIfAbsent(
         user.getId(), target.key(), target.name(), item.size(), item.isDirectory(), added, added);
     FileMetadata file =
         files

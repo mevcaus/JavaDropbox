@@ -19,21 +19,36 @@ public interface FileMetadataRepository
   @Query("select m from FileMetadata m where m.id = :id and m.owner.id = :ownerId")
   Optional<FileMetadata> findOwned(Long id, Long ownerId);
 
-  /** The ids of the row at {@code path} and of every row below it; see {@link #below}. */
+  /**
+   * Locks the row at {@code path} and every row below it until the transaction ends, in id order so
+   * that two requests locking overlapping rows take turns rather than deadlock; see {@link #below}.
+   * A change to one of them under way, such as a replace, finishes first.
+   *
+   * @return their ids
+   */
   @Query(
-      "select m.id from FileMetadata m where m.owner.id = :ownerId"
-          + " and (m.path = :path or m.path like :below escape '!')")
-  List<Long> findIdsAtOrBelow(Long ownerId, String path, String below);
+      value =
+          "select id from file_metadata where user_id = :ownerId"
+              + " and (path = :path or path like :below escape '!') order by id for update",
+      nativeQuery = true)
+  List<Long> lockIdsAtOrBelow(Long ownerId, String path, String below);
 
   /**
-   * Deletes the row at {@code path} and every row below it in one statement; see {@link #below}.
-   * The database removes their versions with them and detaches their history.
+   * Deletes the row at {@code path} and every row below it in one statement, and says what it
+   * deleted: exactly those rows, even one added since they were locked. Their versions have to be
+   * deleted first, so that they are counted; the database detaches their history.
+   *
+   * @return one row: the bytes the deleted files counted for, and how many rows went
    */
-  @Modifying
   @Query(
-      "delete from FileMetadata m where m.owner.id = :ownerId"
-          + " and (m.path = :path or m.path like :below escape '!')")
-  int deleteAtOrBelow(Long ownerId, String path, String below);
+      value =
+          "with deleted as (delete from file_metadata where user_id = :ownerId"
+              + " and (path = :path or path like :below escape '!')"
+              + " returning size, is_directory)"
+              + " select coalesce(sum(case when is_directory then 0 else coalesce(size, 0) end), 0),"
+              + " count(*) from deleted",
+      nativeQuery = true)
+  List<Object[]> deleteAtOrBelowCounting(Long ownerId, String path, String below);
 
   /**
    * The LIKE pattern, with escape character {@code !}, for everything below the folder at {@code

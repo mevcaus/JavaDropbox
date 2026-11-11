@@ -107,6 +107,7 @@ erDiagram
         varchar role "ROLE_ADMIN or ROLE_USER"
         boolean enabled
         bigint quota_bytes "null for no limit"
+        bigint used_bytes "files and versions, kept as they change"
         int session_version "catches a sign-in during a change"
     }
     file_metadata {
@@ -247,10 +248,10 @@ Every word has to appear in the item's name or in its text. Case and accents don
 ### Why does the database list what exists, and the store hold blobs?
 File contents go on the **filesystem** or in **S3**, not into PostgreSQL, where large objects would swell the database and its backups. Everything else lives in PostgreSQL: accounts, metadata, versions, history and share links. The two are moving to separate jobs, in steps that are still being built ([#228], [#198]):
 
-- **The database is the list of what exists.** Every file, folder and version has a row. The file tree comes from rows, not from walking the store ([#258]), and the storage an account uses and search will too ([#259], [#260]).
+- **The database is the list of what exists.** Every file, folder and version has a row. The file tree and the storage an account uses come from rows, not from walking the store ([#258], [#259]), and search will too ([#260]).
 - **The store will only hold bytes**, each distinct content once, as a blob named by its SHA-256. A file or a version becomes a row that points at a blob, and a blob is removed once nothing points at it ([#316], [#317], [#318]).
 
-Until those land, files are stored at their paths in `.users/<id>/`, and storage use and search walk the store, as the rest of this README describes.
+Until those land, files are stored at their paths in `.users/<id>/`, and search walks the store, as the rest of this README describes.
 
 The other option was to keep each account's files laid out as folders in the store and use blobs for versions only ([#340]). Blobs for everything won:
 
@@ -271,7 +272,7 @@ The services were written against `java.nio.file`, and there are libraries that 
 - **Folders.** S3 has only objects. `S3FileStore` follows the convention S3's own console uses: a folder is there while anything is below it, and an empty one is a zero-byte object named with a trailing slash. Deleting a folder's last file leaves the folder, as it would on disk.
 - **Moves.** A rename on disk is a copy within S3 followed by a delete. Readers still see the old content or the new, never part of either, and what an interruption leaves behind is cleaned up at startup like any other leftover.
 - **Large files.** Uploads go on to S3 as they arrive, in 64 MB parts, each kept in a temporary file until S3 has it so that a part that fails is sent again on its own. Objects too big for one copy are copied in parts, so nothing has to fit in memory. Downloads skip to the range asked for in the request to S3 itself rather than reading up to it.
-- **Listings.** The quota and search read an account's folder with one flat listing (the file tree reads rows), a thousand objects a request, rather than a request per folder.
+- **Listings.** Search reads an account's folder with one flat listing (the file tree and storage use read rows), a thousand objects a request, rather than a request per folder.
 
 The local store keeps everything the disk gives: atomic renames, case-insensitive names spelled as on disk, and symlinks refused right before each operation. Both stores pass one suite of contract tests, run on a temporary folder and on an S3 server in Testcontainers, and the app runs its file flows end to end on S3 as well. The keys are laid out as the serving directory is, so moving an install to S3 is a copy of the folder into the bucket.
 

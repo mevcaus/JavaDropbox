@@ -118,6 +118,7 @@ class S3StorageIntegrationTests {
 
   @AfterEach
   void tearDown() throws Exception {
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     List<ObjectIdentifier> everything =
         client.listObjectsV2Paginator(request -> request.bucket(bucket)).contents().stream()
@@ -351,6 +352,27 @@ class S3StorageIntegrationTests {
     searchIndex.awaitIdle(INDEXING);
     assertThat(search("annual").path("results").get(0).path("relativePath").asText())
         .isEqualTo("imported/2023/minutes.txt");
+  }
+
+  @Test
+  @DisplayName("a replace refused over the quota leaves the object and its versions in the bucket")
+  void refusedReplaceLeavesTheBucketAlone() throws Exception {
+    upload("", "a.txt", "first");
+    upload("", "a.txt", "second");
+    owner.setQuotaBytes(15L);
+    users.save(owner);
+
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(file("a.txt", "a third, longer"))
+                .param("path", "")
+                .with(csrf().asHeader()))
+        .andExpect(status().isInsufficientStorage());
+
+    assertThat(object(home + "a.txt")).isEqualTo("second");
+    assertThat(keys(".versions/")).hasSize(1);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM file_versions", Long.class)).isOne();
   }
 
   @Test

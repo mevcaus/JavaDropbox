@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
+import com.javadropbox.javadropbox.exception.InsufficientStorageException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.FileHistory.ChangeType;
 import com.javadropbox.javadropbox.model.RestoreMode;
@@ -110,6 +111,7 @@ class FileIntegrityIntegrationTests {
     jdbc.execute("DROP TRIGGER IF EXISTS fail_at_commit ON file_history");
     jdbc.execute("DROP TRIGGER IF EXISTS slow_folder_insert ON file_metadata");
     jdbc.execute("DROP TRIGGER IF EXISTS slow_row_insert ON file_metadata");
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
@@ -437,6 +439,60 @@ class FileIntegrityIntegrationTests {
     assertThat(metadata.findPathsOf(owner.getId())).isEmpty();
   }
 
+  // --- quotas ----------------------------------------------------------------------
+
+  @Test
+  @DisplayName("a delete racing a replace of the same file takes off what the file stores by then")
+  void deleteRacingReplaceCountsWhatItRemoves() throws Exception {
+    upload("r.txt", "one");
+    CountDownLatch archived = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              Object result = invocation.callRealMethod();
+              archived.countDown();
+              // The replace holds the file's row lock here, with its new version written.
+              Thread.sleep(1000);
+              return result;
+            })
+        .when(target(versionService))
+        .archive(any(), any(), any());
+
+    List<Throwable> errors =
+        runTogether(
+            () -> upload("r.txt", "a longer replacement"),
+            () -> {
+              assertThat(archived.await(20, TimeUnit.SECONDS)).isTrue();
+              fileService.delete("r.txt");
+            });
+
+    assertThat(errors).isEmpty();
+    assertThat(metadata.findPathsOf(owner.getId())).isEmpty();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT used_bytes FROM users WHERE id = ?", Long.class, owner.getId()))
+        .isZero();
+  }
+
+  @Test
+  @DisplayName("two uploads at once that each fit the quota but not together: only one is stored")
+  void concurrentUploadsCantBothSqueezeIn() throws Exception {
+    jdbc.update("UPDATE users SET quota_bytes = 10 WHERE id = ?", owner.getId());
+    slowDownRowInserts();
+
+    List<Throwable> errors =
+        runTogether(() -> upload("a.txt", "six b."), () -> upload("b.txt", "six b."));
+
+    assertThat(errors).singleElement().isInstanceOf(InsufficientStorageException.class);
+    assertThat(metadata.findPathsOf(owner.getId())).hasSize(1);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT used_bytes FROM users WHERE id = ?", Long.class, owner.getId()))
+        .isEqualTo(6);
+    try (Stream<Path> files = Files.list(home)) {
+      assertThat(files.filter(Files::isRegularFile)).hasSize(1);
+    }
+  }
+
   // --- failures after the disk has changed -------------------------------------
 
   @Test
@@ -575,23 +631,22 @@ class FileIntegrityIntegrationTests {
   private final CountDownLatch firstFinished = new CountDownLatch(1);
 
   /**
-   * Holds the second of two deletes, once both have checked that the item exists, until the first
-   * has committed.
+   * Lets two deletes both resolve the item before either locks its rows, so that they really run at
+   * once; the row locks then make them take turns.
    */
   private void holdSecondVersionCleanupUntilFirstCommits() {
     CyclicBarrier bothStarted = new CyclicBarrier(2);
-    AtomicInteger arrivals = new AtomicInteger();
     doAnswer(
             invocation -> {
-              boolean first = arrivals.incrementAndGet() == 1;
-              bothStarted.await(20, TimeUnit.SECONDS);
-              if (!first) {
-                assertThat(firstFinished.await(20, TimeUnit.SECONDS)).isTrue();
+              try {
+                bothStarted.await(5, TimeUnit.SECONDS);
+              } catch (TimeoutException | BrokenBarrierException e) {
+                // The other delete is not resolving alongside this one.
               }
               return invocation.callRealMethod();
             })
-        .when(target(versionService))
-        .discardAllAtOrBelow(any(), any());
+        .when(target(storagePaths))
+        .home(anyLong());
   }
 
   private int successfulDeletionsOf(String path) {

@@ -62,6 +62,7 @@ public class FileService {
   private final AuthService authService;
   private final UsageMetrics metrics;
   private final StorageQuota quota;
+  private final FileRows rows;
   private final SearchIndex searchIndex;
   private final TransactionTemplate transactions;
 
@@ -75,6 +76,7 @@ public class FileService {
       AuthService authService,
       UsageMetrics metrics,
       StorageQuota quota,
+      FileRows rows,
       SearchIndex searchIndex,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
@@ -86,6 +88,7 @@ public class FileService {
     this.authService = authService;
     this.metrics = metrics;
     this.quota = quota;
+    this.rows = rows;
     this.searchIndex = searchIndex;
     this.transactions = new TransactionTemplate(transactionManager);
   }
@@ -249,10 +252,11 @@ public class FileService {
       try (InputStream in = upload.getInputStream()) {
         size = store.write(scratch, in, lengthOf(upload));
       }
-      quota.check(user);
+      quota.refuseIfOver(user, size);
 
       inTransaction(
           () -> {
+            quota.mustFit(user.getId());
             // Locked before looking at the store, so that concurrent uploads of one file take
             // turns and each archives what the one before it left.
             Optional<FileMetadata> row = files.lockByPath(user.getId(), target.key());
@@ -271,7 +275,7 @@ public class FileService {
             }
             moveIntoPlace(scratch, target.storeKey(), replacing);
 
-            file.setSize(size);
+            resize(file, size);
             file.setUpdatedAt(Instant.now());
             history.recordSuccess(file, ChangeType.UPLOAD, user, null);
             searchIndex.changed(target);
@@ -306,18 +310,24 @@ public class FileService {
 
       inTransaction(
           () -> {
-            // Bulk statements, so a folder costs the same few queries however much it holds. They
-            // run before anything irreversible happens in the store, so a database problem stops
-            // it.
-            versions.discardAllAtOrBelow(user.getId(), target.key());
-            int rows =
-                files.deleteAtOrBelow(
-                    user.getId(), target.key(), FileMetadataRepository.below(target.key()));
+            // The rows are locked first, so a replace or restore of one of them under way
+            // finishes before they are counted and removed, and what is taken off the account's
+            // storage is what the delete itself reports removing. Bulk statements by path, so a
+            // folder costs the same few queries however much it holds. They run before anything
+            // irreversible happens in the
+            // store, so a database problem stops it.
+            String below = FileMetadataRepository.below(target.key());
+            List<Long> ids = files.lockIdsAtOrBelow(user.getId(), target.key(), below);
+            versions.discardAllAtOrBelow(user.getId(), target.key(), ids);
+            Object[] deleted =
+                files.deleteAtOrBelowCounting(user.getId(), target.key(), below).get(0);
+            quota.add(user.getId(), -((Number) deleted[0]).longValue());
+            long rows = ((Number) deleted[1]).longValue();
 
             // The list shows rows, so an item removed from the store behind the app's back is
             // still listed, and deleting it takes away just its rows. Nothing in either is what a
-            // concurrent delete of the same item leaves: the deletes above waited for its row
-            // locks and found nothing.
+            // concurrent delete of the same item leaves: the lock above waited for it and found
+            // nothing.
             boolean stored = store.exists(target.storeKey());
             if (!stored && rows == 0) {
               throw new NotFoundException("Not found: " + target.key());
@@ -411,7 +421,8 @@ public class FileService {
     String scratch = store.scratchBeside(live.storeKey());
     try {
       store.copy(source, scratch);
-      quota.check(user);
+      quota.refuseIfOver(user, sizeOfScratch(scratch));
+      quota.mustFit(user.getId());
       Optional<Entry> current = store.stat(live.storeKey());
       boolean replacing = current.isPresent();
       if (replacing) {
@@ -422,7 +433,7 @@ public class FileService {
       store.delete(scratch);
     }
 
-    file.setSize(sizeOf(live));
+    resize(file, sizeOf(live));
     file.setUpdatedAt(Instant.now());
     history.recordSuccess(file, ChangeType.RESTORE, user, "Restored version " + number);
     searchIndex.changed(live);
@@ -438,7 +449,8 @@ public class FileService {
     String scratch = store.scratchBeside(home.resolveItem(file.getPath()).storeKey());
     try {
       store.copy(source, scratch);
-      quota.check(user);
+      quota.refuseIfOver(user, sizeOfScratch(scratch));
+      quota.mustFit(user.getId());
       StoragePath target = claimCopyName(parent, file.getFilename(), number);
       OnRollback.undo("creating " + target.storeKey(), () -> store.delete(target.storeKey()));
       store.replace(scratch, target.storeKey());
@@ -578,15 +590,31 @@ public class FileService {
     if (leftover.isPresent()) {
       return startOver(leftover.get(), isDirectory, size);
     }
-    return files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, owner));
+    FileMetadata row =
+        files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, owner));
+    quota.add(owner.getId(), row.countedBytes());
+    return row;
   }
 
   // A leftover row made to describe a new item: the old one's versions and share links go.
   private FileMetadata startOver(FileMetadata row, boolean isDirectory, long size) {
     versions.discardAll(row);
     shareLinks.deleteByFile(row);
+    long before = row.countedBytes();
     row.startOver(size, isDirectory);
+    quota.add(row.getOwner().getId(), row.countedBytes() - before);
     return files.save(row);
+  }
+
+  private long sizeOfScratch(String scratch) throws IOException {
+    return store.stat(scratch).map(Entry::size).orElse(0L);
+  }
+
+  // Sets what a file's row says it holds, counting the difference against its owner.
+  private void resize(FileMetadata file, long size) {
+    long before = file.countedBytes();
+    file.setSize(size);
+    quota.add(file.getOwner().getId(), file.countedBytes() - before);
   }
 
   // A file that is stored but was never tracked, e.g. copied in by hand, gets a row now so its
@@ -594,7 +622,7 @@ public class FileService {
   // adding the row at the same time is waited for, and that row is used.
   private FileMetadata track(StoragePath target, long size, User user) {
     Instant now = Instant.now();
-    files.insertIfAbsent(user.getId(), target.key(), target.name(), size, false, now, now);
+    rows.addIfAbsent(user.getId(), target.key(), target.name(), size, false, now, now);
     return files
         .lockByPath(user.getId(), target.key())
         .orElseThrow(

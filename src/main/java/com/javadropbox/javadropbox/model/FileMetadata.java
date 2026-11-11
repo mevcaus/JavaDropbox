@@ -95,6 +95,11 @@ public class FileMetadata {
     this.size = size;
   }
 
+  /** The bytes this item counts for in its owner's storage: a file's size, nothing for a folder. */
+  public long countedBytes() {
+    return Boolean.TRUE.equals(isDirectory) || size == null ? 0 : size;
+  }
+
   public Boolean getIsDirectory() {
     return isDirectory;
   }

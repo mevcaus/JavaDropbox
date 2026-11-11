@@ -92,6 +92,7 @@ class FileOperationsIntegrationTests {
 
   @AfterEach
   void tearDown() throws IOException {
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
@@ -324,6 +325,26 @@ class FileOperationsIntegrationTests {
         .filteredOn(h -> "report.txt".equals(h.getFilePath()))
         .extracting(FileHistory::getChangeType)
         .contains(ChangeType.UPLOAD, ChangeType.DELETE);
+  }
+
+  @Test
+  @DisplayName("a folder of more rows than one statement can bind deletes, and frees what it held")
+  void deletingAHugeFolder() throws Exception {
+    createFolder("", "big");
+    jdbc.update(
+        "INSERT INTO file_metadata (path, filename, size, is_directory, current_version, user_id,"
+            + " created_at, updated_at) SELECT 'big/f' || n, 'f' || n, 1, false, 1, ?, now(), now()"
+            + " FROM generate_series(1, 70000) AS n",
+        owner.getId());
+    jdbc.update("UPDATE users SET used_bytes = used_bytes + 70000 WHERE id = ?", owner.getId());
+
+    deletePath("big");
+
+    assertThat(metadata.findAll()).isEmpty();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT used_bytes FROM users WHERE id = ?", Long.class, owner.getId()))
+        .isZero();
   }
 
   @Test
