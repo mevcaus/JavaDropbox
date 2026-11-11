@@ -144,7 +144,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
-| `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute), besides at each sign-in; `-` turns the schedule off, as the demo does |
+| `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute), besides at each sign-in, up to 1,000 at a time; `-` turns the schedule off, as the demo does |
 | `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |

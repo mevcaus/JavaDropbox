@@ -48,13 +48,15 @@ class SessionConfig implements BeanClassLoaderAware {
 
   /**
    * Spring Session's query for deleting expired sessions, on its schedule and at each sign-in, in
-   * batches and skipping sessions another transaction has locked: a sign-in never waits on another
-   * sign-in's cleanup or on a change ending an account's sessions, can't deadlock with either, and
-   * a backlog (the demo's, after a quiet spell) goes a thousand at a time.
+   * batches and skipping sessions another transaction has locked: a sign-in doesn't wait on another
+   * sign-in's cleanup or on a change ending an account's sessions, and can't deadlock with either.
+   * (Deleting a session's attributes can still wait a moment on a request saving them.) A backlog,
+   * the demo's after a quiet spell, goes a thousand at a time. The sessions are deleted by primary
+   * key from an array, so the delete uses that index however many have expired.
    */
   static final String DELETE_EXPIRED_SESSIONS =
-      "DELETE FROM %TABLE_NAME% WHERE PRIMARY_ID IN (SELECT PRIMARY_ID FROM %TABLE_NAME%"
-          + " WHERE EXPIRY_TIME < ? LIMIT 1000 FOR UPDATE SKIP LOCKED)";
+      "DELETE FROM %TABLE_NAME% WHERE PRIMARY_ID = ANY(ARRAY(SELECT PRIMARY_ID FROM %TABLE_NAME%"
+          + " WHERE EXPIRY_TIME < ? LIMIT 1000 FOR UPDATE SKIP LOCKED))";
 
   private ClassLoader classLoader;
 
@@ -97,7 +99,7 @@ class SessionConfig implements BeanClassLoaderAware {
     try {
       sessionRepository.cleanUpExpiredSessions();
     } catch (RuntimeException e) {
-      log.warn("Could not delete the expired sessions: {}", e.toString());
+      log.warn("Could not delete the expired sessions", e);
     }
   }
 

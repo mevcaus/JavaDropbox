@@ -215,13 +215,14 @@ class SessionStoreIntegrationTests {
       CompletableFuture<HttpResponse<String>> login =
           CompletableFuture.supplyAsync(() -> http.login("owner", "correct-horse", Map.of()));
       assertThat(login.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
+      // Checked while the lock is held: once it is released, the schedule could delete it too.
+      assertThat(jdbc.queryForList("SELECT trim(session_id) FROM spring_session", String.class))
+          .contains("locked")
+          .doesNotContain("free");
     } finally {
       release.countDown();
       holder.get(10, TimeUnit.SECONDS);
     }
-    assertThat(jdbc.queryForList("SELECT trim(session_id) FROM spring_session", String.class))
-        .contains("locked")
-        .doesNotContain("free");
   }
 
   @Test
