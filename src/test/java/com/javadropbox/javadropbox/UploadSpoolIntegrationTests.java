@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
@@ -121,7 +122,11 @@ class UploadSpoolIntegrationTests {
     assertThat(upload.mostSpooled()).isGreaterThanOrEqualTo(MB);
     assertThat(localStore.path(storagePaths.home(owner).key()).resolve("big.bin"))
         .hasSize((long) CHUNKS * MB);
-    assertThat(spooledBytes(spool)).isZero();
+    // The status arrives once the response is flushed, which can be before the request's cleanup
+    // has deleted the spooled part, so on a busy machine it may still be there for a moment.
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(() -> assertThat(spooledBytes(spool)).isZero());
   }
 
   private record Upload(String status, long mostSpooled) {}
