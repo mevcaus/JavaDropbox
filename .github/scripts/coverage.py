@@ -23,8 +23,10 @@ def read_jacoco(path):
     found = {c.get("type"): c for c in report.findall("counter")}
     rows = []
     for key, name in JACOCO_COUNTERS.items():
-        counter = found[key]
-        covered, missed = int(counter.get("covered")), int(counter.get("missed"))
+        # JaCoCo leaves out a counter with nothing to count, such as branches in code with none.
+        counter = found.get(key)
+        covered = int(counter.get("covered")) if counter is not None else 0
+        missed = int(counter.get("missed")) if counter is not None else 0
         rows.append((name, covered, covered + missed))
     return rows
 
@@ -69,7 +71,8 @@ def main():
     print()
 
     if args.badge:
-        lines = percent(*rows[0][1:], 1)
+        _, covered, total = next(row for row in rows if row[0] == "Lines")
+        lines = percent(covered, total, 1)
         badge = {
             "schemaVersion": 1,
             "label": f"{args.name} coverage",

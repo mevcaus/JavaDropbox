@@ -114,7 +114,7 @@ npm test -- --coverage
 
 ### Coverage in CI
 
-The badges in the README show the share of lines covered on `main`. Each workflow's `coverage-badge` job, which runs only on pushes to `main`, turns its report into a [shields.io endpoint](https://shields.io/badges/endpoint-badge) file (`.github/scripts/coverage.py`) and commits it to the `badges` branch (`.github/scripts/publish-badge.sh`), which holds nothing else. It is a job of its own so the token that can push never reaches the job that runs the build. Pull requests get the job summary and the artifacts but don't touch the badges.
+The badges in the README show the share of lines covered on `main`. The `build` and `frontend` jobs turn their report into a [shields.io endpoint](https://shields.io/badges/endpoint-badge) file (`.github/scripts/coverage.py`), and on pushes to `main` keep it as an artifact. Once a CI workflow passes on `main`, the **Coverage badges** workflow commits that file to the `badges` branch, which holds nothing else (`.github/scripts/publish-badge.sh`). It leaves the badge alone if `main` has moved on since, because the newer commit's run will publish its own. It is a workflow of its own, so the demo's deploy never waits on it and the token that can push never reaches a job that runs the build. Pull requests get the job summary and the artifacts but don't touch the badges.
 
 ### End-to-End Tests
 

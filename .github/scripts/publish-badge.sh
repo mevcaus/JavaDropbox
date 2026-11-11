@@ -4,8 +4,12 @@
 #
 #     publish-badge.sh backend.json
 #
-# The backend and frontend workflows each publish their own file and can finish at the same
+# The backend and frontend badges are published by separate runs that can finish at the same
 # moment, so a push that loses the race starts again from the other's commit.
+#
+# With MEASURED_SHA set to the commit the badge was measured on, nothing is published once main
+# has moved past it: runs for nearby commits finish in any order, and the run for main's newest
+# commit publishes its own badge.
 set -euo pipefail
 
 file=$1
@@ -17,6 +21,13 @@ git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
 for attempt in 1 2 3 4 5; do
+  if [ -n "${MEASURED_SHA:-}" ]; then
+    main=$(git ls-remote origin refs/heads/main | cut -f1)
+    if [ "$main" != "$MEASURED_SHA" ]; then
+      echo "main is at $main now, past $MEASURED_SHA, so its own run publishes the badge"
+      exit 0
+    fi
+  fi
   if git fetch --depth 1 origin badges 2>/dev/null; then
     git switch --force -C badges FETCH_HEAD
   else
