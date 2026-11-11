@@ -211,13 +211,14 @@ class OpenApiSpecTests {
     assertThat(ids).noneMatch(id -> id.matches(".*_\\d+$"));
   }
 
-  // A map's keys aren't in the spec, so renaming one would change nothing the drift check sees.
+  // A map's keys aren't in the spec, so renaming one would change nothing the drift check sees. Nor
+  // would changing anything inside an untyped object, such as a field or a response of type Object.
   @Test
-  @DisplayName("describes every successful response's fields, with no bare map")
-  void noResponseIsABareMap() throws Exception {
-    List<String> maps = new ArrayList<>();
-    liveSpec()
-        .path("paths")
+  @DisplayName("describes every field of a successful response, with no map or untyped object")
+  void noResponseHasAnUntypedPart() throws Exception {
+    JsonNode spec = liveSpec();
+    List<String> untyped = new ArrayList<>();
+    spec.path("paths")
         .properties()
         .forEach(
             path ->
@@ -225,23 +226,53 @@ class OpenApiSpecTests {
                     .properties()
                     .forEach(
                         operation ->
-                            operation
-                                .getValue()
-                                .path("responses")
-                                .properties()
+                            operation.getValue().path("responses").properties().stream()
+                                .filter(response -> response.getKey().startsWith("2"))
                                 .forEach(
-                                    response -> {
-                                      if (response.getKey().startsWith("2")
-                                          && response
-                                              .getValue()
-                                              .toString()
-                                              .contains("\"additionalProperties\"")) {
-                                        maps.add(
-                                            operation.getKey().toUpperCase() + " " + path.getKey());
-                                      }
-                                    })));
+                                    response ->
+                                        response
+                                            .getValue()
+                                            .path("content")
+                                            .forEach(
+                                                content ->
+                                                    findUntyped(
+                                                        content.path("schema"),
+                                                        operation.getKey().toUpperCase()
+                                                            + " "
+                                                            + path.getKey(),
+                                                        untyped)))));
+    // Every schema in components is a response's (noSchemaIsARequestBody), so this covers the
+    // records the responses refer to, and the records inside those.
+    spec.path("components")
+        .path("schemas")
+        .properties()
+        .forEach(schema -> findUntyped(schema.getValue(), schema.getKey(), untyped));
 
-    assertThat(maps).as("responses described as a bare map").isEmpty();
+    assertThat(untyped).as("maps and untyped objects in responses").isEmpty();
+  }
+
+  private static void findUntyped(JsonNode schema, String where, List<String> untyped) {
+    if (schema.has("additionalProperties")) {
+      untyped.add(where + " is a map");
+    }
+    boolean object =
+        schema.path("type").asText().equals("object")
+            || schema.path("type").toString().contains("\"object\"");
+    if (object && !schema.has("properties") && !schema.has("additionalProperties")) {
+      untyped.add(where + " is an object with no fields");
+    }
+    schema
+        .path("properties")
+        .properties()
+        .forEach(field -> findUntyped(field.getValue(), where + "." + field.getKey(), untyped));
+    for (String nested : List.of("items", "anyOf", "oneOf", "allOf")) {
+      JsonNode node = schema.path(nested);
+      if (node.isArray()) {
+        node.forEach(option -> findUntyped(option, where, untyped));
+      } else if (!node.isMissingNode()) {
+        findUntyped(node, where + "[]", untyped);
+      }
+    }
   }
 
   private JsonNode liveSpec() throws Exception {
