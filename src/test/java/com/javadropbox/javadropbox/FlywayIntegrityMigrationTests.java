@@ -54,7 +54,8 @@ class FlywayIntegrityMigrationTests {
   @Test
   @DisplayName("keeps the newest row per path and drops rows without one")
   void duplicatePathsAreCollapsed() throws SQLException {
-    assertThat(DATABASE.column("SELECT id FROM file_metadata ORDER BY id"))
+    // Of the rows inserted above; V11 later adds one for the folder "docs" that row 12 is in.
+    assertThat(DATABASE.column("SELECT id FROM file_metadata WHERE id >= 10 ORDER BY id"))
         .containsExactly("11", "12");
     assertThat(DATABASE.column("SELECT file_id FROM file_versions")).containsExactly("11");
   }

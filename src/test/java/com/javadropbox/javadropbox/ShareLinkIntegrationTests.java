@@ -19,12 +19,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -59,6 +61,7 @@ class ShareLinkIntegrationTests {
 
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -360,12 +363,33 @@ class ShareLinkIntegrationTests {
   }
 
   @Test
+  @DisplayName("A folder's page leaves out folders whose names start like it")
+  void sharedFolderLeavesOutLookalikes() throws Exception {
+    for (String path :
+        List.of("clients/acme/a.txt", "clients/acme2/b.txt", "clients/acme_x/c.txt")) {
+      Files.createDirectories(home.resolve(path).getParent());
+      Files.writeString(home.resolve(path), "x");
+    }
+    imports.importFiles(owner.getId(), "test");
+    String token = share("clients/acme");
+
+    mockMvc
+        .perform(get("/share/" + token + "/info").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.contents.length()").value(1))
+        .andExpect(jsonPath("$.contents[0].name").value("a.txt"))
+        .andExpect(content().string(not(containsString("b.txt"))))
+        .andExpect(content().string(not(containsString("c.txt"))));
+  }
+
+  @Test
   @DisplayName("A folder's page lists what it holds by name, folders first, without paths")
   void describesASharedFolder() throws Exception {
     Files.createDirectories(home.resolve("clients/acme/drafts"));
     Files.writeString(home.resolve("clients/acme/notes.txt"), "four");
     Files.writeString(home.resolve("clients/acme/drafts/v1.txt"), "draft");
     Files.writeString(home.resolve("clients/acme/.hidden"), "not listed");
+    imports.importFiles(owner.getId(), "test");
     String token = share("clients/acme");
 
     mockMvc

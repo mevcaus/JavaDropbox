@@ -86,6 +86,12 @@ public interface FileMetadataRepository
   @Query("select m.id from FileMetadata m")
   List<Long> findAllIds();
 
+  /** Like {@link #findAllOf}, for the rows below a folder; see {@link #below}. */
+  @Query(
+      "select m from FileMetadata m join fetch m.owner o where o.id = :ownerId"
+          + " and m.path like :below escape '!'")
+  List<FileMetadata> findAllBelow(Long ownerId, String below);
+
   /** Every row an account owns, with the owner, in one query, for building its file tree. */
   @Query("select m from FileMetadata m join fetch m.owner o where o.id = :ownerId")
   List<FileMetadata> findAllOf(Long ownerId);

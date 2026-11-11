@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -99,6 +100,7 @@ class FirstAccountImportTests {
   @DisplayName("once it is done, nothing at the top of the store moves or is imported")
   void doneOnceThenLeftAlone() throws IOException {
     recorded.add(FirstAccountImport.STEP);
+    recorded.add(FirstAccountImport.EVERY_ACCOUNT_STEP);
     Files.writeString(servingDir.resolve("later.txt"), "put here after the upgrade");
 
     firstAccountImport.atStartup();
@@ -220,6 +222,7 @@ class FirstAccountImportTests {
   @DisplayName("once done, a start names what is at the top, twenty at most")
   void startNamesLeftoverItems() throws IOException {
     recorded.add(FirstAccountImport.STEP);
+    recorded.add(FirstAccountImport.EVERY_ACCOUNT_STEP);
     for (int i = 0; i < 25; i++) {
       Files.writeString(servingDir.resolve(String.format("later-%02d.txt", i)), "x");
     }
@@ -275,6 +278,90 @@ class FirstAccountImportTests {
     firstAccountImport.atStartup();
 
     verify(searchIndex, never()).changed(any(Home.class), any());
+  }
+
+  @Test
+  @DisplayName("after upgrading, every account's folder is imported, once")
+  void everyAccountIsImportedOnce() throws IOException {
+    User bob = new User("bob", "unused", User.ROLE_USER);
+    bob.setId(2L);
+    when(users.findAll()).thenReturn(List.of(owner, bob));
+
+    firstAccountImport.atStartup();
+    firstAccountImport.atStartup();
+
+    verify(imports).importFiles(2L, "the upgrade");
+    assertThat(recorded)
+        .contains(
+            FirstAccountImport.EVERY_ACCOUNT_STEP,
+            FirstAccountImport.ACCOUNT_STEP_PREFIX + 1,
+            FirstAccountImport.ACCOUNT_STEP_PREFIX + 2);
+  }
+
+  @Test
+  @DisplayName("an account whose import fails is tried again, the others are not")
+  void failedAccountIsTriedAgain() throws IOException {
+    User bob = new User("bob", "unused", User.ROLE_USER);
+    bob.setId(2L);
+    when(users.findAll()).thenReturn(List.of(owner, bob));
+    when(imports.importFiles(2L, "the upgrade")).thenThrow(new IllegalStateException("S3 down"));
+
+    firstAccountImport.atStartup();
+
+    assertThat(recorded)
+        .contains(FirstAccountImport.ACCOUNT_STEP_PREFIX + 1)
+        .doesNotContain(
+            FirstAccountImport.ACCOUNT_STEP_PREFIX + 2, FirstAccountImport.EVERY_ACCOUNT_STEP);
+
+    doReturn(new ImportResult(0, 0, 0, 0)).when(imports).importFiles(2L, "the upgrade");
+    firstAccountImport.atStartup();
+
+    assertThat(recorded).contains(FirstAccountImport.EVERY_ACCOUNT_STEP);
+  }
+
+  @Test
+  @DisplayName("the first account's folder another database used stays unimported after upgrading")
+  void foreignFirstFolderIsSkipped() throws IOException {
+    Files.writeString(home().resolve("theirs.txt"), "from a store used before");
+    when(users.findAll()).thenReturn(List.of(owner));
+
+    firstAccountImport.forNewFirstAccount(owner);
+    recorded.remove(FirstAccountImport.EVERY_ACCOUNT_STEP);
+    firstAccountImport.atStartup();
+
+    verify(imports, never()).importFiles(anyLong(), anyString());
+  }
+
+  @Test
+  @DisplayName("an account refused once the store is known to be right isn't tried at every start")
+  void refusedAccountIsLeftWithALogLine() throws IOException {
+    User bob = new User("bob", "unused", User.ROLE_USER);
+    bob.setId(2L);
+    when(users.findAll()).thenReturn(List.of(owner, bob));
+    when(imports.importFiles(2L, "the upgrade"))
+        .thenThrow(new ConflictException("None of this account's files are in the store."));
+
+    firstAccountImport.atStartup();
+
+    assertThat(recorded).contains(FirstAccountImport.EVERY_ACCOUNT_STEP);
+  }
+
+  @Test
+  @DisplayName("after upgrading, the first account's folder is walked once, not twice")
+  void firstAccountIsImportedOnce() throws IOException {
+    when(users.findAll()).thenReturn(List.of(owner));
+
+    firstAccountImport.atStartup();
+
+    verify(imports).importFiles(1L, "the upgrade");
+  }
+
+  @Test
+  @DisplayName("setup records that there is no other account to import")
+  void setupRecordsEveryAccountDone() throws IOException {
+    firstAccountImport.forNewFirstAccount(owner);
+
+    assertThat(recorded).contains(FirstAccountImport.EVERY_ACCOUNT_STEP);
   }
 
   private Path home() {

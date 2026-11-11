@@ -24,9 +24,9 @@ An account's sessions end at once when it is disabled, or its role or password c
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/files` | Full tree as recursive JSON |
+| `GET` | `/api/files` | Full tree as recursive JSON, read from the database: every file and folder the account has a row for, each with its `id`. Files copied into the store by hand are listed once an admin imports them |
 | `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, each named by a bare file name, plus `path`, the folder they go into, created with any missing parents if it does not exist, each with an id, an owner and a history entry like a folder made with `POST /api/folders`); replaced files keep their previous content as a version |
-| `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it |
+| `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it. An item still listed but removed from the store by hand loses its rows; `404` only when neither the database nor the store has it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
 | `GET` | `/api/files/preview?path=<path>` | Serve a previewable file inline: images and PDFs as themselves, text and source files as `text/plain`; supports range requests. `400` for folders and other kinds of file |
 | `POST` | `/api/folders` | Create a folder (`path` + `name`) |

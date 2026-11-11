@@ -22,6 +22,7 @@ import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileService;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StorageSweeper;
@@ -75,6 +76,7 @@ class FileOperationsIntegrationTests {
   @Autowired private StorageSweeper sweeper;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -252,6 +254,45 @@ class FileOperationsIntegrationTests {
     assertThat(folder.getIsDirectory()).isTrue();
     // The row the folder left behind, started over.
     assertThat(folder.getCreatedAt()).isAfter(metadata.findById(id).orElseThrow().getCreatedAt());
+  }
+
+  @Test
+  @DisplayName(
+      "an item removed from the disk by hand is still listed, and deleting it drops its rows")
+  void deletingAnItemGoneFromTheDiskDropsItsRows() throws Exception {
+    upload("Gone", "a.txt", "one");
+    upload("Gone", "a.txt", "two");
+    deleteFolderByHand(home.resolve("Gone"));
+
+    deletePath("Gone");
+
+    assertThat(metadata.findAll()).isEmpty();
+    assertThat(versions.findAll()).isEmpty();
+    mockMvc
+        .perform(delete("/api/files").param("path", "Gone").with(csrf()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  @DisplayName("the list comes from the database: a file copied in is listed once imported")
+  void listingReadsRowsNotTheDisk() throws Exception {
+    upload("", "kept.txt", "x");
+    upload("", "uploaded.txt", "x");
+    Files.writeString(home.resolve("copied in.txt"), "by hand");
+    Files.delete(home.resolve("uploaded.txt"));
+
+    // Its row is still there, so it is listed; the file copied in has none yet.
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[?(@.name == 'uploaded.txt')]").isNotEmpty())
+        .andExpect(jsonPath("$[?(@.name == 'copied in.txt')]").isEmpty());
+
+    imports.importFiles(owner.getId(), "test");
+
+    mockMvc
+        .perform(get("/api/files"))
+        .andExpect(jsonPath("$[?(@.name == 'copied in.txt')].id").isNotEmpty());
   }
 
   // --- deleting --------------------------------------------------------------
