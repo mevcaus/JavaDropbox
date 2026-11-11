@@ -109,7 +109,7 @@ jobs:
       working-directory: e2e
       run: |
         npm ci
-        npx playwright install --with-deps chromium
+        npx playwright install chromium
 
     # Drives the running stack in Chromium: first-run setup with the code from the app's
     # log, then sign-in, uploads, previews, downloads, share links, versions and deletes.
