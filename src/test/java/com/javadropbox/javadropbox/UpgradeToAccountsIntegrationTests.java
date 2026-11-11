@@ -36,6 +36,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -63,6 +64,7 @@ class UpgradeToAccountsIntegrationTests {
   }
 
   @Autowired private MockMvc mockMvc;
+  @Autowired private JdbcTemplate jdbc;
   @Autowired private UserRepository users;
   @Autowired private SearchIndex searchIndex;
   @Autowired private ObjectMapper json;
@@ -192,6 +194,12 @@ class UpgradeToAccountsIntegrationTests {
     } finally {
       Files.deleteIfExists(later);
     }
+  }
+
+  @Test
+  @DisplayName("what each account stores is counted from its files and versions")
+  void usageMatchesRows() {
+    TestDatabase.assertUsageMatchesRows(jdbc);
   }
 
   @Test

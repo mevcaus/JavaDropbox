@@ -71,6 +71,7 @@ class ImportIntegrationTests {
 
   @AfterEach
   void tearDown() throws Exception {
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
     searchIndex.reconcile();

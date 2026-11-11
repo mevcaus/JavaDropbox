@@ -32,12 +32,14 @@ public class FileVersionService {
   private final FileVersionRepository versions;
   private final FileMetadataRepository files;
   private final FileStore store;
+  private final StorageQuota quota;
   private final int maxRetained;
 
   public FileVersionService(
       FileVersionRepository versions,
       FileMetadataRepository files,
       FileStore store,
+      StorageQuota quota,
       @Value("${javadropbox.versions.max-retained:10}") int maxRetained) {
     // Checked here so a bad setting stops the app starting, rather than failing every replace.
     if (maxRetained < 0) {
@@ -47,6 +49,7 @@ public class FileVersionService {
     this.versions = versions;
     this.files = files;
     this.store = store;
+    this.quota = quota;
     this.maxRetained = maxRetained;
   }
 
@@ -94,6 +97,7 @@ public class FileVersionService {
     OnRollback.undo(
         "archiving " + live.key() + " as " + target, () -> store.replace(target, live.key()));
     versions.save(new FileVersion(file, number, stored, live.size(), user));
+    quota.add(file.getOwner().getId(), live.size());
     file.setCurrentVersion(number + 1);
 
     List<FileVersion> all = versions.findByFileMetadataOrderByVersionDesc(file);
@@ -146,19 +150,19 @@ public class FileVersionService {
   /**
    * Deletes the versions of the item at {@code path} in an account's folder and of everything below
    * it, e.g. because a folder is being deleted with all it holds. Takes the same few statements
-   * however many items there are. The rows go now; the stored files once that commits.
+   * however many items there are. The caller holds the row locks of those items ({@code fileIds}),
+   * so no version is added to them meanwhile. The rows go now; the stored files once that commits.
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public void discardAllAtOrBelow(Long ownerId, String path) {
+  public void discardAllAtOrBelow(Long ownerId, String path, List<Long> fileIds) {
     String below = FileMetadataRepository.below(path);
     List<String> stored =
         versions.findStoredFilenamesAtOrBelow(ownerId, path, below).stream()
             .map(FileVersionService::resolve)
             .toList();
     List<String> folders =
-        files.findIdsAtOrBelow(ownerId, path, below).stream()
-            .map(id -> StoragePaths.VERSIONS_DIR + "/" + id)
-            .toList();
+        fileIds.stream().map(id -> StoragePaths.VERSIONS_DIR + "/" + id).toList();
+    quota.add(ownerId, -versions.sizeAtOrBelow(ownerId, path, below));
     versions.deleteAtOrBelow(ownerId, path, below);
 
     AfterCommit.run(
@@ -174,6 +178,9 @@ public class FileVersionService {
   }
 
   private void delete(FileVersion version) {
+    quota.add(
+        version.getFileMetadata().getOwner().getId(),
+        version.getSize() == null ? 0 : -version.getSize());
     versions.delete(version);
     String stored = resolve(version.getStoredFilename());
     AfterCommit.run("remove " + stored, () -> store.delete(stored));

@@ -1,5 +1,6 @@
 package com.javadropbox.javadropbox;
 
+import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -10,6 +11,26 @@ import org.springframework.jdbc.core.JdbcTemplate;
 final class TestDatabase {
 
   private TestDatabase() {}
+
+  /**
+   * Fails if any account's running total of what it stores differs from what its rows add up to: a
+   * change that forgot to count its bytes. Run before {@link #wipe}.
+   */
+  static void assertUsageMatchesRows(JdbcTemplate jdbc) {
+    List<String> drifted =
+        jdbc.queryForList(
+            "SELECT u.username || ': ' || u.used_bytes || ' counted, ' || s.actual || ' stored'"
+                + " FROM users u CROSS JOIN LATERAL (SELECT"
+                + " coalesce((SELECT sum(m.size) FROM file_metadata m"
+                + "   WHERE m.user_id = u.id AND m.is_directory = false), 0)"
+                + " + coalesce((SELECT sum(v.size) FROM file_versions v"
+                + "   JOIN file_metadata m ON m.id = v.file_id WHERE m.user_id = u.id), 0) AS actual) s"
+                + " WHERE u.used_bytes <> s.actual",
+            String.class);
+    org.assertj.core.api.Assertions.assertThat(drifted)
+        .as("storage counted against the rows")
+        .isEmpty();
+  }
 
   static void wipe(JdbcTemplate jdbc) {
     jdbc.execute("DELETE FROM account_links");

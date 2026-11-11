@@ -79,6 +79,7 @@ class ShareLinkIntegrationTests {
 
   @AfterEach
   void tearDown() throws IOException {
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }

@@ -32,19 +32,16 @@ public class AccountService {
   private final UserRepository users;
   private final AccountLinkRepository links;
   private final AuthService authService;
-  private final StorageQuota quota;
   private final AccountSessions sessions;
 
   public AccountService(
       UserRepository users,
       AccountLinkRepository links,
       AuthService authService,
-      StorageQuota quota,
       AccountSessions sessions) {
     this.users = users;
     this.links = links;
     this.authService = authService;
-    this.quota = quota;
     this.sessions = sessions;
   }
 
@@ -59,7 +56,7 @@ public class AccountService {
               Roles.name(user.getRole()),
               user.isEnabled(),
               user.getQuotaBytes(),
-              quota.usedBytes(user)));
+              user.getUsedBytes()));
     }
     return accounts;
   }

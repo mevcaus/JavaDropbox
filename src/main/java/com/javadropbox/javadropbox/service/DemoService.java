@@ -241,10 +241,15 @@ public class DemoService implements ApplicationRunner {
     // The rows first: if that fails nothing is lost, and a later retry starts from the same state.
     transactions.executeWithoutResult(
         status -> {
+          // The accounts first, so an upload committing meanwhile is counted after the reset
+          // rather than set back to zero by it.
+          jdbc.queryForList("SELECT id FROM users FOR UPDATE");
           jdbc.update("DELETE FROM share_links");
           jdbc.update("DELETE FROM file_versions");
           jdbc.update("DELETE FROM file_history");
           jdbc.update("DELETE FROM file_metadata");
+          // Nothing is stored any more; storing the samples counts them again.
+          jdbc.update("UPDATE users SET used_bytes = 0");
         });
 
     // The app's own folder stays: it holds the search index, and the marker of the last reset.

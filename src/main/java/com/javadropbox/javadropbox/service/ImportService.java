@@ -51,6 +51,9 @@ public class ImportService {
   private final FileMetadataRepository files;
   private final UserRepository users;
   private final SearchIndex searchIndex;
+  private final StorageQuota quota;
+  private final FileRows rows;
+  private final FileVersionService versions;
   private final TransactionTemplate transactions;
 
   public ImportService(
@@ -59,12 +62,18 @@ public class ImportService {
       FileMetadataRepository files,
       UserRepository users,
       SearchIndex searchIndex,
+      StorageQuota quota,
+      FileRows rows,
+      FileVersionService versions,
       PlatformTransactionManager transactionManager) {
     this.storagePaths = storagePaths;
     this.store = store;
     this.files = files;
     this.users = users;
     this.searchIndex = searchIndex;
+    this.quota = quota;
+    this.rows = rows;
+    this.versions = versions;
     this.transactions = new TransactionTemplate(transactionManager);
   }
 
@@ -182,8 +191,8 @@ public class ImportService {
       Entry entry = item.entry();
       Instant modified = entry.modified() != null ? entry.modified() : now;
       Instant created = entry.created() != null ? entry.created() : modified;
-      int inserted =
-          files.insertIfAbsent(
+      boolean inserted =
+          rows.addIfAbsent(
               home.userId(),
               item.key(),
               entry.name(),
@@ -191,7 +200,7 @@ public class ImportService {
               entry.isDirectory(),
               created,
               modified);
-      if (inserted == 1) {
+      if (inserted) {
         long id = files.findByPath(home.userId(), item.key()).orElseThrow().getId();
         added.add(new Added(item, id));
         imported.add(item.key());
@@ -230,6 +239,8 @@ public class ImportService {
                     if (exists(candidate.item().entry().key())) {
                       return false;
                     }
+                    versions.discardAll(row.get());
+                    quota.add(home.userId(), -row.get().countedBytes());
                     files.delete(row.get());
                     return true;
                   }));

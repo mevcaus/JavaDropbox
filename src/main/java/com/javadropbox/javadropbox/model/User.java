@@ -45,6 +45,14 @@ public class User {
   private Long quotaBytes;
 
   /**
+   * What the account stores, previous versions included. Kept by {@code StorageQuota} with
+   * statements of its own, never written from here, so a save of the account can't put back a stale
+   * value.
+   */
+  @Column(nullable = false, insertable = false, updatable = false)
+  private long usedBytes;
+
+  /**
    * Bumped whenever the account changes in a way that has to end its sessions: disabled, its role
    * changed or its password reset. A sign-in compares it with the value it read along with the
    * password, which catches a change made while the password was being checked (see
@@ -107,6 +115,10 @@ public class User {
 
   public Long getQuotaBytes() {
     return quotaBytes;
+  }
+
+  public long getUsedBytes() {
+    return usedBytes;
   }
 
   public void setQuotaBytes(Long quotaBytes) {

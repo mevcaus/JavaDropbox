@@ -1,6 +1,11 @@
 package com.javadropbox.javadropbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -15,6 +20,7 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StorageQuota;
+import com.javadropbox.javadropbox.service.StorageRecount;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +38,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -49,10 +56,11 @@ class StorageQuotaIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private FileMetadataRepository metadata;
   @Autowired private StorageQuota quota;
+  @Autowired private StorageRecount recount;
   @Autowired private JdbcTemplate jdbc;
 
   @Autowired private StoragePaths storagePaths;
-  @Autowired private LocalFileStore localStore;
+  @MockitoSpyBean private LocalFileStore localStore;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -66,6 +74,7 @@ class StorageQuotaIntegrationTests {
 
   @AfterEach
   void tearDown() throws IOException {
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
@@ -88,6 +97,62 @@ class StorageQuotaIntegrationTests {
       assertThat(left.map(p -> p.getFileName().toString())).containsExactly("a.txt");
     }
     mockMvc.perform(get("/api/storage")).andExpect(jsonPath("$.usedBytes").value(300));
+  }
+
+  @Test
+  @DisplayName("checking an upload against the quota, and the Users page, never walk the store")
+  void usageDoesNotWalkTheStore() throws Exception {
+    owner.setQuotaBytes(1000L);
+    users.save(owner);
+    String folder = storagePaths.home(owner).key();
+    clearInvocations(localStore);
+
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(new MockMultipartFile("files", "a.txt", "text/plain", "hello".getBytes()))
+                .param("path", "")
+                .with(csrf().asHeader()))
+        .andExpect(status().isOk());
+    mockMvc.perform(get("/api/storage")).andExpect(jsonPath("$.usedBytes").value(5));
+    mockMvc
+        .perform(get("/api/admin/users").with(user("owner").roles("ADMIN")))
+        .andExpect(jsonPath("$[0].usedBytes").value(5));
+
+    // What the quota used to do: walk the account's whole folder. (Search reads the uploaded file
+    // on its own thread, which is its business.)
+    verify(localStore, never()).walk(eq(folder), any());
+    verify(localStore, never()).list(any());
+  }
+
+  @Test
+  @DisplayName(
+      "a replace refused over the quota leaves the file, its versions and the total as they were")
+  void refusedReplaceChangesNothing() throws Exception {
+    upload("a.txt", 40, (byte) 'a').andExpect(status().isOk());
+    upload("a.txt", 40, (byte) 'b').andExpect(status().isOk());
+    owner.setQuotaBytes(100L);
+    users.save(owner);
+
+    upload("a.txt", 30, (byte) 'c').andExpect(status().isInsufficientStorage());
+
+    assertThat(Files.readAllBytes(home.resolve("a.txt"))).containsOnly((byte) 'b').hasSize(40);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM file_versions", Long.class)).isOne();
+    try (Stream<Path> stored = Files.walk(servingDir.resolve(".versions"))) {
+      assertThat(stored.filter(Files::isRegularFile)).hasSize(1);
+    }
+    assertThat(quota.usage(owner).usedBytes()).isEqualTo(80);
+  }
+
+  @Test
+  @DisplayName("a total that drifted from the rows is set right by the recount at startup")
+  void recountSetsDriftRight() throws Exception {
+    upload("a.txt", 40).andExpect(status().isOk());
+    jdbc.update("UPDATE users SET used_bytes = 7 WHERE id = ?", owner.getId());
+
+    recount.recount();
+
+    assertThat(quota.usage(owner).usedBytes()).isEqualTo(40);
   }
 
   @Test
@@ -168,7 +233,7 @@ class StorageQuotaIntegrationTests {
     // 450 of the owner's own fit in 500, though the serving directory holds 850.
     upload("more.txt", 50).andExpect(status().isOk());
     upload("too-much.txt", 100).andExpect(status().isInsufficientStorage());
-    assertThat(quota.usedBytes(owner)).isEqualTo(450);
+    assertThat(quota.usage(owner).usedBytes()).isEqualTo(450);
   }
 
   @Test
@@ -180,7 +245,7 @@ class StorageQuotaIntegrationTests {
 
     upload("a.txt", 600).andExpect(status().isOk());
 
-    assertThat(quota.usedBytes(owner)).isEqualTo(600);
+    assertThat(quota.usage(owner).usedBytes()).isEqualTo(600);
   }
 
   private void setQuota(User account, long bytes) {

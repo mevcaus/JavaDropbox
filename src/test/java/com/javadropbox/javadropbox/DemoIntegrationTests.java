@@ -326,6 +326,7 @@ class DemoIntegrationTests {
   }
 
   private void clear() throws IOException {
+    TestDatabase.assertUsageMatchesRows(jdbc);
     TestDatabase.wipe(jdbc);
     TestStorage.empty(servingDir);
   }
