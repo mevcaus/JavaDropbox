@@ -2,13 +2,14 @@ package com.javadropbox.javadropbox.dto;
 
 import com.javadropbox.javadropbox.model.FileVersion;
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 
 /**
  * One stored version of a file. {@code size} is in bytes, like everywhere else in the API; the
  * client formats it.
  */
 public record FileVersionDto(
-    Long id, Integer version, Long size, Instant createdAt, String createdBy) {
+    Long id, Integer version, @Nullable Long size, @Nullable Instant createdAt, String createdBy) {
 
   public static FileVersionDto fromEntity(FileVersion entity) {
     return new FileVersionDto(

@@ -5,6 +5,8 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
@@ -29,7 +31,8 @@ public class StorageQuota {
   static final String REMOVED_CAP = "javadropbox.storage.max-total-size";
 
   /** What an account stores, previous versions included, and its quota (null for none). */
-  public record Usage(long usedBytes, Long quotaBytes) {}
+  @NullMarked
+  public record Usage(long usedBytes, @Nullable Long quotaBytes) {}
 
   private final StoragePaths storagePaths;
   private final FileStore store;

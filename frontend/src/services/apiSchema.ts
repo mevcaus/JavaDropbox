@@ -590,172 +590,173 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         AccountDto: {
-            enabled?: boolean;
+            enabled: boolean;
             /** Format: int64 */
-            id?: number;
+            id: number;
             /** Format: int64 */
-            quotaBytes?: number;
-            role?: string;
+            quotaBytes: number | null;
+            role: string;
             /** Format: int64 */
-            usedBytes?: number;
-            username?: string;
+            usedBytes: number;
+            username: string;
         };
         AccountLinkInfo: {
             /** Format: date-time */
-            expiresAt?: string;
-            username?: string;
+            expiresAt: string;
+            username: string;
         };
         DemoInfo: {
             /** Format: int64 */
-            maxShareMinutes?: number;
+            maxShareMinutes: number;
             /** Format: int64 */
-            maxUploadBytes?: number;
+            maxUploadBytes: number;
             /** Format: date-time */
-            nextReset?: string;
-            password?: string;
+            nextReset: string;
+            password: string;
             /** Format: int64 */
-            storageLimitBytes?: number;
-            username?: string;
-        };
-        Entry: {
-            isDirectory?: boolean;
-            /** Format: date-time */
-            lastModified?: string;
-            name?: string;
-            /** Format: int64 */
-            size?: number;
+            storageLimitBytes: number | null;
+            username: string;
         };
         FileHistoryDto: {
-            /** @enum {string} */
-            changeType?: "UPLOAD" | "DELETE" | "CREATE_FOLDER" | "RESTORE";
-            details?: string;
-            errorMessage?: string;
-            filePath?: string;
-            filename?: string;
+            /** @enum {string|null} */
+            changeType: "UPLOAD" | "DELETE" | "CREATE_FOLDER" | "RESTORE" | null;
+            details: string | null;
+            errorMessage: string | null;
+            filePath: string | null;
+            filename: string | null;
             /** Format: int64 */
-            id?: number;
-            success?: boolean;
+            id: number;
+            success: boolean;
             /** Format: date-time */
-            timestamp?: string;
-            username?: string;
+            timestamp: string | null;
+            username: string;
         };
         FileTreeNode: {
-            children?: components["schemas"]["FileTreeNode"][];
+            children: components["schemas"]["FileTreeNode"][];
             /** Format: date-time */
-            createdDate?: string;
+            createdDate: string | null;
             /** Format: int64 */
-            id?: number;
-            isDirectory?: boolean;
+            id: number | null;
+            isDirectory: boolean;
             /** Format: date-time */
-            lastModified?: string;
-            name?: string;
-            ownerName?: string;
-            /** @enum {string} */
-            previewType?: "image" | "pdf" | "text";
-            relativePath?: string;
+            lastModified: string | null;
+            name: string;
+            ownerName: string;
+            /** @enum {string|null} */
+            previewType: "image" | "pdf" | "text" | null;
+            relativePath: string;
             /** Format: int64 */
-            size?: number;
+            size: number;
         };
         FileVersionDto: {
             /** Format: date-time */
-            createdAt?: string;
-            createdBy?: string;
+            createdAt: string | null;
+            createdBy: string;
             /** Format: int64 */
-            id?: number;
+            id: number;
             /** Format: int64 */
-            size?: number;
+            size: number | null;
             /** Format: int32 */
-            version?: number;
+            version: number;
         };
         Highlight: {
             /** Format: int32 */
-            end?: number;
+            end: number;
             /** Format: int32 */
-            start?: number;
+            start: number;
         };
         HistoryPage: {
-            items?: components["schemas"]["FileHistoryDto"][];
+            items: components["schemas"]["FileHistoryDto"][];
             /** Format: int32 */
-            page?: number;
+            page: number;
             /** Format: int32 */
-            size?: number;
+            size: number;
             /** Format: int64 */
-            totalItems?: number;
+            totalItems: number;
             /** Format: int32 */
-            totalPages?: number;
+            totalPages: number;
         };
         ImportResult: {
             /** Format: int32 */
-            files?: number;
+            files: number;
             /** Format: int32 */
-            folders?: number;
+            folders: number;
             /** Format: int32 */
-            missing?: number;
+            missing: number;
             /** Format: int32 */
-            skipped?: number;
+            skipped: number;
         };
         InviteDto: {
             /** Format: date-time */
-            createdAt?: string;
-            createdBy?: string;
+            createdAt: string;
+            createdBy: string | null;
             /** Format: date-time */
-            expiresAt?: string;
+            expiresAt: string;
             /** Format: int64 */
-            id?: number;
+            id: number;
             /** Format: int64 */
-            quotaBytes?: number;
-            role?: string;
-            username?: string;
+            quotaBytes: number | null;
+            role: string;
+            username: string;
         };
         SearchResult: {
-            isDirectory?: boolean;
+            isDirectory: boolean;
             /** Format: date-time */
-            lastModified?: string;
-            name?: string;
-            /** @enum {string} */
-            previewType?: "image" | "pdf" | "text";
-            relativePath?: string;
+            lastModified: string | null;
+            name: string;
+            /** @enum {string|null} */
+            previewType: "image" | "pdf" | "text" | null;
+            relativePath: string;
             /** Format: int64 */
-            size?: number;
-            snippet?: components["schemas"]["Snippet"];
+            size: number | null;
+            snippet: components["schemas"]["Snippet"] | null;
         };
         SearchResults: {
-            indexing?: boolean;
-            results?: components["schemas"]["SearchResult"][];
+            indexing: boolean;
+            results: components["schemas"]["SearchResult"][];
             /** Format: int64 */
-            total?: number;
+            total: number;
         };
         ShareLinkDto: {
             /** Format: date-time */
-            createdAt?: string;
-            createdBy?: string;
+            createdAt: string;
+            createdBy: string;
             /** Format: date-time */
-            expiresAt?: string;
+            expiresAt: string;
             /** Format: int64 */
-            id?: number;
+            id: number;
+        };
+        SharedEntry: {
+            children: components["schemas"]["SharedEntry"][] | null;
+            isDirectory: boolean;
+            /** Format: date-time */
+            lastModified: string | null;
+            name: string;
+            /** Format: int64 */
+            size: number;
         };
         SharedItemDto: {
-            contents?: components["schemas"]["Entry"][];
+            contents: components["schemas"]["SharedEntry"][] | null;
             /** Format: date-time */
-            expiresAt?: string;
-            isDirectory?: boolean;
+            expiresAt: string;
+            isDirectory: boolean;
             /** Format: date-time */
-            lastModified?: string;
-            name?: string;
-            /** @enum {string} */
-            previewType?: "image" | "pdf" | "text";
+            lastModified: string | null;
+            name: string;
+            /** @enum {string|null} */
+            previewType: "image" | "pdf" | "text" | null;
             /** Format: int64 */
-            size?: number;
+            size: number;
         };
         Snippet: {
-            highlights?: components["schemas"]["Highlight"][];
-            text?: string;
+            highlights: components["schemas"]["Highlight"][];
+            text: string;
         };
         Usage: {
             /** Format: int64 */
-            quotaBytes?: number;
+            quotaBytes: number | null;
             /** Format: int64 */
-            usedBytes?: number;
+            usedBytes: number;
         };
     };
     responses: never;
