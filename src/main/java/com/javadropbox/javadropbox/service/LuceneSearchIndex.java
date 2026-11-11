@@ -4,7 +4,6 @@ import com.javadropbox.javadropbox.dto.Snippet;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.IndexableItems.Stamp;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
-import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
@@ -15,12 +14,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.LowerCaseFilter;
@@ -78,27 +75,22 @@ import org.apache.lucene.util.BytesRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The {@link SearchIndex} as a Lucene index inside the app. Each item is indexed under its
  * account's id followed by its path. The index can be deleted at any time to be rebuilt from what
  * is stored.
  *
- * <p>All writing happens on one background thread, so an upload never waits for a PDF to be read.
- * It reconciles at startup and every ten minutes: each file's size and modification time are
- * compared with what was indexed, and only the files that differ are read again.
+ * <p>It is written on {@link BackgroundSearchIndex}'s background thread. Each item's size and
+ * modification time are kept with it, so a reconcile reads again only the files that differ.
  *
  * <p>It lives on the local disk, in {@code .javadropbox/search-index} in the serving directory or
  * wherever {@code javadropbox.search.index-directory} says, whichever store holds the files. The
  * writer is open only while there is work, so an idle server holds no lock on it.
  */
 @Service
-public class LuceneSearchIndex implements SearchIndex {
+public class LuceneSearchIndex extends BackgroundSearchIndex {
 
   // Recorded with every commit. Changing what is indexed, or how, means bumping it, so that an
   // index an earlier version wrote is rebuilt rather than searched as if it were current. 2: keys
@@ -106,11 +98,9 @@ public class LuceneSearchIndex implements SearchIndex {
   private static final String FORMAT = "2";
   private static final String FORMAT_KEY = "javadropbox.search.format";
 
-  static final Duration RECONCILE_INTERVAL = Duration.ofMinutes(10);
   // Before trying again when another writer, such as a second server on the same storage, holds
   // the index's lock.
   private static final Duration RETRY_DELAY = Duration.ofSeconds(5);
-  private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(10);
 
   // Small, for the demo's small heap: added documents go to disk sooner.
   private static final double RAM_BUFFER_MB = 8;
@@ -174,18 +164,9 @@ public class LuceneSearchIndex implements SearchIndex {
   private final IndexableItems items;
   private final Path location;
   private final Directory directory;
-  private final ScheduledThreadPoolExecutor worker;
-
-  // What the worker has yet to do, and whether it is at it. Guarded by lock.
-  private final Object lock = new Object();
-  private boolean reconcilePending;
-  private final Set<String> changedPending = new LinkedHashSet<>();
-  private boolean busy;
 
   // Null while there is no index to search yet.
   private volatile SearcherManager searchers;
-  private volatile boolean caughtUp;
-  private volatile boolean closing;
 
   // Whether the next batch starts the index over. Only the worker touches it once it is running.
   private boolean rebuild;
@@ -195,6 +176,7 @@ public class LuceneSearchIndex implements SearchIndex {
       IndexableItems items,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
+    super(RETRY_DELAY);
     this.items = items;
     this.location =
         indexDirectory.isBlank()
@@ -203,15 +185,6 @@ public class LuceneSearchIndex implements SearchIndex {
     // Plain reads rather than the memory mapping FSDirectory.open would pick: the index is small,
     // and mapping it calls native code, which the JVM warns about at every start.
     this.directory = new NIOFSDirectory(location);
-    this.worker =
-        new ScheduledThreadPoolExecutor(
-            1,
-            task -> {
-              Thread thread = new Thread(task, "search-index");
-              thread.setDaemon(true);
-              return thread;
-            });
-    worker.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
     this.searchers = openSearchers();
   }
 
@@ -247,119 +220,24 @@ public class LuceneSearchIndex implements SearchIndex {
     return null;
   }
 
-  @EventListener(ApplicationReadyEvent.class)
-  public void start() {
-    reconcile();
-    long interval = RECONCILE_INTERVAL.toMillis();
-    worker.scheduleWithFixedDelay(this::reconcile, interval, interval, TimeUnit.MILLISECONDS);
-  }
-
+  // A batch the index's lock or a damaged index kept from being written is tried again; a
+  // damaged index is started over first.
   @Override
-  public void changed(Home home, String key) {
-    changed(home.indexKey(key));
-  }
-
-  @Override
-  public void changedEverywhere() {
-    changed("");
-  }
-
-  // The empty key is every account's folder.
-  private void changed(String key) {
-    if (TransactionSynchronizationManager.isSynchronizationActive()) {
-      TransactionSynchronizationManager.registerSynchronization(
-          new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-              enqueue(key);
-            }
-          });
-    } else {
-      enqueue(key);
-    }
-  }
-
-  /** Reads again only the files whose size or modification time is not what was indexed. */
-  @Override
-  public void reconcile() {
-    synchronized (lock) {
-      reconcilePending = true;
-      schedule();
-    }
-  }
-
-  private void enqueue(String key) {
-    synchronized (lock) {
-      changedPending.add(key);
-      schedule();
-    }
-  }
-
-  // Called holding lock.
-  private void schedule() {
-    if (!busy && !closing) {
-      busy = true;
-      worker.execute(this::drain);
-    }
-  }
-
-  @Override
-  public void awaitIdle(Duration timeout) throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    synchronized (lock) {
-      while (busy) {
-        long left = deadline - System.nanoTime();
-        if (left <= 0) {
-          throw new IllegalStateException("Search indexing did not finish within " + timeout);
-        }
-        TimeUnit.NANOSECONDS.timedWait(lock, left);
-      }
-    }
-  }
-
-  // One batch: everything reported since the last one, under one writer and one commit.
-  private void drain() {
-    boolean reconcileAll;
-    List<String> changed;
-    synchronized (lock) {
-      reconcileAll = reconcilePending;
-      changed = List.copyOf(changedPending);
-      reconcilePending = false;
-      changedPending.clear();
-    }
-
-    boolean retry = false;
+  Outcome write(boolean reconcileAll, List<String> changed) throws IOException {
     try {
-      write(reconcileAll, changed);
+      writeBatch(reconcileAll, changed);
+      return Outcome.DONE;
     } catch (LockObtainFailedException e) {
       log.debug("The search index is locked by another writer; trying again in {}", RETRY_DELAY);
-      retry = true;
+      return Outcome.RETRY;
     } catch (CorruptIndexException | IndexFormatTooOldException | IndexFormatTooNewException e) {
       log.warn("Could not read the search index in {}; rebuilding it", location, e);
       rebuild = true;
-      retry = true;
-    } catch (IOException | RuntimeException e) {
-      // What this batch did not get to, the next reconcile will.
-      log.warn("Could not update the search index", e);
-    } finally {
-      synchronized (lock) {
-        if (retry) {
-          reconcilePending |= reconcileAll;
-          changedPending.addAll(changed);
-        }
-        if (closing || (!retry && !reconcilePending && changedPending.isEmpty())) {
-          busy = false;
-          lock.notifyAll();
-        } else if (retry) {
-          worker.schedule(this::drain, RETRY_DELAY.toMillis(), TimeUnit.MILLISECONDS);
-        } else {
-          worker.execute(this::drain);
-        }
-      }
+      return Outcome.RETRY;
     }
   }
 
-  private void write(boolean reconcileAll, List<String> changed) throws IOException {
+  private void writeBatch(boolean reconcileAll, List<String> changed) throws IOException {
     // An index started over has to be filled with everything there is.
     boolean full = reconcileAll || rebuild;
     long started = System.nanoTime();
@@ -377,7 +255,7 @@ public class LuceneSearchIndex implements SearchIndex {
         reconcileAll(writer, counts);
       }
       for (String key : changed) {
-        if (closing) {
+        if (closing()) {
           break;
         }
         replace(writer, key, counts);
@@ -387,8 +265,8 @@ public class LuceneSearchIndex implements SearchIndex {
     }
     rebuild = false;
     refreshSearchers();
-    if (full && !closing) {
-      caughtUp = true;
+    if (full && !closing()) {
+      markCaughtUp();
     }
 
     long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
@@ -434,7 +312,7 @@ public class LuceneSearchIndex implements SearchIndex {
   private void reconcileAll(IndexWriter writer, Counts counts) throws IOException {
     items.reconcile(
         indexedStamps(writer),
-        () -> closing,
+        this::closing,
         (key, entry) -> {
           writer.updateDocument(new Term(PATH, key), document(key, entry));
           counts.indexed++;
@@ -488,7 +366,7 @@ public class LuceneSearchIndex implements SearchIndex {
     }
     items.walkUnder(
         key,
-        () -> closing,
+        this::closing,
         (itemKey, entry) -> {
           writer.addDocument(document(itemKey, entry));
           counts.indexed++;
@@ -541,7 +419,7 @@ public class LuceneSearchIndex implements SearchIndex {
         String path = fields.document(docIds[i], Set.of(PATH)).get(PATH);
         hits.add(new Hit(path.substring(homeKey.length() + 1), (Snippet) snippets[i]));
       }
-      return new Hits(hits, top.totalHits.value(), caughtUp);
+      return new Hits(hits, top.totalHits.value(), isCaughtUp());
     } finally {
       manager.release(searcher);
     }
@@ -617,15 +495,8 @@ public class LuceneSearchIndex implements SearchIndex {
     return text.replaceAll("[*?\\\\]", "\\\\$0");
   }
 
-  @PreDestroy
-  public void close() throws IOException, InterruptedException {
-    synchronized (lock) {
-      closing = true;
-    }
-    worker.shutdown();
-    if (!worker.awaitTermination(SHUTDOWN_GRACE.toMillis(), TimeUnit.MILLISECONDS)) {
-      log.warn("Search indexing did not stop within {}", SHUTDOWN_GRACE);
-    }
+  @Override
+  void closeIndex() throws IOException {
     closeSearchers();
     directory.close();
   }
