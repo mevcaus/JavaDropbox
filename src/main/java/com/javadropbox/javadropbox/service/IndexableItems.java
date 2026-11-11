@@ -5,6 +5,7 @@ import com.javadropbox.javadropbox.service.FileStore.Entry;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.NoSuchFileException;
+import java.text.Normalizer;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
@@ -49,20 +50,21 @@ class IndexableItems {
    * changed} for each item that is new or differs, and then {@code gone} for each indexed key that
    * is no longer stored. A walk {@code stop} cuts short has not seen everything that is still
    * there, so nothing is then reported gone: deleting it would empty the index of what the walk did
-   * not reach. Takes {@code indexed} over, and leaves in it what was reported gone.
+   * not reach. Takes {@code indexed} over.
    */
   void reconcile(
       Map<String, Stamp> indexed, BooleanSupplier stop, ItemVisitor changed, GoneVisitor gone)
       throws IOException {
-    walk(
-        HOMES,
-        stop,
-        (key, entry) -> {
-          if (!Stamp.of(entry).equals(indexed.remove(key))) {
-            changed.visit(key, entry);
-          }
-        });
-    if (stop.getAsBoolean()) {
+    boolean finished =
+        walk(
+            HOMES,
+            stop,
+            (key, entry) -> {
+              if (!Stamp.of(entry).equals(indexed.remove(key))) {
+                changed.visit(key, entry);
+              }
+            });
+    if (!finished) {
       return;
     }
     for (String key : indexed.keySet()) {
@@ -71,10 +73,10 @@ class IndexableItems {
   }
 
   /**
-   * Visits the item at {@code key}, and everything below it; every item there is for the empty key.
-   * The key is an account's id and a path in its folder, as {@link StoragePaths.Home#indexKey}
-   * makes it: what is above it is not checked again. One with {@code ..} or an empty part in it, or
-   * whose way passes through a symbolic link, visits nothing.
+   * Visits the item at {@code key} and everything below it, or every account's items for the empty
+   * key. The key is an account's id and a path in its folder, as {@link StoragePaths.Home#indexKey}
+   * makes it: what is above it is not checked again. One with {@code .}, {@code ..} or an empty
+   * part in it, or whose way passes through a symbolic link, visits nothing.
    */
   void walkUnder(String key, BooleanSupplier stop, ItemVisitor visitor) throws IOException {
     if (!isKey(key)) {
@@ -100,12 +102,15 @@ class IndexableItems {
   }
 
   // The items the file tree lists: no hidden names (the app's own folders among them). The store
-  // leaves out symlinks, and special files such as FIFOs, which reading would block on.
-  private void walk(String start, BooleanSupplier stop, ItemVisitor visitor) throws IOException {
+  // leaves out symlinks, and special files such as FIFOs, which reading would block on. Whether the
+  // walk went all the way, rather than being stopped.
+  private boolean walk(String start, BooleanSupplier stop, ItemVisitor visitor) throws IOException {
+    boolean[] stopped = {false};
     store.walk(
         start,
         entry -> {
           if (stop.getAsBoolean()) {
+            stopped[0] = true;
             return FileVisitResult.TERMINATE;
           }
           if (entry.key().equals(HOMES)) {
@@ -124,6 +129,7 @@ class IndexableItems {
           visitor.visit(key, entry);
           return FileVisitResult.CONTINUE;
         });
+    return !stopped[0];
   }
 
   // Accounts' folders are named after their ids.
@@ -132,8 +138,9 @@ class IndexableItems {
   }
 
   /**
-   * The text of a file the walk visited, for searching. A file whose text cannot be read is still
-   * found by its name. One whose text would not be read anyway is not fetched from the store.
+   * The text of a file the walk visited, for searching, in Unicode's composed form (NFC). A file
+   * whose text cannot be read is still found by its name. One whose text would not be read anyway
+   * is not fetched from the store.
    */
   Optional<String> text(String key, Entry file) {
     String name = file.name();
@@ -142,9 +149,12 @@ class IndexableItems {
       return Optional.empty();
     }
     try {
+      // Accents as one character with their letter ("é" rather than "e" and a combining accent), as
+      // text from some PDFs and names copied from macOS have them, so that folding them away works.
       return store
           .readLocally(file.key(), path -> extractor.extract(path, name, size))
-          .filter(text -> !text.isBlank());
+          .filter(text -> !text.isBlank())
+          .map(text -> Normalizer.normalize(text, Normalizer.Form.NFC));
     } catch (NoSuchFileException e) {
       // Deleted since the walk saw it; that delete's own change will drop it.
       log.debug("{} went before its text could be read", key);

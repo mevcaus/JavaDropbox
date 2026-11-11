@@ -507,7 +507,7 @@ public class LuceneSearchIndex implements SearchIndex {
       document.add(new NumericDocValuesField(MODIFIED, Stamp.millis(entry)));
       items
           .text(key, entry)
-          .ifPresent(text -> document.add(new Field(CONTENT, nfc(text), CONTENT_FIELD)));
+          .ifPresent(text -> document.add(new Field(CONTENT, text, CONTENT_FIELD)));
     }
     return document;
   }

@@ -34,6 +34,7 @@ class IndexableItemsTests {
   private StoragePaths storagePaths;
   private Path mine;
   private boolean failToRead;
+  private int extracted;
 
   private IndexableItems items;
 
@@ -49,6 +50,7 @@ class IndexableItemsTests {
               @Override
               public Optional<String> extract(Path file, String name, long size)
                   throws IOException {
+                extracted++;
                 if (failToRead) {
                   throw new IOException("unreadable");
                 }
@@ -69,28 +71,35 @@ class IndexableItemsTests {
     Files.writeString(homes.resolve("loose.txt"), "loose");
     Files.createDirectories(homes.resolve("stray"));
     Files.writeString(homes.resolve("stray/d.txt"), "d");
-    Files.createDirectories(storagePaths.internalDir());
-    Files.writeString(storagePaths.internalDir().resolve("e.txt"), "e");
 
     assertThat(reconcile(new HashMap<>()).changed)
         .containsExactlyInAnyOrder("1/docs", "1/docs/a.txt", "12/c.txt");
   }
 
   @Test
-  @DisplayName("a reconcile reports what is new or changed, then what is gone")
+  @DisplayName("a reconcile reports what is new, changed in size or time, then what is gone")
   void reconcileReportsChangesAndWhatIsGone() throws Exception {
     Path kept = Files.writeString(mine.resolve("kept.txt"), "kept");
-    Path changed = Files.writeString(mine.resolve("changed.txt"), "changed");
+    Path touched = Files.writeString(mine.resolve("touched.txt"), "same");
+    Path grown = Files.writeString(mine.resolve("grown.txt"), "small");
+    Files.createDirectories(mine.resolve("folder"));
     Map<String, Stamp> indexed = new HashMap<>();
     indexed.put("1/kept.txt", Stamp.of(entry(kept)));
-    indexed.put("1/changed.txt", new Stamp(false, 1, 1));
+    indexed.put("1/touched.txt", Stamp.of(entry(touched)));
+    indexed.put("1/grown.txt", Stamp.of(entry(grown)));
+    indexed.put("1/folder", Stamp.FOLDER);
     indexed.put("1/gone.txt", new Stamp(false, 1, 1));
     Files.writeString(mine.resolve("new.txt"), "new");
-    Files.setLastModifiedTime(changed, FileTime.from(Instant.now().plusSeconds(60)));
+    // Only the modification time, and only the size.
+    Files.setLastModifiedTime(touched, FileTime.from(Instant.now().plusSeconds(60)));
+    FileTime time = Files.getLastModifiedTime(grown);
+    Files.writeString(grown, "rather larger");
+    Files.setLastModifiedTime(grown, time);
 
     Reported reported = reconcile(indexed);
 
-    assertThat(reported.changed).containsExactlyInAnyOrder("1/changed.txt", "1/new.txt");
+    assertThat(reported.changed)
+        .containsExactlyInAnyOrder("1/touched.txt", "1/grown.txt", "1/new.txt");
     assertThat(reported.gone).containsExactly("1/gone.txt");
   }
 
@@ -111,6 +120,29 @@ class IndexableItemsTests {
     assertThat(gone).isEmpty();
   }
 
+  // The walk itself knows it was stopped: a stop that says so only once is enough.
+  @Test
+  @DisplayName("a reconcile stopped once reports nothing gone, even if asked again it wouldn't be")
+  void reconcileStoppedOnceReportsNothingGone() throws Exception {
+    Files.writeString(mine.resolve("a.txt"), "a");
+    Map<String, Stamp> indexed = new HashMap<>();
+    indexed.put("1/gone.txt", new Stamp(false, 1, 1));
+    boolean[] asked = {false};
+    List<String> gone = new ArrayList<>();
+
+    items.reconcile(
+        indexed,
+        () -> {
+          boolean first = !asked[0];
+          asked[0] = true;
+          return first;
+        },
+        (key, e) -> {},
+        gone::add);
+
+    assertThat(gone).isEmpty();
+  }
+
   @Test
   @DisplayName("an item's walk covers it and what is below it")
   void walkUnderCoversTheItem() throws Exception {
@@ -127,6 +159,9 @@ class IndexableItemsTests {
   @DisplayName("a key with .. or an empty part in it visits nothing")
   void keysThatLeaveTheFolderVisitNothing() throws Exception {
     Files.writeString(store.path(storagePaths.home(2).key()).resolve("theirs.txt"), "t");
+    // What the store would make of "1//2" and "1/./x", were they let through.
+    Files.createDirectories(mine.resolve("2"));
+    Files.writeString(mine.resolve("x"), "x");
 
     assertThat(walkUnder("1/../2/theirs.txt")).isEmpty();
     assertThat(walkUnder("1/..")).isEmpty();
@@ -158,6 +193,25 @@ class IndexableItemsTests {
     failToRead = false;
     Files.delete(file);
     assertThat(items.text("1/a.txt", entry)).isEmpty();
+  }
+
+  @Test
+  @DisplayName("a file whose text wouldn't be read is not fetched, and blank text is nothing")
+  void textNotFetchedWhenNotRead() throws Exception {
+    Path binary = Files.write(mine.resolve("data.bin"), new byte[] {1, 2, 3});
+    Path blank = Files.writeString(mine.resolve("blank.txt"), "  \n ");
+    extracted = 0;
+
+    assertThat(items.text("1/data.bin", entry(binary))).isEmpty();
+    assertThat(extracted).isZero();
+    assertThat(items.text("1/blank.txt", entry(blank))).isEmpty();
+  }
+
+  @Test
+  @DisplayName("text is in Unicode's composed form, an accent one character with its letter")
+  void textIsComposed() throws Exception {
+    Path file = Files.writeString(mine.resolve("cafe.txt"), "Cafe\u0301");
+    assertThat(items.text("1/cafe.txt", entry(file))).contains("Caf\u00e9");
   }
 
   @Test
