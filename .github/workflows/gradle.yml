@@ -87,6 +87,7 @@ jobs:
     # Runs the stack as the README tells users to. --wait returns once both
     # services pass their healthchecks, and fails if either never does.
     - name: Start the app with Docker Compose
+      id: stack
       run: docker compose --profile app up --build --detach --wait --wait-timeout 180
 
     # The healthcheck only proves the app and its database are up. Check that / (which
@@ -132,37 +133,44 @@ jobs:
       if: failure()
       run: docker compose --profile app logs
 
-    # Known vulnerabilities in the image the steps above ran. Trivy runs from its own image, pinned by
-    # digest, on a saved copy of ours, so it gets neither the Docker socket nor a token. It goes after
-    # the end-to-end tests, so a finding doesn't hide whether they pass.
+    # Known vulnerabilities in the image the steps above ran, after the end-to-end tests so a finding
+    # doesn't hide whether they pass. Trivy runs from its own image (.github/trivy/Dockerfile, pinned
+    # by digest, which Dependabot keeps current) on a saved copy of ours, with a folder of its own
+    # mounted: no Docker socket, no token, and none of the runner's files.
     - name: Save the image for Trivy
       id: image
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
       run: |
+        mkdir "$RUNNER_TEMP/trivy"
         image="$(docker compose --profile app config --format json | jq -r .name)-app"
-        docker save "$image" -o "$RUNNER_TEMP/image.tar"
+        docker save "$image" -o "$RUNNER_TEMP/trivy/image.tar"
 
-    # Every finding as SARIF, for the Security tab (the trivy job uploads it), then the gate: fixable
-    # high and critical vulnerabilities fail the build. .trivyignore lists the ones accepted, and why.
+    # Every finding as SARIF for the Security tab (the trivy job uploads it), the accepted ones
+    # included so they stay in sight. Then the gate: a fixable high or critical vulnerability not in
+    # .trivyignore fails the build, scanned offline against the database the first pass fetched.
     - name: Scan the image with Trivy
+      id: trivy
       if: ${{ !cancelled() && steps.image.outcome == 'success' }}
-      env:
-        TRIVY: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
       run: |
-        trivy() {
-          docker run --rm -v "$RUNNER_TEMP:/work" -v "$PWD/.trivyignore:/trivyignore:ro" \
-            -e TRIVY_CACHE_DIR=/work/trivy-cache -e TRIVY_IGNOREFILE=/trivyignore "$TRIVY" image --input /work/image.tar "$@"
+        image=$(sed -n 's/^FROM //p' .github/trivy/Dockerfile)
+        flags=(image --input /work/image.tar --scanners vuln --cache-dir /work/cache
+          --disable-telemetry --skip-version-check --no-progress)
+        docker run --rm -v "$RUNNER_TEMP/trivy:/work" "$image" "${flags[@]}" --format sarif --output /work/trivy.sarif
+        echo "sarif=true" >> "$GITHUB_OUTPUT"
+        docker run --rm --network none -v "$RUNNER_TEMP/trivy:/work" -v "$PWD/.trivyignore:/trivyignore:ro" "$image" \
+          "${flags[@]}" --ignorefile /trivyignore --skip-db-update --skip-java-db-update \
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 || {
+          echo "::error::Trivy found a fixable high or critical vulnerability in the image. See the table above and docs/testing.md#image-vulnerability-scan."
+          exit 1
         }
-        trivy --format sarif --output /work/trivy.sarif
-        trivy --skip-db-update --skip-java-db-update --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
     - name: Keep the Trivy results
       id: sarif
-      if: ${{ !cancelled() && hashFiles(format('{0}/trivy.sarif', runner.temp)) != '' }}
+      if: ${{ !cancelled() && steps.trivy.outputs.sarif == 'true' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: trivy-sarif
-        path: ${{ runner.temp }}/trivy.sarif
+        path: ${{ runner.temp }}/trivy/trivy.sarif
         retention-days: 1
 
     - name: Stop the app
@@ -192,7 +200,10 @@ jobs:
         name: trivy-sarif
         path: ${{ runner.temp }}/trivy
 
+    # Reporting only: a failed upload shouldn't fail the workflow, which the demo's deploy and the
+    # coverage badges wait on.
     - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      continue-on-error: true
       with:
         sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
         category: trivy

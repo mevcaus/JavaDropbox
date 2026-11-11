@@ -125,16 +125,21 @@ The badges in the README show the share of lines covered on `main`. The `build` 
 
 ### Image vulnerability scan
 
-The `docker` job scans the image it built with **[Trivy](https://trivy.dev)**, after the end-to-end tests. It fails on a high or critical vulnerability with a fix available, in Alpine's packages or in a library in the jar. The full results, every severity, go under the repository's Security tab (the `trivy` job uploads them). `.trivyignore` lists the vulnerabilities the build accepts, each with why, such as ones only fixed in a major version the app isn't on yet. To run the same scan on an image built locally:
+The `docker` job scans the image it built with **[Trivy](https://trivy.dev)**, after the end-to-end tests. It fails on a high or critical vulnerability with a fix available, in Alpine's packages or in a library in the jar, with an error pointing here. Every finding, any severity and the accepted ones too, goes under the repository's Security tab (the `trivy` job uploads them). `.trivyignore` lists the vulnerabilities the build accepts, each with why, such as ones only fixed in a major version the app isn't on yet.
+
+A vulnerability can be published against a library at any time, so the scan can start failing on a pull request that changed nothing near it, and on `main`. The fix then goes in a pull request of its own: move the library to a fixed version, through the Spring Boot version or with a version pin ahead of its BOM in `build.gradle`'s `ext` block. Add to `.trivyignore` only what can't be fixed yet, with the reason and the issue that will fix it.
+
+To run the same scan on an image built locally (the named volume keeps Trivy's database, about 3 GB, between runs):
 
 ```bash
 docker compose --profile app build app
 docker save "$(docker compose --profile app config --format json | jq -r .name)-app" -o /tmp/image.tar
-docker run --rm -v /tmp:/work -v "$PWD/.trivyignore:/trivyignore:ro" -e TRIVY_IGNOREFILE=/trivyignore \
-  aquasec/trivy:0.76.1 image --input /work/image.tar --severity HIGH,CRITICAL --ignore-unfixed
+docker run --rm -v /tmp/image.tar:/image.tar:ro -v trivy-cache:/root/.cache/trivy \
+  -v "$PWD/.trivyignore:/trivyignore:ro" "$(sed -n 's/^FROM //p' .github/trivy/Dockerfile)" \
+  image --input /image.tar --scanners vuln --ignorefile /trivyignore --severity HIGH,CRITICAL --ignore-unfixed
 ```
 
-When it fails, move the library to a fixed version: through the Spring Boot version, or with a version pin ahead of its BOM in `build.gradle`'s `ext` block. Add to `.trivyignore` only what can't be fixed yet, with the reason and the issue that will fix it.
+The Trivy image is pinned by digest in `.github/trivy/Dockerfile`, which Dependabot updates.
 
 ### End-to-End Tests
 

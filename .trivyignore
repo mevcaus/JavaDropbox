@@ -2,7 +2,8 @@
 # .github/workflows/gradle.yml fails on any other fixable high or critical one.
 
 # spring-webmvc 6.2: fixed only in Spring Framework 7 (Spring Boot 4, #383). Both are in
-# features the app doesn't use: XsltView (remote code execution), and server-sent events rendered
-# through a view. No controller returns a view or an emitter.
+# features the app doesn't use. CVE-2026-47884 needs an XsltView, and nothing configures one or an
+# XSLT view resolver. CVE-2026-47890 is in server-sent events rendered through views, and nothing
+# returns an SseEmitter, a ResponseBodyEmitter or a ServerSentEvent.
 CVE-2026-47884
 CVE-2026-47890

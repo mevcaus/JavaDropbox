@@ -394,7 +394,7 @@ Each run puts its coverage in the job summary and uploads the full report as the
 
 **CodeQL** analyzes the backend, the frontend, the end-to-end tests and these workflows with its `security-extended` queries on every pull request, on every push to `main` and once a week. What it finds shows under the repository's Security tab, and on a pull request as annotations on the changed lines.
 
-**Trivy** scans the image the `docker` job builds for known vulnerabilities, in Alpine's packages and in the jar's libraries. A fixable high or critical one fails the build. Everything it finds goes under the Security tab too. `.trivyignore` lists the ones accepted, each with the reason.
+**Trivy** scans the image the `docker` job builds for known vulnerabilities, in Alpine's packages and in the jar's libraries. A fixable high or critical one fails the build. Everything it finds goes under the Security tab too, the accepted ones included. `.trivyignore` lists those, each with the reason.
 
 ## Live demo
 
