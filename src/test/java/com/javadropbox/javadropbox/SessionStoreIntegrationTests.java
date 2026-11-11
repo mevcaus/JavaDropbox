@@ -21,6 +21,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Sessions live in the spring_session table, which Flyway creates (V9). Each one is a row, so only
@@ -37,6 +39,7 @@ class SessionStoreIntegrationTests {
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ApplicationContext context;
+  @Autowired private JdbcIndexedSessionRepository sessionRepository;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
 
@@ -135,6 +138,37 @@ class SessionStoreIntegrationTests {
                     "/logout", Map.of(), http.withCsrf(Map.of("Cookie", "JSESSIONID=" + session)))
                 .statusCode())
         .isEqualTo(200);
+  }
+
+  @Test
+  @DisplayName("expired sessions are also deleted on a schedule")
+  void cleanupScheduleRuns() {
+    assertThat(ReflectionTestUtils.getField(sessionRepository, "taskScheduler")).isNotNull();
+  }
+
+  @Test
+  @DisplayName("signing in deletes the sessions that have expired, and no others")
+  void signInDeletesExpiredSessions() {
+    long now = System.currentTimeMillis();
+    jdbc.update(
+        "INSERT INTO spring_session VALUES"
+            + " ('00000000-0000-0000-0000-00000000000e', 'expired', ?, ?, 1800, ?, 'someone')",
+        now - 3_600_000,
+        now - 3_600_000,
+        now - 1_800_000);
+    jdbc.update(
+        "INSERT INTO spring_session VALUES"
+            + " ('00000000-0000-0000-0000-00000000000a', 'alive', ?, ?, 1800, ?, 'someone')",
+        now,
+        now,
+        now + 1_800_000);
+
+    assertThat(http.login("owner", "correct-horse", Map.of()).statusCode()).isEqualTo(200);
+
+    assertThat(jdbc.queryForList("SELECT trim(session_id) FROM spring_session", String.class))
+        .contains("alive")
+        .doesNotContain("expired")
+        .hasSize(2);
   }
 
   @Test
