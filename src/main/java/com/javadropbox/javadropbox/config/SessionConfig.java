@@ -35,8 +35,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * (FlushMode.IMMEDIATE): a sign-in has to be in the database before it checks that its account
  * didn't change meanwhile (see AccountSessions). That is set here rather than as
  * spring.session.jdbc.flush-mode, so no setting can turn it off. Other requests still write their
- * session once each, when they first load it, which happens in Spring Security's filters before any
- * transaction of the app's starts.
+ * session once each, when they first load it, which is in {@link EndUnreadableSessions}, ahead of
+ * Spring Security and outside any transaction of the app's: a write inside one would take a second
+ * connection, and could wait on a lock that transaction holds.
  */
 @Configuration
 class SessionConfig implements BeanClassLoaderAware {

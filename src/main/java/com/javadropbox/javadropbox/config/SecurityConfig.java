@@ -217,23 +217,41 @@ public class SecurityConfig {
    */
   private static boolean stillCurrent(
       HttpServletRequest request, Authentication auth, AccountSessions accountSessions) {
-    boolean current = false;
+    if (!(auth.getPrincipal() instanceof AccountDetails account)) {
+      log.warn("Refused a sign-in of \"{}\": not an account this app loaded", auth.getName());
+      endNewSession(request, null);
+      return false;
+    }
+    boolean current;
     try {
-      current =
-          auth.getPrincipal() instanceof AccountDetails account
-              && accountSessions.isCurrent(account.getUsername(), account.sessionVersion());
-      if (!current) {
-        log.info("Refused a sign-in of \"{}\": the account changed meanwhile", auth.getName());
+      current = accountSessions.isCurrent(account.getUsername(), account.sessionVersion());
+    } catch (RuntimeException e) {
+      endNewSession(request, e);
+      throw e;
+    }
+    if (!current) {
+      log.info("Refused a sign-in of \"{}\": the account changed meanwhile", auth.getName());
+      endNewSession(request, null);
+    }
+    return current;
+  }
+
+  // If ending it fails too, as it will when the database is gone, that is added to the failure
+  // that called for it rather than hiding it. Spring Session forgets the session before deleting
+  // it, so no cookie for it is sent either way.
+  private static void endNewSession(HttpServletRequest request, RuntimeException cause) {
+    SecurityContextHolder.clearContext();
+    HttpSession session = request.getSession(false);
+    if (session == null) {
+      return;
+    }
+    try {
+      session.invalidate();
+    } catch (RuntimeException e) {
+      if (cause == null) {
+        throw e;
       }
-      return current;
-    } finally {
-      if (!current) {
-        SecurityContextHolder.clearContext();
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-          session.invalidate();
-        }
-      }
+      cause.addSuppressed(e);
     }
   }
 

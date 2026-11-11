@@ -51,7 +51,9 @@ public class AccountSessions {
   /**
    * Ends the account's sessions as part of the current transaction, which there must be. The
    * account must have been loaded in that transaction: it is saved as it is, with whatever else the
-   * change set on it.
+   * change set on it. The request making the change must not then write its own session in the same
+   * transaction if it may be one of the account's: Spring Session would wait, on a connection of
+   * its own, for the lock this deletion holds until the transaction ends.
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public void end(User account) {

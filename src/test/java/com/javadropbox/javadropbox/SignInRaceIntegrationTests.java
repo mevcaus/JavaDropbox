@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -45,7 +47,7 @@ class SignInRaceIntegrationTests {
   @MockitoSpyBean private PasswordEncoder passwordEncoder;
   @MockitoSpyBean private AccountSessions accountSessions;
   @Autowired private UserRepository users;
-  @Autowired private JdbcTemplate jdbc;
+  @MockitoSpyBean private JdbcTemplate jdbc;
   @Autowired private PlatformTransactionManager transactionManager;
 
   private HttpTestClient http;
@@ -93,7 +95,7 @@ class SignInRaceIntegrationTests {
         .isCurrent(anyString(), anyInt());
 
     assertThat(http.login("ada", "correct-horse", Map.of()).statusCode()).isEqualTo(401);
-    // spring.session.jdbc.flush-mode=immediate: the session was there for the change to delete.
+    // SessionConfig flushes sessions at once: the session was there for the change to delete.
     assertThat(storedBeforeTheCheck.get()).isEqualTo(1);
     assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
   }
@@ -130,6 +132,36 @@ class SignInRaceIntegrationTests {
     HttpResponse<String> login = http.login("ada", "correct-horse", Map.of());
 
     assertThat(login.statusCode()).isEqualTo(500);
+    assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
+  }
+
+  // A change writes the new version before it deletes the sessions, so a sign-in that comes between
+  // the two waits for it; the other way round, its session could be stored after the deletion and
+  // checked before the new version was written.
+  @Test
+  @DisplayName("a sign-in between a change's new version and its deletion waits, and is refused")
+  void signInBetweenTheVersionAndTheDeletion() throws Exception {
+    CountDownLatch deleting = new CountDownLatch(1);
+    CountDownLatch delete = new CountDownLatch(1);
+    doAnswer(
+            call -> {
+              deleting.countDown();
+              await(delete);
+              return call.callRealMethod();
+            })
+        .when(jdbc)
+        .update(startsWith("DELETE FROM spring_session"), ArgumentMatchers.<Object>any());
+    CompletableFuture<Void> change = CompletableFuture.runAsync(() -> inTransaction(this::demote));
+    assertThat(deleting.await(10, TimeUnit.SECONDS)).isTrue();
+
+    CompletableFuture<HttpResponse<String>> login =
+        CompletableFuture.supplyAsync(() -> http.login("ada", "correct-horse", Map.of()));
+    Thread.sleep(500);
+    assertThat(login).isNotDone();
+
+    delete.countDown();
+    change.get(10, TimeUnit.SECONDS);
+    assertThat(login.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(401);
     assertThat(TestDatabase.sessionsOf(jdbc, "ada")).isZero();
   }
 
