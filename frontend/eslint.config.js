@@ -23,7 +23,7 @@ const jsxUsesVars = {
 
 export default defineConfig([
   // apiSchema.ts is generated from openapi.json (npm run api:types).
-  globalIgnores(['dist', 'src/services/apiSchema.ts']),
+  globalIgnores(['dist', 'coverage', 'src/services/apiSchema.ts']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

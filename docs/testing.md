@@ -87,6 +87,9 @@ Component tests run under **Vitest** in a **jsdom** environment using **Testing 
 ```bash
 cd frontend
 npm test
+
+# The same, with the coverage report and its thresholds, as CI runs it
+npm test -- --coverage
 ```
 
 | Test Suite | What It Covers |
@@ -104,6 +107,10 @@ npm test
 | `authSlice.test.js`, `filesSlice.test.js`, `api.test.js`, `errors.test.js`, `quota.test.js`, `droppedFiles.test.js` | Session handling (logout is a POST, no password in the console, the role from sign-in or the session check and never kept in localStorage), quotas shown in their largest whole unit and sent in bytes, only the newest file listing applied, refreshing after failed mutations, folder uploads sent a folder at a time, parents first, with bare file names, stopping at the first failure, dropped folders walked with each file's path inside them (read to the end, dot-named folders not walked into, plain files when an item has no entry), CSRF priming, 401 handling, readable error messages |
 | `ToastContext.test.jsx` | Errors announced assertively, toasts held while hovered or focused |
 | `FileTable.test.jsx`, `Breadcrumbs.test.jsx`, `Sidebar.test.jsx` | The storage meter against the quota, asked again when the files change, and the Users link for admins only; default folders-before-files ordering; search asking the server about the open folder once typing pauses, results best first with path labels, the matching passage with its words marked and markup in it shown as text, results shown as the tree has them (so tracked files offer versions) or as the server sent them, counts, the best-of note, the still-indexing note, failures, answers to an older search dropped, searching again when the files change, sorting results by a column and back to relevance; sorting by name/size/last-modified with direction toggling, `aria-sort` annotation and keyboard activation of headers, search clearing on folder navigation, actions reachable on touch screens and named after their file, previews offered only for files the server marks previewable, visible keyboard focus, the breadcrumb landmark |
+
+#### Frontend coverage thresholds
+
+`npm test -- --coverage` measures the frontend's coverage with **`@vitest/coverage-v8`** and writes the report to `frontend/coverage/index.html`, with an `lcov.info` copy beside it. It counts every file under `src/`, not only the ones a test imports, and leaves out the tests themselves, their helpers and the generated `apiSchema.ts`. It fails when the tests cover less than 94% of lines, 87% of branches, 93% of statements or 91% of functions, the thresholds in `vite.config.js`. They sit just under the coverage when they were set (94.6%, 87.7%, 93.8% and 92.1%), which leaves about 7 lines, 5 branches, 10 statements and 4 functions of slack: one new component with a few untested handlers fails it, and a small untested change can use up the slack and leave the failure to the next one. The frontend CI runs it this way, so a drop fails the pull request. Raise them when coverage rises; lower them only on purpose, in a change that says why. Plain `npm test` skips coverage, so it stays quick while you work.
 
 ### End-to-End Tests
 
