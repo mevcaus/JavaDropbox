@@ -3,7 +3,8 @@ import { NavLink } from 'react-router-dom';
 import { Folder, HardDrive, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import Logo from './Logo';
 import { useSelector } from 'react-redux';
-import { selectTotalSize } from '../features/filesSlice';
+import { totalSize } from '../features/files';
+import { filesApi } from '../services/filesApi';
 import { selectIsAdmin } from '../features/authSlice';
 import api from '../services/api';
 import { formatSize } from '../utils/format';
@@ -14,7 +15,8 @@ export const STORAGE_ENDPOINT = '/api/storage';
 // whenever the file list changes, which every upload, delete and restore makes it do. Null until
 // the server has answered.
 const useStorageUsage = () => {
-    const files = useSelector((state) => state.files.files);
+    // The tree the dashboard loaded, read from the cache without fetching it here.
+    const { data: files } = filesApi.endpoints.getFileTree.useQueryState();
     const [usage, setUsage] = useState(null);
 
     useEffect(() => {
@@ -41,7 +43,8 @@ const barColour = (fraction) => {
 
 const StorageMeter = ({ isCollapsed }) => {
     const usage = useStorageUsage();
-    const treeSize = useSelector(selectTotalSize);
+    const { data: tree } = filesApi.endpoints.getFileTree.useQueryState();
+    const treeSize = totalSize(tree);
     const used = usage?.usedBytes ?? treeSize;
     const quota = usage?.quotaBytes ?? null;
 

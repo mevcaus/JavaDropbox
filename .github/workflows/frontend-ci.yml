@@ -57,8 +57,9 @@ jobs:
     - name: API types up to date
       run: |
         npm run api:types
-        git diff --exit-code -- src/services/apiSchema.ts || {
-          echo "::error file=frontend/src/services/apiSchema.ts::Out of date with frontend/openapi.json. Run npm run api:types in frontend/ and commit the result."
+        npm run api:client
+        git diff --exit-code -- src/services/apiSchema.ts src/services/generatedApi.ts src/services/requestBodies.ts || {
+          echo "::error file=frontend/openapi.json::The generated API files are out of date with frontend/openapi.json. Run npm run api:types and npm run api:client in frontend/ and commit the result."
           exit 1
         }
 

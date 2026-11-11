@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import Dashboard from './Dashboard';
-import filesReducer, { fetchFiles } from '../features/filesSlice';
-import authReducer from '../features/authSlice';
+import { makeStore } from '../redux/store';
+import { filesApi } from '../services/filesApi';
 import api from '../services/api';
 
 vi.mock('../services/api');
@@ -39,7 +38,7 @@ const LocationProbe = () => {
 };
 
 const renderDashboard = ({ url = '/dashboard' } = {}) => {
-    const store = configureStore({ reducer: { auth: authReducer, files: filesReducer } });
+    const store = makeStore();
     render(
         <Provider store={store}>
             <MemoryRouter initialEntries={[url]}>
@@ -417,7 +416,9 @@ describe('Dashboard', () => {
         const store = renderDashboard();
         await screen.findByRole('button', { name: 'Download report.pdf' });
 
-        store.dispatch(fetchFiles.pending('refresh'));
+        // A refresh that hasn't answered yet, as after every upload, delete or restore.
+        api.get.mockReturnValueOnce(new Promise(() => {}));
+        store.dispatch(filesApi.util.invalidateTags(['Files']));
 
         expect(screen.getByRole('button', { name: 'Download report.pdf' })).toBeInTheDocument();
         expect(screen.queryByLabelText('Loading files')).not.toBeInTheDocument();

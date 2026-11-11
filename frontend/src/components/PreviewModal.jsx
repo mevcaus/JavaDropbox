@@ -1,5 +1,5 @@
 import { Download } from 'lucide-react';
-import { PREVIEW_ENDPOINT } from '../features/filesSlice';
+import { PREVIEW_ENDPOINT } from '../features/files';
 import FilePreview from './FilePreview';
 import Modal, { ModalActions } from './Modal';
 import { primaryButton, secondaryButton } from './modalStyles';

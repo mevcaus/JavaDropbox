@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import authReducer, { loginUser } from '../features/authSlice';
-import filesReducer, { fetchFiles } from '../features/filesSlice';
+import { loginUser } from '../features/authSlice';
+import { makeStore } from '../redux/store';
+import { filesApi } from '../services/filesApi';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
@@ -14,7 +14,7 @@ vi.mock('../services/api');
 const GB = 1024 ** 3;
 
 const renderSidebar = ({ role = 'USER', isCollapsed = false } = {}) => {
-    const store = configureStore({ reducer: { auth: authReducer, files: filesReducer } });
+    const store = makeStore();
     store.dispatch(loginUser.fulfilled({ username: 'ada', role }, 'seed'));
     const view = render(
         <Provider store={store}>
@@ -63,8 +63,7 @@ describe('Sidebar', () => {
 
         api.get.mockResolvedValue({ data: { usedBytes: 4096, quotaBytes: null } });
         // A refresh of the file list, as every upload, delete or restore makes.
-        store.dispatch(fetchFiles.pending('refresh'));
-        store.dispatch(fetchFiles.fulfilled([], 'refresh'));
+        store.dispatch(filesApi.util.upsertQueryData('getFileTree', undefined, []));
 
         expect(await screen.findByText('4 KB stored')).toBeInTheDocument();
     });

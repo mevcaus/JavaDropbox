@@ -98,15 +98,18 @@ JavaDropbox/
 │   │   │   ├── Sidebar.jsx         #   Navigation, and storage used against the quota
 │   │   │   ├── DemoBanner.jsx      #   The live demo's limits and next reset
 │   │   │   └── Logo.jsx, AnimatedLogo.jsx
-│   │   ├── features/               # Redux slices
+│   │   ├── features/               # Redux slices and helpers
 │   │   │   ├── authSlice.js        #   Login/logout/session thunks + state, the role
-│   │   │   └── filesSlice.js       #   File thunks, tree selectors, endpoint paths
+│   │   │   └── files.js            #   The file tree's helpers, and the endpoints linked to
 │   │   ├── hooks/                  # useFileSearch (search as you type), useToast, useDemoInfo
 │   │   ├── layouts/MainLayout.jsx  # Auth-guarded layout wrapper
 │   │   ├── pages/                  # Dashboard, Login, Setup, Admin (accounts), Shared (a share
 │   │   │                           #   link's public page), AccountLink (invitation and reset pages)
 │   │   ├── services/api.js         # Axios instance: CSRF priming, 401 handler hook
 │   │   ├── services/apiSchema.ts   # API types, generated from openapi.json (npm run api:types)
+│   │   ├── services/generatedApi.ts # RTK Query endpoints, generated too (npm run api:client)
+│   │   ├── services/filesApi.ts    #   Their cache tags, and the folder upload the spec can't describe
+│   │   ├── services/baseQuery.ts   #   Sends them through api.js, each body as its endpoint takes it
 │   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard
 │   │   ├── App.jsx                 # Route definitions
 │   │   └── main.jsx                # Entry point; registers the 401 handler
@@ -260,16 +263,19 @@ The frontend's types for requests and responses are generated from the backend, 
 - `frontend/openapi.json`, the OpenAPI spec springdoc builds from the controllers. It's built with the `demo` profile, so the demo's endpoint is in it. An endpoint switched off for the demo (`@Profile("!demo")`) would drop out of it, and out of the frontend's types.
 - `frontend/src/services/apiSchema.ts`, the types `openapi-typescript` generates from that spec. Import them as types, which `verbatimModuleSyntax` requires (`import type { components } from './apiSchema'`), e.g. `components['schemas']['FileTreeNode']`. Never edit the file by hand.
 
-After changing an endpoint, a request or a response, write both again and commit them:
+After changing an endpoint, a request or a response, write them all again and commit them:
 
 ```bash
 ./gradlew openApiSpec                      # writes frontend/openapi.json; needs Docker, like the tests
 cd frontend && npm run api:types           # writes src/services/apiSchema.ts
+npm run api:client                         # writes src/services/generatedApi.ts and requestBodies.ts
 ```
 
 Do the same when updating springdoc or `openapi-typescript`, whose output can change with the version. Dependabot bumps `openapi-typescript` in a pull request of its own. If the new version writes different output, that pull request fails the frontend CI until `npm run api:types` is run and committed on its branch.
 
-`./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while `apiSchema.ts` doesn't match `openapi.json`.
+`./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while the generated files don't match `openapi.json`.
+
+**Loading data.** Read and change server data through the RTK Query hooks `filesApi.ts` exports, not by calling `api.js` yourself ([#334](https://github.com/mevcaus/JavaDropbox/issues/334) moves the rest of the screens over). `@rtk-query/codegen-openapi` generates the endpoints into `generatedApi.ts`, named after the operation ids. `filesApi.ts` adds their cache tags, and requests the spec can't describe, such as uploading a folder one subfolder at a time. A change invalidates the tag of what it changed, which refetches it, failed changes included, since a failure can leave part of the change stored. `baseQuery.ts` sends every request through the axios client in `api.js`, so it keeps its CSRF priming and its sign-out on a 401. It encodes each body as a form or multipart, as `requestBodies.ts`, generated from the spec, says the endpoint takes it. The five GETs that serve a file are left out of the generated endpoints, because the app links to them rather than loading them. The store (`redux/store.js`, `makeStore()` for tests) drops everything cached when a session ends.
 
 **Null in responses.** Jackson writes every field of a response, nulls included, so every field is required in the spec. Whether a field can be null comes from JSpecify's annotations, which `ResponseFieldsConverter` puts in the spec:
 

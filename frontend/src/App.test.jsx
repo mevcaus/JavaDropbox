@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import App from './App';
-import authReducer from './features/authSlice';
-import filesReducer from './features/filesSlice';
+import { makeStore } from './redux/store';
 import api from './services/api';
 
 vi.mock('./services/api');
@@ -12,7 +10,7 @@ vi.mock('./services/api');
 // App owns a BrowserRouter, so it is steered through the real history.
 const renderAppAt = (url) => {
     window.history.pushState({}, '', url);
-    const store = configureStore({ reducer: { auth: authReducer, files: filesReducer } });
+    const store = makeStore();
     render(
         <Provider store={store}>
             <App />

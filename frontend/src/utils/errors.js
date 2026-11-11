@@ -15,7 +15,8 @@ export const readableError = (
     fallback,
     { unauthorized = 'Your session has expired. Please sign in again.' } = {},
 ) => {
-    const { status, data } = error?.response ?? {};
+    // An axios error carries the answer in error.response; the API slice's errors are the answer.
+    const { status, data } = error?.response ?? error ?? {};
 
     // The API's own errors carry a specific `message`; Spring's default error body adds only the
     // generic status text in `error` ("Bad Request"), which is the last resort.

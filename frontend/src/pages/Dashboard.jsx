@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
+import { DOWNLOAD_ENDPOINT, filesIn, relativePathOf } from '../features/files';
 import {
-    fetchFiles,
-    deleteItem,
-    selectCurrentFiles,
-    createDirectory,
-    uploadFiles,
-    uploadFolder,
-    relativePathOf,
-    DOWNLOAD_ENDPOINT,
-} from '../features/filesSlice';
+    filesApi,
+    useCreateFolderMutation,
+    useDeleteItemMutation,
+    useGetFileTreeQuery,
+    useUploadFilesMutation,
+    useUploadFolderMutation,
+} from '../services/filesApi';
+import { readableError } from '../utils/errors';
 import FileTable from '../components/FileTable';
 import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
@@ -54,8 +54,14 @@ const Dashboard = () => {
     // between folders.
     const [searchParams, setSearchParams] = useSearchParams();
     const currentPath = searchParams.get('path') ?? '';
-    const files = useSelector((state) => selectCurrentFiles(state, currentPath));
-    const { loading, loaded, error } = useSelector((state) => state.files);
+    // While the tree refreshes after a change, the last one stays on screen: isLoading is only the
+    // first load.
+    const { data: tree, isLoading, error } = useGetFileTreeQuery();
+    const files = useMemo(() => filesIn(tree, currentPath), [tree, currentPath]);
+    const [createFolder] = useCreateFolderMutation();
+    const [uploadFiles] = useUploadFilesMutation();
+    const [uploadFolder] = useUploadFolderMutation();
+    const [deleteItem] = useDeleteItemMutation();
     const { addToast } = useToast();
 
     const [itemToDelete, setItemToDelete] = useState(null);
@@ -76,10 +82,6 @@ const Dashboard = () => {
     // image dragged in the page as carrying files, but nothing should be uploaded from it.
     const dragFromPage = useRef(false);
     const isFileDrag = (e) => !dragFromPage.current && carriesFiles(e.dataTransfer);
-
-    useEffect(() => {
-        dispatch(fetchFiles());
-    }, [dispatch]);
 
     // A file dropped beside the table would otherwise be opened by the browser in place of the
     // app. The table's own handlers run first and claim drops on it.
@@ -115,7 +117,11 @@ const Dashboard = () => {
 
     // A failure propagates to CreateFolderModal, which stays open and shows it next to the name.
     const handleCreateFolder = async (folderName) => {
-        await dispatch(createDirectory({ path: currentPath, name: folderName })).unwrap();
+        try {
+            await createFolder({ body: { path: currentPath, name: folderName } }).unwrap();
+        } catch (err) {
+            throw readableError(err, 'Failed to create folder.');
+        }
         addToast(`Folder "${folderName}" created successfully.`, 'success');
     };
 
@@ -134,10 +140,10 @@ const Dashboard = () => {
 
         setUploading('files');
         try {
-            await dispatch(uploadFiles({ files: selected, path: currentPath })).unwrap();
+            await uploadFiles({ body: { files: selected, path: currentPath } }).unwrap();
             addToast(`Uploaded ${selected.length} ${selected.length === 1 ? 'file' : 'files'} successfully.`, 'success');
         } catch (err) {
-            addToast(err, 'error');
+            addToast(readableError(err, 'Failed to upload files.'), 'error');
         } finally {
             setUploading(null);
         }
@@ -158,13 +164,13 @@ const Dashboard = () => {
         const folderName = tops.size === 1 && files[0].relativePath.includes('/') ? [...tops][0] : null;
         const count = `${files.length} ${files.length === 1 ? 'file' : 'files'}`;
         try {
-            await dispatch(uploadFolder({ files, path: currentPath })).unwrap();
+            await uploadFolder({ files, path: currentPath }).unwrap();
             addToast(
                 folderName ? `Uploaded folder "${folderName}" (${count}) successfully.` : `Uploaded ${count} successfully.`,
                 'success',
             );
         } catch (err) {
-            addToast(err, 'error');
+            addToast(readableError(err, 'Failed to upload the folder.'), 'error');
         }
     };
 
@@ -243,10 +249,10 @@ const Dashboard = () => {
         if (!itemToDelete) return;
         setIsDeleting(true);
         try {
-            await dispatch(deleteItem(pathOf(itemToDelete, currentPath))).unwrap();
+            await deleteItem({ path: pathOf(itemToDelete, currentPath) }).unwrap();
             addToast(`"${itemToDelete.name}" deleted successfully.`, 'success');
         } catch (err) {
-            addToast(err, 'error');
+            addToast(readableError(err, 'Failed to delete item.'), 'error');
         } finally {
             setIsDeleting(false);
             setItemToDelete(null);
@@ -272,7 +278,7 @@ const Dashboard = () => {
         setItemToShare({ name: file.name, isDirectory: file.isDirectory, path: pathOf(file, currentPath) });
     };
 
-    if (loading && !loaded) {
+    if (isLoading) {
         return (
             <div className="flex items-center justify-center h-64">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-500" aria-label="Loading files" />
@@ -280,8 +286,12 @@ const Dashboard = () => {
         );
     }
 
-    if (error && !loaded) {
-        return <div className="text-red-500 text-center py-4">Error loading files: {error}</div>;
+    if (error && !tree) {
+        return (
+            <div className="text-red-500 text-center py-4">
+                Error loading files: {readableError(error, 'Failed to load files.')}
+            </div>
+        );
     }
 
     return (
@@ -318,7 +328,11 @@ const Dashboard = () => {
 
             <Breadcrumbs currentPath={currentPath} onNavigate={handleNavigate} />
 
-            {error && <p className="mb-4 text-sm text-red-500">Could not refresh the file list: {error}</p>}
+            {error && (
+                <p className="mb-4 text-sm text-red-500">
+                    Could not refresh the file list: {readableError(error, 'Failed to load files.')}
+                </p>
+            )}
 
             {/* min-h keeps an empty folder a target worth aiming at. */}
             <div
@@ -379,7 +393,7 @@ const Dashboard = () => {
                 isOpen={versionsFile !== null}
                 onClose={() => setVersionsFile(null)}
                 file={versionsFile}
-                onRestored={() => dispatch(fetchFiles())}
+                onRestored={() => dispatch(filesApi.util.invalidateTags(['Files']))}
             />
         </div>
     );
