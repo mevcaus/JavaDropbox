@@ -38,7 +38,7 @@ public class SetupService {
   private final UserRepository users;
   private final PasswordEncoder passwordEncoder;
   private final AuthService authService;
-  private final LooseFileAdoption adoption;
+  private final FirstAccountImport firstAccountImport;
   private final String configuredCode;
   private final SecureRandom random = new SecureRandom();
 
@@ -51,12 +51,12 @@ public class SetupService {
       UserRepository users,
       PasswordEncoder passwordEncoder,
       AuthService authService,
-      LooseFileAdoption adoption,
+      FirstAccountImport firstAccountImport,
       @Value("${app.setup.code:}") String configuredCode) {
     this.users = users;
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
-    this.adoption = adoption;
+    this.firstAccountImport = firstAccountImport;
     this.configuredCode = configuredCode.trim();
     if (!this.configuredCode.isEmpty()
         && normalize(this.configuredCode).length() < MIN_CONFIGURED_CODE_LENGTH) {
@@ -95,7 +95,7 @@ public class SetupService {
 
     User user = users.save(new User(name, passwordEncoder.encode(password), User.ROLE_ADMIN));
     log.info("Setup complete: created the account \"{}\"", name);
-    adoption.adopt(user);
+    firstAccountImport.forNewFirstAccount(user);
   }
 
   private void checkCode(String client, String submitted) {

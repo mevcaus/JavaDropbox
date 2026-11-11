@@ -21,7 +21,7 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileStore;
-import com.javadropbox.javadropbox.service.LooseFileAdoption;
+import com.javadropbox.javadropbox.service.FirstAccountImport;
 import com.javadropbox.javadropbox.service.S3FileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
@@ -98,7 +98,7 @@ class S3StorageIntegrationTests {
   @Autowired private FileMetadataRepository metadata;
   @Autowired private FileStore store;
   @Autowired private SearchIndex searchIndex;
-  @Autowired private LooseFileAdoption adoption;
+  @Autowired private FirstAccountImport firstAccountImport;
   @Autowired private StorageSweeper sweeper;
   @Autowired private StoragePaths storagePaths;
   @Autowired private JdbcTemplate jdbc;
@@ -498,12 +498,35 @@ class S3StorageIntegrationTests {
     put("Welcome to JavaDropbox.txt", "welcome");
     put("old-folder/notes.txt", "from before");
 
-    adoption.adopt(owner);
+    firstAccountImport.forNewFirstAccount(owner);
 
     assertThat(object(home + "Welcome to JavaDropbox.txt")).isEqualTo("welcome");
     assertThat(object(home + "old-folder/notes.txt")).isEqualTo("from before");
+    // And they have rows of the account's, as if uploaded.
+    assertThat(metadata.findPathsOf(owner.getId()))
+        .containsExactlyInAnyOrder(
+            "Welcome to JavaDropbox.txt", "old-folder", "old-folder/notes.txt");
     // Nothing is left at the top: every object is in the accounts' folders.
     assertThat(keys("")).allMatch(key -> key.startsWith(".users/"));
+  }
+
+  @Test
+  @DisplayName(
+      "the first start after upgrading gives the first account the top of the bucket, once")
+  void upgradeTakesInTheTopOfTheBucketOnce() throws Exception {
+    upload("", "uploaded.txt", "via the app");
+    put("from before.txt", "at the top");
+
+    firstAccountImport.atStartup();
+    put("later.txt", "put at the top after the upgrade");
+    firstAccountImport.atStartup();
+
+    assertThat(object(home + "from before.txt")).isEqualTo("at the top");
+    assertThat(object("later.txt")).isEqualTo("put at the top after the upgrade");
+    assertThat(metadata.findPathsOf(owner.getId()))
+        .containsExactlyInAnyOrder("uploaded.txt", "from before.txt");
+    assertThat(jdbc.queryForList("SELECT name FROM one_time_steps", String.class))
+        .containsExactly("first-account-import");
   }
 
   @Test

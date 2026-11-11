@@ -55,7 +55,7 @@ public class StoragePaths {
   /** Where each account's files are kept, in a folder named after the account's id. */
   public static final String HOMES_DIR = ".users";
 
-  /** Put in a new store, and given to the first account by setup (see LooseFileAdoption). */
+  /** Put in a new store, and given to the first account by setup (see FirstAccountImport). */
   static final String WELCOME_FILE = "Welcome to JavaDropbox.txt";
 
   static final String WELCOME_TEXT =

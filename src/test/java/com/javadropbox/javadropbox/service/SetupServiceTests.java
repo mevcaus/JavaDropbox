@@ -35,13 +35,15 @@ class SetupServiceTests {
 
   private final UserRepository users = mock(UserRepository.class);
   private final AuthService authService = mock(AuthService.class);
-  private final LooseFileAdoption adoption = mock(LooseFileAdoption.class);
+  private final FirstAccountImport firstAccountImport = mock(FirstAccountImport.class);
   private SetupService setup;
 
   @BeforeEach
   void setUp() {
     when(authService.isSetupRequired()).thenReturn(true);
-    setup = new SetupService(users, NoOpPasswordEncoder.getInstance(), authService, adoption, "");
+    setup =
+        new SetupService(
+            users, NoOpPasswordEncoder.getInstance(), authService, firstAccountImport, "");
   }
 
   @Test
@@ -62,9 +64,9 @@ class SetupServiceTests {
     setup.createFirstUser(OWNER, code(), "ada", "long enough");
 
     // The account as it was saved, with its id, which names its folder; and only once it is.
-    InOrder order = inOrder(users, adoption);
+    InOrder order = inOrder(users, firstAccountImport);
     order.verify(users).save(argThat(user -> user.getUsername().equals("ada") && user.isAdmin()));
-    order.verify(adoption).adopt(saved);
+    order.verify(firstAccountImport).forNewFirstAccount(saved);
   }
 
   @Test
@@ -76,7 +78,7 @@ class SetupServiceTests {
     assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), "ada", "long enough"))
         .isInstanceOf(ConflictException.class);
 
-    verify(adoption, never()).adopt(any());
+    verify(firstAccountImport, never()).forNewFirstAccount(any());
   }
 
   @Test
@@ -170,7 +172,7 @@ class SetupServiceTests {
 
     private SetupService configured(String code) {
       return new SetupService(
-          users, NoOpPasswordEncoder.getInstance(), authService, adoption, code);
+          users, NoOpPasswordEncoder.getInstance(), authService, firstAccountImport, code);
     }
   }
 
