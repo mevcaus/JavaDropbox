@@ -259,7 +259,7 @@ public class DemoService implements ApplicationRunner {
       }
     }
     // Deleted behind FileService's back, so the index has to be told.
-    searchIndex.changed("");
+    searchIndex.changedEverywhere();
 
     User owner = users.findByUsername(username).orElseThrow();
     for (Sample sample : SAMPLE_FILES) {

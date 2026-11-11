@@ -60,7 +60,7 @@ flowchart TB
         Security["Security filter chain<br/>setup gate · sign-in throttle · CSRF · sessions · roles"]
         Controllers["REST controllers<br/>files · versions · shares · history · search · admin"]
         Services["Services<br/>FileService · FileVersionService · ShareLinkService · SearchService · AccountService"]
-        Index["SearchIndex<br/>Lucene, written on a background thread"]
+        Index["SearchIndex<br/>Lucene (LuceneSearchIndex), written on a background thread"]
         Paths["StoragePaths<br/>the only way a client path reaches the store,<br/>inside the account's own folder"]
         Store["FileStore<br/>LocalFileStore or S3FileStore"]
         Repos["Spring Data JPA repositories"]
@@ -87,7 +87,7 @@ flowchart TB
 |-------|----------------|-------------|
 | **Config** | Security chain, first-run setup gate, sign-in throttling, sessions in the database, CORS | `SecurityConfig`, `SetupFilter`, `LoginThrottleFilter`, `SessionConfig`, `SpaFallbackFilter` |
 | **Controller** | Routing, HTTP responses and headers, serving the built SPA | `FileController`, `FileVersionController`, `ShareController`, `HistoryController`, `SearchController`, `AdminController`, `AccountLinkController`, `DownloadResponses`, `ApiExceptionHandler` |
-| **Service** | Path validation, file I/O, versioning, audit log, share links, search, accounts, their sessions and quotas | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `TextExtractor`, `AccountService`, `AccountLinkService`, `AccountSessions`, `ImportService`, `StorageQuota` |
+| **Service** | Path validation, file I/O, versioning, audit log, share links, search, accounts, their sessions and quotas | `StoragePaths`, `FileService`, `FileVersionService`, `FileHistoryService`, `ShareLinkService`, `FolderArchive`, `SearchIndex`, `LuceneSearchIndex`, `TextExtractor`, `AccountService`, `AccountLinkService`, `AccountSessions`, `ImportService`, `StorageQuota` |
 | **Storage** | Where the bytes are: a folder on disk or an S3 bucket, both behaving like a filesystem | `FileStore`, `LocalFileStore`, `S3FileStore` |
 | **Repository** | Data access, including pessimistic row locks | `FileMetadataRepository`, `FileVersionRepository`, `FileHistoryRepository`, `ShareLinkRepository`, `UserRepository`, `AccountLinkRepository` |
 
@@ -281,7 +281,7 @@ The local store keeps everything the disk gives: atomic renames, case-insensitiv
 ### Why an embedded Lucene index rather than Elasticsearch?
 Elasticsearch is Lucene with a cluster around it. Its indexing, BM25 relevance, analyzers and highlighter are Lucene's; what it adds is distribution, with shards and replicas behind a network API that many app servers can share. JavaDropbox runs as one server over one owner's files, which a single Lucene index handles with room to spare. So it uses the engine without the cluster: the same relevance, no network hop between a change and the index, and no second service to deploy, secure, upgrade and back up. That also keeps the app in one container, and the live demo within its 512 MB machine, where Elasticsearch alone would want a gigabyte or more.
 
-Elasticsearch (or OpenSearch) becomes the better choice once the app runs as several servers behind a load balancer: an embedded index belongs to one server, and Lucene over a network filesystem is unreliable. Lucene stays inside `SearchIndex`, whose callers see only paths and snippets, so that move would replace one class rather than the API or the UI ([#222](https://github.com/mevcaus/JavaDropbox/issues/222)).
+Elasticsearch (or OpenSearch) becomes the better choice once the app runs as several servers behind a load balancer: an embedded index belongs to one server, and Lucene over a network filesystem is unreliable. Lucene stays inside `LuceneSearchIndex`, behind the `SearchIndex` interface, whose callers see only paths and snippets, so that move adds a second implementation rather than changing the API or the UI ([#222](https://github.com/mevcaus/JavaDropbox/issues/222)).
 
 PostgreSQL's full-text search was the other candidate, but it would put the text of every file into the database.
 
