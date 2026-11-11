@@ -5,10 +5,10 @@ import org.springframework.security.core.authority.AuthorityUtils;
 
 /**
  * The account a sign-in checks its password against, as SecurityConfig's UserDetailsService loads
- * it, along with the account's session version from the same read. AccountSessionFilter records
- * that version in the new session rather than reading it again once the password has been checked:
- * a change that ends the account's sessions while the password is being checked (it is disabled,
- * changes role or has its password reset) then still ends this one on its next request.
+ * it, along with the account's session version from the same read. Once the password has been
+ * checked and the session stored, SecurityConfig compares that version with the account's own
+ * (AccountSessions.isCurrent): a change that ends the account's sessions while the password was
+ * being checked (it is disabled, changes role or has its password reset) then refuses the sign-in.
  *
  * <p>Signed-in sessions keep it, serialized, in the database (spring_session_attributes), and they
  * outlive a restart. Renaming, moving or changing this class leaves the sessions stored with the

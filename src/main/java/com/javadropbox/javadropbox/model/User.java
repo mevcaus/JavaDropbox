@@ -45,10 +45,10 @@ public class User {
   private Long quotaBytes;
 
   /**
-   * Recorded in each session at sign-in and bumped whenever the account changes in a way that has
-   * to end its sessions: disabled, its role changed or its password reset. Those sessions are
-   * deleted along with the change; this catches a session that signed in while the change was being
-   * made, which holds the older value and is signed out on its next request.
+   * Bumped whenever the account changes in a way that has to end its sessions: disabled, its role
+   * changed or its password reset. A sign-in compares it with the value it read along with the
+   * password, which catches a change made while the password was being checked (see
+   * AccountSessions).
    */
   @Column(nullable = false)
   private int sessionVersion;
@@ -118,7 +118,7 @@ public class User {
   }
 
   /**
-   * Signs every session the account has out on its next request. {@link
+   * Refuses any sign-in whose password was checked before now. {@link
    * com.javadropbox.javadropbox.service.AccountSessions#end} calls this and also deletes the
    * sessions; use that rather than this alone.
    */

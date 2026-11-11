@@ -414,7 +414,7 @@ class AdminIntegrationTests {
     mockMvc.perform(get("/api/files").cookie(session)).andExpect(status().isOk());
 
     // No request from the session in between: by the time it makes one, the account is enabled
-    // again, so only the session version can tell that it ended.
+    // again, but its session was deleted when it was disabled.
     setEnabled(bob, false).andExpect(status().isOk());
     setEnabled(bob, true).andExpect(status().isOk());
 

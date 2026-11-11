@@ -17,6 +17,7 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.convert.support.GenericConversionService;
 import org.springframework.core.serializer.support.DeserializingConverter;
 import org.springframework.core.serializer.support.SerializingConverter;
+import org.springframework.session.FlushMode;
 import org.springframework.session.config.SessionRepositoryCustomizer;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.session.web.http.SessionRepositoryFilter;
@@ -24,11 +25,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Sessions are kept in the database by Spring Session JDBC, each attribute as a serialized Java
- * object: the signed-in account's security context ({@link AccountDetails} among it) and its
- * session version. An upgrade that renames or changes one of those classes leaves the stored bytes
- * unreadable. Spring Session would then fail every request that carries such a session, sign-out
- * included, with a 500, and each failed request would keep it from expiring. Here such a session
- * ends instead: the request carries on signed out and gets a 401, and the browser signs in again.
+ * object: the signed-in account's security context, {@link AccountDetails} among it. An upgrade
+ * that renames or changes one of those classes leaves the stored bytes unreadable. Spring Session
+ * would then fail every request that carries such a session, sign-out included, with a 500, and
+ * each failed request would keep it from expiring. Here such a session ends instead: the request
+ * carries on signed out and gets a 401, and the browser signs in again.
+ *
+ * <p>A session is also written as soon as something is put in it, not when the response is sent
+ * (FlushMode.IMMEDIATE): a sign-in has to be in the database before it checks that its account
+ * didn't change meanwhile (see AccountSessions). That is set here rather than as
+ * spring.session.jdbc.flush-mode, so no setting can turn it off. Other requests still write their
+ * session once each, when they first load it, which is in {@link EndUnreadableSessions}, ahead of
+ * Spring Security and outside any transaction of the app's: a write inside one would take a second
+ * connection, and could wait on a lock that transaction holds.
  */
 @Configuration
 class SessionConfig implements BeanClassLoaderAware {
@@ -43,15 +52,18 @@ class SessionConfig implements BeanClassLoaderAware {
   }
 
   // Customizers run after Spring Session has set up the repository, so this replaces its own
-  // conversion service, which serializes the same way but throws on bytes it cannot read.
+  // conversion service, which serializes the same way but throws on bytes it cannot read, and its
+  // flush mode, whatever the settings say.
   @Bean
-  SessionRepositoryCustomizer<JdbcIndexedSessionRepository>
-      unreadableSessionAttributesAreMissing() {
+  SessionRepositoryCustomizer<JdbcIndexedSessionRepository> customizeSessionRepository() {
     GenericConversionService conversions = new GenericConversionService();
     conversions.addConverter(Object.class, byte[].class, new SerializingConverter());
     conversions.addConverter(
         byte[].class, Object.class, readOrForget(new DeserializingConverter(classLoader)));
-    return repository -> repository.setConversionService(conversions);
+    return repository -> {
+      repository.setConversionService(conversions);
+      repository.setFlushMode(FlushMode.IMMEDIATE);
+    };
   }
 
   /** Right after Spring Session has loaded the request's session, before anything reads it. */
