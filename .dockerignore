@@ -7,6 +7,7 @@ JDB/
 # node_modules anywhere: the root one (start.sh) as well as the frontend's.
 **/node_modules
 frontend/dist/
+frontend/coverage/
 # The browser tests run against the image; they are not part of it.
 e2e/
 *.log

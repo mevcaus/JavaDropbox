@@ -8,14 +8,14 @@ export default defineConfig({
     setupFiles: './src/setupTests.js',
     // npm test -- --coverage writes the report to coverage/ and fails below these thresholds.
     // They sit just under the coverage when they were set (94.6% of lines, 87.7% of branches,
-    // 93.8% of statements, 92.1% of functions), so it can't fall by more than about half a
-    // point. Raise them as coverage rises.
+    // 93.8% of statements, 92.1% of functions), about 7 lines, 5 branches, 10 statements and
+    // 4 functions of slack. Raise them as coverage rises.
     coverage: {
       provider: 'v8',
       // Every source file, so one no test imports counts as uncovered instead of going unseen.
       include: ['src/**/*.{js,jsx,ts,tsx}'],
       exclude: ['src/**/*.test.*', 'src/setupTests.js', 'src/test/**', 'src/services/apiSchema.ts'],
-      reporter: ['text-summary', 'html', 'lcov'],
+      reporter: ['text-summary', 'html', 'lcovonly'],
       thresholds: {
         lines: 94,
         branches: 87,
