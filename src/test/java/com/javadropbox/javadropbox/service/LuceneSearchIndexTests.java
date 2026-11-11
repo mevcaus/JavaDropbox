@@ -2,17 +2,9 @@ package com.javadropbox.javadropbox.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -21,82 +13,35 @@ import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.store.FSDirectory;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+/** The {@link SearchIndexContractTests} on Lucene, and what only the Lucene index does. */
 @DisplayName("Lucene search index")
-class LuceneSearchIndexTests {
+class LuceneSearchIndexTests extends SearchIndexContractTests {
 
-  private static final Duration INDEXING = Duration.ofSeconds(30);
-
-  @TempDir Path servingDir;
   @TempDir Path indexDir;
 
-  private LocalFileStore store;
-  private StoragePaths storagePaths;
-  // The folder of the account the tests search, and where they put its files.
-  private Home home;
-  private Path files;
-  private final AtomicInteger extracted = new AtomicInteger();
-  private final List<LuceneSearchIndex> opened = new ArrayList<>();
-
-  // Counts the files whose text is read.
-  private final TextExtractor extractor =
-      new TextExtractor("50MB", Path.of(System.getProperty("java.io.tmpdir"))) {
-        @Override
-        public Optional<String> extract(Path file, String name, long size) throws IOException {
-          extracted.incrementAndGet();
-          return super.extract(file, name, size);
-        }
-      };
-
-  @BeforeEach
-  void setUp() throws IOException {
-    store = new LocalFileStore(servingDir);
-    storagePaths = new StoragePaths(store, servingDir);
-    home = storagePaths.home(1);
-    files = store.path(home.key());
+  @Override
+  SearchIndex create() throws IOException {
+    return new LuceneSearchIndex(storagePaths, store, extractor, indexDir.toString());
   }
 
-  @AfterEach
-  void tearDown() throws Exception {
-    for (LuceneSearchIndex index : opened) {
-      index.close();
-    }
-  }
-
-  @Test
-  @DisplayName("a reconcile reads again only the files whose size or modification time changed")
-  void reconcileReadsOnlyWhatChanged() throws Exception {
-    Path a = Files.writeString(files.resolve("a.txt"), "alpha");
-    Files.writeString(files.resolve("b.txt"), "beta");
-    LuceneSearchIndex index = open();
-    reconcile(index);
-    assertThat(extracted).hasValue(2);
-
-    reconcile(index);
-    assertThat(extracted).hasValue(2);
-
-    Files.writeString(a, "alpha, changed");
-    Files.setLastModifiedTime(a, FileTime.from(Instant.now().plusSeconds(60)));
-    reconcile(index);
-    assertThat(extracted).hasValue(3);
-    assertThat(paths(index, "changed")).containsExactly("a.txt");
+  @Override
+  void close(SearchIndex index) throws Exception {
+    ((LuceneSearchIndex) index).close();
   }
 
   @Test
   @DisplayName("until it has caught up, it searches what was indexed before and says so")
   void searchesTheLastIndexWhileCatchingUp() throws Exception {
     Files.writeString(files.resolve("old.txt"), "remembered");
-    LuceneSearchIndex first = open();
+    SearchIndex first = open();
     reconcile(first);
-    first.close();
-    opened.remove(first);
+    closeEarly(first);
 
-    LuceneSearchIndex second = open();
+    SearchIndex second = open();
     SearchIndex.Hits hits = second.search(home, "", "remembered", 10);
     assertThat(hits.complete()).isFalse();
     assertThat(hits.hits()).extracting(SearchIndex.Hit::path).containsExactly("old.txt");
@@ -109,10 +54,9 @@ class LuceneSearchIndexTests {
   @DisplayName("an index it cannot read is rebuilt")
   void rebuildsAnUnreadableIndex() throws Exception {
     Files.writeString(files.resolve("kept.txt"), "survivor");
-    LuceneSearchIndex first = open();
+    SearchIndex first = open();
     reconcile(first);
-    first.close();
-    opened.remove(first);
+    closeEarly(first);
     // Every file of the index, as a disk fault or a bad copy might leave it. The lock file is
     // only a lock, empty whatever happens to the rest.
     try (Stream<Path> files = Files.list(indexDir)) {
@@ -123,7 +67,7 @@ class LuceneSearchIndexTests {
       }
     }
 
-    LuceneSearchIndex second = open();
+    SearchIndex second = open();
     reconcile(second);
 
     assertThat(paths(second, "survivor")).containsExactly("kept.txt");
@@ -142,29 +86,16 @@ class LuceneSearchIndexTests {
     }
     Files.writeString(files.resolve("real.txt"), "ghost story");
 
-    LuceneSearchIndex index = open();
+    SearchIndex index = open();
     reconcile(index);
 
     assertThat(paths(index, "ghost")).containsExactly("real.txt");
   }
 
   @Test
-  @DisplayName("wildcards typed into a search match only themselves")
-  void wildcardsAreLiteral() throws Exception {
-    Files.writeString(files.resolve("a*b.txt"), "");
-    Files.writeString(files.resolve("c?d.txt"), "");
-    Files.writeString(files.resolve("plain.txt"), "");
-    LuceneSearchIndex index = open();
-    reconcile(index);
-
-    assertThat(paths(index, "*")).containsExactly("a*b.txt");
-    assertThat(paths(index, "?")).containsExactly("c?d.txt");
-  }
-
-  @Test
   @DisplayName("while another writer holds the index, changes wait for it rather than being lost")
   void waitsForAnotherWriter() throws Exception {
-    LuceneSearchIndex index = open();
+    SearchIndex index = open();
     reconcile(index);
     Files.writeString(files.resolve("late.txt"), "patience");
 
@@ -178,44 +109,5 @@ class LuceneSearchIndexTests {
     index.awaitIdle(INDEXING);
 
     assertThat(paths(index, "patience")).containsExactly("late.txt");
-  }
-
-  @Test
-  @DisplayName("a search finds the account's own files only, not another's or loose ones")
-  void searchFindsTheAccountsOwnFilesOnly() throws Exception {
-    Files.writeString(files.resolve("mine.txt"), "shared word");
-    Files.writeString(store.path(storagePaths.home(2).key()).resolve("theirs.txt"), "shared word");
-    Files.writeString(
-        store.path(storagePaths.home(12).key()).resolve("also-theirs.txt"), "shared word");
-    Path homes = store.path(StoragePaths.HOMES_DIR);
-    Files.writeString(homes.resolve("loose.txt"), "shared word");
-    Files.createDirectories(homes.resolve("stray"));
-    Files.writeString(homes.resolve("stray/stray.txt"), "shared word");
-    LuceneSearchIndex index = open();
-    reconcile(index);
-
-    assertThat(paths(index, "shared")).containsExactly("mine.txt");
-    assertThat(
-            index.search(storagePaths.home(2), "", "shared", 10).hits().stream()
-                .map(SearchIndex.Hit::path))
-        .containsExactly("theirs.txt");
-    // The account's folder is no item of its own.
-    assertThat(paths(index, "1")).isEmpty();
-  }
-
-  private LuceneSearchIndex open() throws IOException {
-    LuceneSearchIndex index =
-        new LuceneSearchIndex(storagePaths, store, extractor, indexDir.toString());
-    opened.add(index);
-    return index;
-  }
-
-  private static void reconcile(SearchIndex index) throws InterruptedException {
-    index.reconcile();
-    index.awaitIdle(INDEXING);
-  }
-
-  private List<String> paths(SearchIndex index, String text) throws IOException {
-    return index.search(home, "", text, 10).hits().stream().map(SearchIndex.Hit::path).toList();
   }
 }

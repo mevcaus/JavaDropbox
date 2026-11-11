@@ -20,7 +20,14 @@ import java.util.List;
  *       changed.
  * </ul>
  *
- * Indexing happens in the background: reporting a change never waits for a file to be read.
+ * Indexing happens in the background. Reporting a change or asking for a reconcile returns at once
+ * and never throws: an upload or a delete must not wait for the index, nor fail because of it. Each
+ * implementation schedules its own reconciles.
+ *
+ * <p>Items are keyed by their account and their path in its folder, and an implementation must only
+ * ever index what is inside an account's folder: not the accounts' folders themselves, not files
+ * beside them, not the app's own folder, hidden names or anything behind a symbolic link. The tests
+ * in SearchIndexContractTests check this and the rest, for every implementation.
  *
  * <p>{@link LuceneSearchIndex}, inside the app, is the one there is.
  */
@@ -48,6 +55,10 @@ public interface SearchIndex {
    * again: what is there now is indexed afresh and what is gone is dropped. Called inside a
    * transaction, this waits for the transaction to finish, whichever way it does: a rollback puts
    * the store back, and the index then matches that.
+   *
+   * <p>{@code key} may no longer resolve to anything: SearchService reports hits it could not
+   * resolve, which may be gone or behind a symbolic link by now. Whatever the index has under it is
+   * then dropped, and nothing outside the account's folder is read.
    */
   void changed(Home home, String key);
 
@@ -63,7 +74,12 @@ public interface SearchIndex {
   /**
    * The items below the folder at {@code folderKey} in an account's folder (the account's whole
    * folder when empty) that match {@code text}, best first. Every word in it has to be in the
-   * item's name or in its text.
+   * item's name or in its text, the last word also as the start of a longer one; wildcard
+   * characters match only themselves. The folder itself is not a hit. Each hit's path is relative
+   * to the account's folder. At most {@code limit} hits are returned, while {@link Hits#total}
+   * counts every match.
+   *
+   * @throws IOException if the index can't be read
    */
   Hits search(Home home, String folderKey, String text, int limit) throws IOException;
 
