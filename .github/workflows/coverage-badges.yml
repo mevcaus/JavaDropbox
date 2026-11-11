@@ -1,0 +1,68 @@
+# Updates the README's coverage badges once CI has passed on main. A workflow of its own, so the
+# demo's deploy and the CI badges never wait on it or fail with it, and the token that can push
+# never reaches a job that runs the build and its dependencies.
+
+name: Coverage badges
+
+on:
+  workflow_run:
+    workflows: [ "Java CI with Gradle", "Frontend CI" ]
+    types: [ completed ]
+    branches: [ "main" ]
+
+jobs:
+  publish:
+
+    # Only pushes to main: pull requests run the same CI workflows, and their branches can be named
+    # main too when they come from forks.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      # To push the badges branch, and to read the CI run's artifacts.
+      contents: write
+      actions: read
+
+    env:
+      MEASURED_SHA: ${{ github.event.workflow_run.head_sha }}
+
+    steps:
+    # main as it is now, for the script; the badge comes from the run that triggered this one.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # Runs for each commit on main can finish in any order, so nothing is published once main has
+    # moved past the commit this run measured: the newer commit's run publishes instead, if it
+    # passes. Checked before the download too, so a CI run re-run after its badge artifact expired
+    # does nothing rather than fail.
+    - name: Check which badge, and that main is still on its commit
+      id: badge
+      env:
+        WORKFLOW_PATH: ${{ github.event.workflow.path }}
+      run: |
+        case "$WORKFLOW_PATH" in
+          .github/workflows/gradle.yml) echo "name=backend" >> "$GITHUB_OUTPUT" ;;
+          .github/workflows/frontend-ci.yml) echo "name=frontend" >> "$GITHUB_OUTPUT" ;;
+          *) echo "::error::No badge for $WORKFLOW_PATH"; exit 1 ;;
+        esac
+        main=$(git ls-remote origin refs/heads/main | cut -f1)
+        if [ "$main" = "$MEASURED_SHA" ]; then
+          echo "current=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "main is at $main now, past $MEASURED_SHA, so its own run publishes the badge"
+        fi
+
+    - if: steps.badge.outputs.current == 'true'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: ${{ steps.badge.outputs.name }}-coverage-badge
+        path: ${{ runner.temp }}/badge
+        run-id: ${{ github.event.workflow_run.id }}
+        github-token: ${{ github.token }}
+
+    - name: Publish the badge
+      if: steps.badge.outputs.current == 'true'
+      env:
+        BADGE: ${{ steps.badge.outputs.name }}
+      run: .github/scripts/publish-badge.sh "$RUNNER_TEMP/badge/$BADGE.json"

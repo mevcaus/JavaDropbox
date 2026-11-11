@@ -15,7 +15,8 @@ export default defineConfig({
       // Every source file, so one no test imports counts as uncovered instead of going unseen.
       include: ['src/**/*.{js,jsx,ts,tsx}'],
       exclude: ['src/**/*.test.*', 'src/setupTests.js', 'src/test/**', 'src/services/apiSchema.ts'],
-      reporter: ['text-summary', 'html', 'lcovonly'],
+      // json-summary is what CI's job summary and badge are made from.
+      reporter: ['text-summary', 'html', 'lcovonly', 'json-summary'],
       thresholds: {
         lines: 94,
         branches: 87,

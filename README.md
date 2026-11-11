@@ -10,6 +10,8 @@
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
   <a href="https://github.com/mevcaus/JavaDropbox/actions/workflows/gradle.yml"><img src="https://img.shields.io/github/actions/workflow/status/mevcaus/JavaDropbox/gradle.yml?branch=main&style=for-the-badge&logo=github-actions&logoColor=white&label=Backend%20CI" alt="Backend CI"/></a>
   <a href="https://github.com/mevcaus/JavaDropbox/actions/workflows/frontend-ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mevcaus/JavaDropbox/frontend-ci.yml?branch=main&style=for-the-badge&logo=github-actions&logoColor=white&label=Frontend%20CI" alt="Frontend CI"/></a>
+  <a href="docs/testing.md#backend-coverage-minimums"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmevcaus%2FJavaDropbox%2Fbadges%2Fbackend.json&style=for-the-badge" alt="Backend coverage"/></a>
+  <a href="docs/testing.md#frontend-coverage-thresholds"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmevcaus%2FJavaDropbox%2Fbadges%2Ffrontend.json&style=for-the-badge" alt="Frontend coverage"/></a>
 </p>
 
 # ☁️ JavaDropbox
@@ -382,7 +384,10 @@ flowchart LR
 
     Build & Docker --> Deploy["Deploy demo<br/>on main, once both pass"]
     Deploy --> Fly["Fly.io<br/>javadropbox.mevcaus.dev"]
+    Gradle & Frontend --> Badges["Coverage badges<br/>on main, once CI passes,<br/>to the badges branch"]
 ```
+
+Each run puts its coverage in the job summary and uploads the full report as the `backend-coverage` or `frontend-coverage` artifact, so a drop can be looked at without running anything locally.
 
 ## Live demo
 
