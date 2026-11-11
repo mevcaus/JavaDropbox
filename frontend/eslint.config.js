@@ -55,6 +55,17 @@ export default defineConfig([
       'no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
     },
   },
+  // Hooks come from apiSlice.ts, which adds the cache tags; the generated endpoints alone have none.
+  {
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    ignores: ['src/services/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['**/generatedApi'], message: 'Import from services/apiSlice instead.' }] },
+      ],
+    },
+  },
   // Files converted to TypeScript (#206) get the same hooks and refresh rules, parsed by
   // typescript-eslint, whose no-unused-vars understands types and replaces the core rule.
   {

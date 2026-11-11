@@ -4,7 +4,7 @@ import { Folder, HardDrive, ChevronLeft, ChevronRight, Users } from 'lucide-reac
 import Logo from './Logo';
 import { useSelector } from 'react-redux';
 import { totalSize } from '../features/files';
-import { filesApi } from '../services/filesApi';
+import { apiSlice } from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
 import api from '../services/api';
 import { formatSize } from '../utils/format';
@@ -16,7 +16,7 @@ export const STORAGE_ENDPOINT = '/api/storage';
 // the server has answered.
 const useStorageUsage = () => {
     // The tree the dashboard loaded, read from the cache without fetching it here.
-    const { data: files } = filesApi.endpoints.getFileTree.useQueryState();
+    const { data: files } = apiSlice.endpoints.getFileTree.useQueryState();
     const [usage, setUsage] = useState(null);
 
     useEffect(() => {
@@ -43,7 +43,7 @@ const barColour = (fraction) => {
 
 const StorageMeter = ({ isCollapsed }) => {
     const usage = useStorageUsage();
-    const { data: tree } = filesApi.endpoints.getFileTree.useQueryState();
+    const { data: tree } = apiSlice.endpoints.getFileTree.useQueryState();
     const treeSize = totalSize(tree);
     const used = usage?.usedBytes ?? treeSize;
     const quota = usage?.quotaBytes ?? null;

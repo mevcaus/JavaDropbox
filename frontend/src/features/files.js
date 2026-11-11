@@ -1,5 +1,5 @@
 // The file endpoints the app links to rather than loading into the store, and helpers for the file
-// tree, which comes from the API slice (filesApi.ts).
+// tree, which comes from the API slice (apiSlice.ts).
 
 // A file's contents, served as a download or for the browser to show (see FileController).
 export const DOWNLOAD_ENDPOINT = '/api/files/download';

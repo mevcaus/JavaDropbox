@@ -5,7 +5,8 @@ import { Provider } from 'react-redux';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import { makeStore } from '../redux/store';
-import { filesApi } from '../services/filesApi';
+import { apiSlice } from '../services/apiSlice';
+import { AxiosError } from 'axios';
 import api from '../services/api';
 
 vi.mock('../services/api');
@@ -411,6 +412,53 @@ describe('Dashboard', () => {
         });
     });
 
+    // The version dialog restores through api itself until #396; the dashboard then lists again.
+    it('lists the files again after a version is restored', async () => {
+        const tracked = [{ ...TREE[0], id: 7 }];
+        api.get.mockImplementation((url) =>
+            Promise.resolve({
+                data: url === '/api/files' ? tracked : [{ id: 1, version: 1, size: 5, createdAt: '2026-01-01T00:00:00Z', createdBy: 'ada' }],
+            }),
+        );
+        api.post.mockResolvedValueOnce({ data: { message: 'Version 1 restored' } });
+        const user = userEvent.setup();
+        renderDashboard();
+
+        await user.click(await screen.findByRole('button', { name: 'Versions of report.pdf' }));
+        await screen.findByText('Version 1');
+        await user.click(screen.getAllByRole('button', { name: 'Restore' }).at(-1));
+
+        await waitFor(() => expect(api.get.mock.calls.filter(([url]) => url === '/api/files')).toHaveLength(2));
+    });
+
+    it('says what failed when an upload gets no answer at all', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        api.post.mockRejectedValueOnce(new AxiosError('Network Error', AxiosError.ERR_NETWORK));
+        const user = userEvent.setup();
+        renderDashboard();
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+
+        await user.upload(screen.getByLabelText('Upload'), new File(['a'], 'a.txt'));
+
+        await waitFor(() => expect(addToast).toHaveBeenCalledWith('Failed to upload files.', 'error'));
+    });
+
+    // A failed refresh is reported, but not while the next listing, which may well work, is on its way.
+    it('shows a failed refresh only until the next listing starts', async () => {
+        api.get.mockResolvedValueOnce({ data: TREE });
+        const store = renderDashboard();
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+
+        api.get.mockRejectedValueOnce({ response: { status: 500, data: '' } });
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
+        expect(await screen.findByText(/Could not refresh the file list/)).toBeInTheDocument();
+
+        api.get.mockReturnValueOnce(new Promise(() => {}));
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
+        await waitFor(() => expect(screen.queryByText(/Could not refresh the file list/)).not.toBeInTheDocument());
+        expect(screen.getByRole('button', { name: 'Download report.pdf' })).toBeInTheDocument();
+    });
+
     it('keeps the table on screen while the list refreshes', async () => {
         api.get.mockResolvedValueOnce({ data: TREE });
         const store = renderDashboard();
@@ -418,7 +466,7 @@ describe('Dashboard', () => {
 
         // A refresh that hasn't answered yet, as after every upload, delete or restore.
         api.get.mockReturnValueOnce(new Promise(() => {}));
-        store.dispatch(filesApi.util.invalidateTags(['Files']));
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
 
         expect(screen.getByRole('button', { name: 'Download report.pdf' })).toBeInTheDocument();
         expect(screen.queryByLabelText('Loading files')).not.toBeInTheDocument();

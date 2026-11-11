@@ -3,13 +3,13 @@ import { useDispatch } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
 import { DOWNLOAD_ENDPOINT, filesIn, relativePathOf } from '../features/files';
 import {
-    filesApi,
+    apiSlice,
     useCreateFolderMutation,
     useDeleteItemMutation,
     useGetFileTreeQuery,
     useUploadFilesMutation,
     useUploadFolderMutation,
-} from '../services/filesApi';
+} from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import FileTable from '../components/FileTable';
 import Breadcrumbs from '../components/Breadcrumbs';
@@ -56,7 +56,11 @@ const Dashboard = () => {
     const currentPath = searchParams.get('path') ?? '';
     // While the tree refreshes after a change, the last one stays on screen: isLoading is only the
     // first load.
-    const { data: tree, isLoading, error } = useGetFileTreeQuery();
+    // Listed again whenever the dashboard opens, as before, so a change made elsewhere (another tab, an
+    // admin's import) shows up rather than the tree cached when it was last open.
+    const { data: tree, isLoading, isFetching, error } = useGetFileTreeQuery(undefined, {
+        refetchOnMountOrArgChange: true,
+    });
     const files = useMemo(() => filesIn(tree, currentPath), [tree, currentPath]);
     const [createFolder] = useCreateFolderMutation();
     const [uploadFiles] = useUploadFilesMutation();
@@ -328,7 +332,8 @@ const Dashboard = () => {
 
             <Breadcrumbs currentPath={currentPath} onNavigate={handleNavigate} />
 
-            {error && (
+            {/* Hidden while the next listing is on its way, which may well work. */}
+            {error && !isFetching && (
                 <p className="mb-4 text-sm text-red-500">
                     Could not refresh the file list: {readableError(error, 'Failed to load files.')}
                 </p>
@@ -393,7 +398,7 @@ const Dashboard = () => {
                 isOpen={versionsFile !== null}
                 onClose={() => setVersionsFile(null)}
                 file={versionsFile}
-                onRestored={() => dispatch(filesApi.util.invalidateTags(['Files']))}
+                onRestored={() => dispatch(apiSlice.util.invalidateTags(['Files']))}
             />
         </div>
     );

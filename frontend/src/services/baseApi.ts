@@ -4,7 +4,7 @@ import { baseQuery } from './baseQuery';
 /**
  * The RTK Query slice everything the app reads from or changes on the server goes through. Its
  * endpoints are generated from the API spec into generatedApi.ts (npm run api:client), and
- * filesApi.ts adds the cache tags and the requests the spec can't describe.
+ * apiSlice.ts adds the cache tags and the requests the spec can't describe.
  */
 export const baseApi = createApi({
     reducerPath: 'api',

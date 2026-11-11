@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeStore } from '../redux/store';
-import { filesApi } from './filesApi';
+import { apiSlice } from './apiSlice';
 import { clearUser, loginUser, logoutUser } from '../features/authSlice';
+import { AxiosError } from 'axios';
 import api from './api';
+import { baseQuery } from './baseQuery';
 
 vi.mock('./api');
 
@@ -19,11 +21,11 @@ const deferred = () => {
 const OLD_TREE = [{ name: 'deleted.txt', isDirectory: false, size: 1 }];
 const NEW_TREE = [{ name: 'kept.txt', isDirectory: false, size: 1 }];
 
-const tree = (store) => filesApi.endpoints.getFileTree.select()(store.getState()).data;
+const tree = (store) => apiSlice.endpoints.getFileTree.select()(store.getState()).data;
 
 // The dashboard keeps the tree subscribed while it's open; tags only refetch what's subscribed.
 const subscribe = async (store) => {
-    const subscription = store.dispatch(filesApi.endpoints.getFileTree.initiate());
+    const subscription = store.dispatch(apiSlice.endpoints.getFileTree.initiate());
     await subscription;
     return subscription;
 };
@@ -78,8 +80,8 @@ describe('overlapping listings', () => {
         const older = deferred();
         api.get.mockReturnValueOnce(older.promise).mockResolvedValueOnce({ data: NEW_TREE });
 
-        store.dispatch(filesApi.endpoints.getFileTree.initiate());
-        store.dispatch(filesApi.util.invalidateTags(['Files']));
+        store.dispatch(apiSlice.endpoints.getFileTree.initiate());
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
         older.resolve({ data: OLD_TREE });
         await settle();
         await settle();
@@ -98,7 +100,7 @@ describe('overlapping listings', () => {
         api.get.mockReturnValueOnce(inflight.promise);
         api.post.mockResolvedValueOnce({});
 
-        store.dispatch(filesApi.endpoints.getFileTree.initiate());
+        store.dispatch(apiSlice.endpoints.getFileTree.initiate());
         await store.dispatch(reset());
         inflight.resolve({ data: OLD_TREE });
         await settle();
@@ -126,7 +128,7 @@ describe('refreshing after a change', () => {
         arrange();
 
         await store.dispatch(
-            filesApi.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: '' } }),
+            apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: '' } }),
         );
         await settle();
 
@@ -139,10 +141,10 @@ describe('refreshing after a change', () => {
     ])('refreshes the tree when a delete %s', async (_label, arrange) => {
         arrange();
 
-        await store.dispatch(filesApi.endpoints.deleteItem.initiate({ path: 'folder' }));
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'folder' }));
         await settle();
 
-        expect(api.delete).toHaveBeenCalledWith('/api/files', { params: { path: 'folder' } });
+        expect(api.delete).toHaveBeenCalledWith('/api/files', expect.objectContaining({ params: { path: 'folder' } }));
         expect(api.get).toHaveBeenCalledTimes(2);
     });
 });
@@ -167,7 +169,7 @@ describe('uploadFolder', () => {
         api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
 
         const result = await store.dispatch(
-            filesApi.endpoints.uploadFolder.initiate({
+            apiSlice.endpoints.uploadFolder.initiate({
                 files: [pickedFile('Trip/Day 1/a.jpg'), pickedFile('Trip/plan.txt'), pickedFile('Trip/Day 1/b.jpg')],
                 path: 'Holidays',
             }),
@@ -183,7 +185,7 @@ describe('uploadFolder', () => {
     it('starts from the root when no folder is open', async () => {
         api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
 
-        await store.dispatch(filesApi.endpoints.uploadFolder.initiate({ files: [pickedFile('Trip/plan.txt')], path: '' }));
+        await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files: [pickedFile('Trip/plan.txt')], path: '' }));
 
         expect(postedFolders()).toEqual([['Trip', ['plan.txt']]]);
     });
@@ -195,7 +197,7 @@ describe('uploadFolder', () => {
         const append = vi.spyOn(FormData.prototype, 'append');
         const picked = pickedFile('Trip/Day 1/a.jpg');
 
-        await store.dispatch(filesApi.endpoints.uploadFolder.initiate({ files: [picked], path: '' }));
+        await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files: [picked], path: '' }));
 
         expect(append).toHaveBeenCalledWith('files', picked.file, 'a.jpg');
         append.mockRestore();
@@ -207,7 +209,7 @@ describe('uploadFolder', () => {
             .mockRejectedValueOnce({ response: { status: 400, data: { message: '"B" is a file, not a folder' } } });
 
         const result = await store.dispatch(
-            filesApi.endpoints.uploadFolder.initiate({
+            apiSlice.endpoints.uploadFolder.initiate({
                 files: [pickedFile('Top/a.txt'), pickedFile('Top/B/b.txt'), pickedFile('Top/C/c.txt')],
                 path: '',
             }),
@@ -234,7 +236,7 @@ describe('request bodies', () => {
     it('sends a form endpoint its fields as a form', async () => {
         api.post.mockResolvedValue({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z' } });
 
-        await store.dispatch(filesApi.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
+        await store.dispatch(apiSlice.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
 
         const [url, body] = api.post.mock.calls[0];
         expect(url).toBe('/api/share');
@@ -246,7 +248,7 @@ describe('request bodies', () => {
         api.post.mockResolvedValue({ data: { message: 'Uploaded 2 files' } });
 
         await store.dispatch(
-            filesApi.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: 'docs' } }),
+            apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: 'docs' } }),
         );
 
         const [, body] = api.post.mock.calls[0];
@@ -256,10 +258,66 @@ describe('request bodies', () => {
     });
 
     it('reports a request that got no answer at all', async () => {
-        api.get.mockRejectedValueOnce(new Error('Network Error'));
+        api.get.mockRejectedValueOnce(new AxiosError('Network Error', AxiosError.ERR_NETWORK));
 
-        const result = await store.dispatch(filesApi.endpoints.getFileTree.initiate());
+        const result = await store.dispatch(apiSlice.endpoints.getFileTree.initiate());
 
         expect(result.error).toEqual({ status: 'FETCH_ERROR' });
+    });
+
+    it('sends a PUT as a form', async () => {
+        api.put.mockResolvedValue({ data: { message: 'Quota changed' } });
+
+        await store.dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 3, body: { quota: '5GB' } }));
+
+        const [url, body] = api.put.mock.calls[0];
+        expect(url).toBe('/api/admin/users/3/quota');
+        expect(body.toString()).toBe('quota=5GB');
+    });
+
+    it('sends a new folder as multipart, as the app always has', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Created folder Trip' } });
+
+        await store.dispatch(apiSlice.endpoints.createFolder.initiate({ body: { path: 'Holidays', name: 'Trip' } }));
+
+        const [url, body] = api.post.mock.calls[0];
+        expect(url).toBe('/api/folders');
+        expect(body).toBeInstanceOf(FormData);
+        expect([body.get('path'), body.get('name')]).toEqual(['Holidays', 'Trip']);
+    });
+
+    it('sends a part that is a Blob rather than a File', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded 1 file' } });
+
+        await store.dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new Blob(['x'])], path: '' } }));
+
+        const [, body] = api.post.mock.calls[0];
+        expect(body.getAll('files')).toHaveLength(1);
+    });
+});
+
+// Mistakes in the slice, not failures of a request, so they aren't reported as one.
+describe('baseQuery', () => {
+    const context = { endpoint: 'test', signal: new AbortController().signal };
+
+    beforeEach(() => vi.resetAllMocks());
+
+    it('refuses a method the API takes nowhere, rather than sending it as another', async () => {
+        await expect(baseQuery({ url: '/api/files', method: 'PATCH' }, context)).rejects.toThrow('test uses PATCH');
+        expect(api.post).not.toHaveBeenCalled();
+    });
+
+    it('lets an error that is not about the request through', async () => {
+        api.get.mockRejectedValueOnce(new TypeError('a bug in an interceptor'));
+
+        await expect(baseQuery({ url: '/api/files' }, context)).rejects.toThrow(TypeError);
+    });
+
+    it('passes the request\'s abort signal on, so a superseded request can be cancelled', async () => {
+        api.get.mockResolvedValueOnce({ data: [] });
+
+        await baseQuery({ url: '/api/files' }, context);
+
+        expect(api.get).toHaveBeenCalledWith('/api/files', expect.objectContaining({ signal: context.signal }));
     });
 });

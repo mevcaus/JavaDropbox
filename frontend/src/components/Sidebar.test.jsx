@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import { loginUser } from '../features/authSlice';
 import { makeStore } from '../redux/store';
-import { filesApi } from '../services/filesApi';
+import { apiSlice } from '../services/apiSlice';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
@@ -63,7 +63,7 @@ describe('Sidebar', () => {
 
         api.get.mockResolvedValue({ data: { usedBytes: 4096, quotaBytes: null } });
         // A refresh of the file list, as every upload, delete or restore makes.
-        store.dispatch(filesApi.util.upsertQueryData('getFileTree', undefined, []));
+        store.dispatch(apiSlice.util.upsertQueryData('getFileTree', undefined, []));
 
         expect(await screen.findByText('4 KB stored')).toBeInTheDocument();
     });

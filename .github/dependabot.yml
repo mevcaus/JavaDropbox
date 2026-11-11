@@ -34,9 +34,10 @@ updates:
       npm-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-        # Its own PR: a new version can change the generated API types, and
-        # that PR then needs npm run api:types committed (docs/development.md).
-        exclude-patterns: ["openapi-typescript"]
+        # Their own PRs: a new version can change the generated API files, and
+        # that PR then needs npm run api:types or api:client committed
+        # (docs/development.md).
+        exclude-patterns: ["openapi-typescript", "@rtk-query/codegen-openapi"]
       # A major of Vitest in one PR with its coverage provider, which takes only
       # the exact same Vitest version as a peer and fails npm ci otherwise.
       vitest:

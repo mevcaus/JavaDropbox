@@ -1,6 +1,7 @@
 import { generatedApi } from './generatedApi';
 import type { Message } from './generatedApi';
 import { filesByFolder } from '../features/files';
+import { REQUEST_BODIES } from './requestBodies';
 
 /** A file with its place inside a folder being uploaded, e.g. "Trip/Day 1/a.jpg". */
 export type PickedFile = { file: File; relativePath: string };
@@ -13,7 +14,7 @@ export type PickedFile = { file: File; relativePath: string };
  * change worked or not: a failed upload may have stored the files before the one that failed, and a
  * failed delete may have removed part of a folder, or found the item already gone.
  */
-export const filesApi = generatedApi
+export const apiSlice = generatedApi
     .enhanceEndpoints({
         endpoints: {
             getFileTree: { providesTags: ['Files'] },
@@ -41,7 +42,8 @@ export const filesApi = generatedApi
                             url: '/api/files',
                             method: 'POST',
                             body: { files: batch, path: folder },
-                            bodyType: 'multipart',
+                            // As the spec says uploadFiles takes it, since this sends the same request.
+                            bodyType: REQUEST_BODIES.uploadFiles,
                         });
                         if (result.error) {
                             return { error: result.error };
@@ -61,4 +63,4 @@ export const {
     useUploadFolderMutation,
     useDeleteItemMutation,
     useCreateFolderMutation,
-} = filesApi;
+} = apiSlice;

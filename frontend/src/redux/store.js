@@ -1,5 +1,5 @@
 import { configureStore, createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
-import authReducer, { clearUser, logoutUser } from '../features/authSlice';
+import authReducer, { clearUser, loginUser, logoutUser } from '../features/authSlice';
 import { baseApi } from '../services/baseApi';
 
 /**
@@ -7,12 +7,12 @@ import { baseApi } from '../services/baseApi';
  * carries over from one test to the next.
  */
 export const makeStore = () => {
-    // Drop everything cached for the previous session when it ends, so whoever signs in next never
-    // sees the last account's files, even for a moment. An answer still in flight for the old
-    // session is dropped too.
+    // Drop everything cached for the previous session when it ends, and again when someone signs in,
+    // so whoever signs in next never sees the last account's files, even for a moment. An answer
+    // still in flight for the old session is dropped too.
     const listener = createListenerMiddleware();
     listener.startListening({
-        matcher: isAnyOf(logoutUser.fulfilled, clearUser),
+        matcher: isAnyOf(logoutUser.fulfilled, clearUser, loginUser.fulfilled),
         effect: (_action, { dispatch }) => {
             dispatch(baseApi.util.resetApiState());
         },

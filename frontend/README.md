@@ -51,7 +51,7 @@ src/
   layouts/      Shared page layout(s)
   pages/        Route-level pages (Login, Setup, Dashboard)
   services/     axios instance (CSRF priming, 401 handler hook), the RTK Query API
-                slice (filesApi.ts) and its base query, and the API types and
+                slice (apiSlice.ts) and its base query, and the API types and
                 endpoints generated from frontend/openapi.json
   redux/        Store configuration
   utils/        Formatting (dates, sizes) and readable error messages

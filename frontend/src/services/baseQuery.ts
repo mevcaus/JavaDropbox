@@ -1,5 +1,5 @@
 import type { BaseQueryFn } from '@reduxjs/toolkit/query';
-import type { AxiosError } from 'axios';
+import { isAxiosError, isCancel, type AxiosError } from 'axios';
 import api from './api';
 import { REQUEST_BODIES, type BodyType } from './requestBodies';
 
@@ -45,35 +45,50 @@ const encode = (body: Record<string, unknown>, type: BodyType): FormData | URLSe
     return form;
 };
 
+// By method, as the rest of the app calls the client (and as its tests mock it). The API takes no
+// other methods, and sending an unknown one as something else would hide the mistake.
+const send = (request: Request, endpoint: string, type: BodyType | undefined, signal: AbortSignal) => {
+    const data = request.body === undefined || type === undefined ? undefined : encode(request.body, type);
+    const config = { params: request.params, signal };
+    const method = (request.method ?? 'GET').toUpperCase();
+    switch (method) {
+        case 'GET':
+            return api.get(request.url, config);
+        case 'DELETE':
+            return api.delete(request.url, config);
+        case 'PUT':
+            return api.put(request.url, data, config);
+        case 'POST':
+            return api.post(request.url, data, config);
+        default:
+            throw new Error(`${endpoint} uses ${method}, which baseQuery.ts doesn't send`);
+    }
+};
+
 /**
  * Sends the API slice's requests through the app's axios client, so they keep its CSRF priming and
  * its sign-out on a 401 (see api.js), and sends each body the way its endpoint takes it.
  */
-export const baseQuery: BaseQueryFn<Request, unknown, RequestError> = async (request, { endpoint }) => {
+export const baseQuery: BaseQueryFn<Request, unknown, RequestError> = async (request, { endpoint, signal }) => {
     const type = request.bodyType ?? REQUEST_BODIES[endpoint];
     if (request.body !== undefined && type === undefined) {
         // Every endpoint with a body takes a form or an upload, so this is a mistake in the slice.
         throw new Error(`${endpoint} has a body, but the spec doesn't say how to send it`);
     }
     try {
-        const data = request.body === undefined || type === undefined ? undefined : encode(request.body, type);
-        const config = { params: request.params };
-        // By method, as the rest of the app calls the client (and as its tests mock it).
-        const method = (request.method ?? 'GET').toUpperCase();
-        const response =
-            method === 'GET'
-                ? await api.get(request.url, config)
-                : method === 'DELETE'
-                  ? await api.delete(request.url, config)
-                  : method === 'PUT'
-                    ? await api.put(request.url, data, config)
-                    : await api.post(request.url, data, config);
+        const response = await send(request, endpoint, type, signal);
         return { data: response.data };
     } catch (failure) {
-        const error = failure as AxiosError;
-        if (!error.response) {
+        // The server answered with an error.
+        const answered = (failure as AxiosError).response;
+        if (answered) {
+            return { error: { status: answered.status, data: answered.data } };
+        }
+        // No answer at all: the network, a timeout, or a request this slice cancelled.
+        if (isAxiosError(failure) || isCancel(failure)) {
             return { error: { status: 'FETCH_ERROR' } };
         }
-        return { error: { status: error.response.status, data: error.response.data } };
+        // Anything else is a bug, which shouldn't pass for a network error.
+        throw failure;
     }
 };
