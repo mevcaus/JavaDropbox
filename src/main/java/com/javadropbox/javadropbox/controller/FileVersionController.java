@@ -35,7 +35,7 @@ public class FileVersionController {
 
   @GetMapping("/{fileId}/versions")
   @Operation(
-      operationId = "getFileVersions",
+      operationId = "listFileVersions",
       summary = "Get file versions",
       description =
           "Returns all versions of one of the signed-in user's files. Another account's file is a"

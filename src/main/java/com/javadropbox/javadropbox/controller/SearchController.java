@@ -21,7 +21,7 @@ public class SearchController {
 
   @GetMapping("/api/search")
   @Operation(
-      operationId = "search",
+      operationId = "searchFiles",
       summary = "Search files",
       description =
           "Items below the folder at path in the signed-in user's files (all of them when empty)"

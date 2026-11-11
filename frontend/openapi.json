@@ -64,7 +64,7 @@
       },
       "post" : {
         "description" : "A one-time link, valid for 7 days, at which someone chooses a password for a new account with this username, role (ADMIN or USER, USER if left out) and quota (as for the quota endpoint; none if left out). The URL is only returned here. A new invitation for the same username replaces the previous one; a username an account already has is a 409.",
-        "operationId" : "invite",
+        "operationId" : "createInvite",
         "parameters" : [ {
           "in" : "query",
           "name" : "username",
@@ -166,7 +166,7 @@
     "/api/admin/users/{id}/enabled" : {
       "put" : {
         "description" : "A disabled account cannot sign in, its sessions end at once, and its share links stop opening until it is enabled again. The invitations and password reset links it made are withdrawn for good. Not for your own account, or the last admin who can sign in (409).",
-        "operationId" : "setEnabled",
+        "operationId" : "setAccountEnabled",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -266,7 +266,7 @@
     "/api/admin/users/{id}/quota" : {
       "put" : {
         "description" : "The most the account may store, previous versions included, as a size such as 500MB or 5GB, or a number of bytes. Empty for no limit. Uploads and restores that would go over it are refused with 507.",
-        "operationId" : "setQuota",
+        "operationId" : "setAccountQuota",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -306,7 +306,7 @@
     "/api/admin/users/{id}/role" : {
       "put" : {
         "description" : "ADMIN or USER. The account's sessions end, so it signs in again with the new role. Not for your own account, or the last admin who can sign in (409).",
-        "operationId" : "setRole",
+        "operationId" : "setAccountRole",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -364,7 +364,7 @@
     "/api/files" : {
       "delete" : {
         "description" : "Deletes the item at path, a folder with everything in it, and its versions.",
-        "operationId" : "delete",
+        "operationId" : "deleteItem",
         "parameters" : [ {
           "in" : "query",
           "name" : "path",
@@ -414,7 +414,7 @@
       },
       "post" : {
         "description" : "Stores one or more files in the folder at path (the root when empty). A file that already exists is replaced and its previous content kept as a version.",
-        "operationId" : "upload",
+        "operationId" : "uploadFiles",
         "parameters" : [ {
           "in" : "query",
           "name" : "files",
@@ -457,7 +457,7 @@
     "/api/files/download" : {
       "get" : {
         "description" : "The file at the path, or a folder as a zip streamed as it is built.",
-        "operationId" : "download",
+        "operationId" : "downloadItem",
         "parameters" : [ {
           "in" : "query",
           "name" : "path",
@@ -486,7 +486,7 @@
     "/api/files/preview" : {
       "get" : {
         "description" : "The file at the path served for display in the browser: images and PDFs as themselves, text and source files as text/plain. Supports range requests. Folders, and kinds of file that cannot be previewed, are refused with 400.",
-        "operationId" : "preview",
+        "operationId" : "previewFile",
         "parameters" : [ {
           "in" : "query",
           "name" : "path",
@@ -515,7 +515,7 @@
     "/api/files/{fileId}/versions" : {
       "get" : {
         "description" : "Returns all versions of one of the signed-in user's files. Another account's file is a 404.",
-        "operationId" : "getFileVersions",
+        "operationId" : "listFileVersions",
         "parameters" : [ {
           "in" : "path",
           "name" : "fileId",
@@ -825,7 +825,7 @@
     "/api/search" : {
       "get" : {
         "description" : "Items below the folder at path in the signed-in user's files (all of them when empty) with every word of q in their name or their text, best match first, with the passage of text that matched. Case and accents are ignored, and the last word also matches the start of a longer one. The text of text and source files, PDFs and Word documents is searched. indexing is true until the index has caught up after a restart.",
-        "operationId" : "search",
+        "operationId" : "searchFiles",
         "parameters" : [ {
           "in" : "query",
           "name" : "q",
@@ -990,7 +990,7 @@
     "/setup" : {
       "post" : {
         "description" : "Creates the admin account. Only available while no account exists, and requires the one-time setup code printed in the server log. Repeated wrong codes from one client are refused with 429 for a while.",
-        "operationId" : "processSetup",
+        "operationId" : "completeSetup",
         "parameters" : [ {
           "in" : "query",
           "name" : "code",
@@ -1086,7 +1086,7 @@
             "description" : "OK"
           }
         },
-        "summary" : "Download shared file",
+        "summary" : "Download a shared file, or a shared folder as a zip",
         "tags" : [ "Share" ]
       }
     },

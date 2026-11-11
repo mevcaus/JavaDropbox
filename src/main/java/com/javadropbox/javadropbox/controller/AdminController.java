@@ -57,7 +57,7 @@ public class AdminController {
 
   @PutMapping("/users/{id}/enabled")
   @Operation(
-      operationId = "setEnabled",
+      operationId = "setAccountEnabled",
       summary = "Disable or enable an account",
       description =
           "A disabled account cannot sign in, its sessions end at once, and its share links stop"
@@ -71,7 +71,7 @@ public class AdminController {
 
   @PutMapping("/users/{id}/role")
   @Operation(
-      operationId = "setRole",
+      operationId = "setAccountRole",
       summary = "Change an account's role",
       description =
           "ADMIN or USER. The account's sessions end, so it signs in again with the new role. Not"
@@ -83,7 +83,7 @@ public class AdminController {
 
   @PutMapping("/users/{id}/quota")
   @Operation(
-      operationId = "setQuota",
+      operationId = "setAccountQuota",
       summary = "Set an account's quota",
       description =
           "The most the account may store, previous versions included, as a size such as 500MB"
@@ -132,7 +132,7 @@ public class AdminController {
 
   @PostMapping("/invites")
   @Operation(
-      operationId = "invite",
+      operationId = "createInvite",
       summary = "Invite someone",
       description =
           "A one-time link, valid for 7 days, at which someone chooses a password for a new"

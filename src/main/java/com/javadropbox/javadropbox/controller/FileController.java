@@ -75,7 +75,7 @@ public class FileController {
 
   @GetMapping("/api/files/download")
   @Operation(
-      operationId = "download",
+      operationId = "downloadItem",
       summary = "Download a file or folder",
       description = "The file at the path, or a folder as a zip streamed as it is built.")
   public ResponseEntity<Resource> download(@RequestParam String path, HttpServletResponse response)
@@ -87,7 +87,7 @@ public class FileController {
 
   @GetMapping("/api/files/preview")
   @Operation(
-      operationId = "preview",
+      operationId = "previewFile",
       summary = "Preview a file",
       description =
           "The file at the path served for display in the browser: images and PDFs as"
@@ -101,7 +101,7 @@ public class FileController {
 
   @PostMapping("/api/files")
   @Operation(
-      operationId = "upload",
+      operationId = "uploadFiles",
       summary = "Upload files",
       description =
           "Stores one or more files in the folder at path (the root when empty). A file that"
@@ -116,7 +116,7 @@ public class FileController {
 
   @DeleteMapping("/api/files")
   @Operation(
-      operationId = "delete",
+      operationId = "deleteItem",
       summary = "Delete a file or folder",
       description = "Deletes the item at path, a folder with everything in it, and its versions.")
   public Map<String, String> delete(@RequestParam String path) throws IOException {

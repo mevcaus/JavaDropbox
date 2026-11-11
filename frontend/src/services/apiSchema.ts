@@ -21,7 +21,7 @@ export interface paths {
          * Invite someone
          * @description A one-time link, valid for 7 days, at which someone chooses a password for a new account with this username, role (ADMIN or USER, USER if left out) and quota (as for the quota endpoint; none if left out). The URL is only returned here. A new invitation for the same username replaces the previous one; a username an account already has is a 409.
          */
-        post: operations["invite"];
+        post: operations["createInvite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -80,7 +80,7 @@ export interface paths {
          * Disable or enable an account
          * @description A disabled account cannot sign in, its sessions end at once, and its share links stop opening until it is enabled again. The invitations and password reset links it made are withdrawn for good. Not for your own account, or the last admin who can sign in (409).
          */
-        put: operations["setEnabled"];
+        put: operations["setAccountEnabled"];
         post?: never;
         delete?: never;
         options?: never;
@@ -140,7 +140,7 @@ export interface paths {
          * Set an account's quota
          * @description The most the account may store, previous versions included, as a size such as 500MB or 5GB, or a number of bytes. Empty for no limit. Uploads and restores that would go over it are refused with 507.
          */
-        put: operations["setQuota"];
+        put: operations["setAccountQuota"];
         post?: never;
         delete?: never;
         options?: never;
@@ -160,7 +160,7 @@ export interface paths {
          * Change an account's role
          * @description ADMIN or USER. The account's sessions end, so it signs in again with the new role. Not for your own account, or the last admin who can sign in (409).
          */
-        put: operations["setRole"];
+        put: operations["setAccountRole"];
         post?: never;
         delete?: never;
         options?: never;
@@ -202,12 +202,12 @@ export interface paths {
          * Upload files
          * @description Stores one or more files in the folder at path (the root when empty). A file that already exists is replaced and its previous content kept as a version.
          */
-        post: operations["upload"];
+        post: operations["uploadFiles"];
         /**
          * Delete a file or folder
          * @description Deletes the item at path, a folder with everything in it, and its versions.
          */
-        delete: operations["delete"];
+        delete: operations["deleteItem"];
         options?: never;
         head?: never;
         patch?: never;
@@ -224,7 +224,7 @@ export interface paths {
          * Download a file or folder
          * @description The file at the path, or a folder as a zip streamed as it is built.
          */
-        get: operations["download"];
+        get: operations["downloadItem"];
         put?: never;
         post?: never;
         delete?: never;
@@ -244,7 +244,7 @@ export interface paths {
          * Preview a file
          * @description The file at the path served for display in the browser: images and PDFs as themselves, text and source files as text/plain. Supports range requests. Folders, and kinds of file that cannot be previewed, are refused with 400.
          */
-        get: operations["preview"];
+        get: operations["previewFile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -264,7 +264,7 @@ export interface paths {
          * Get file versions
          * @description Returns all versions of one of the signed-in user's files. Another account's file is a 404.
          */
-        get: operations["getFileVersions"];
+        get: operations["listFileVersions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -412,7 +412,7 @@ export interface paths {
          * Search files
          * @description Items below the folder at path in the signed-in user's files (all of them when empty) with every word of q in their name or their text, best match first, with the passage of text that matched. Case and accents are ignored, and the last word also matches the start of a longer one. The text of text and source files, PDFs and Word documents is searched. indexing is true until the index has caught up after a restart.
          */
-        get: operations["search"];
+        get: operations["searchFiles"];
         put?: never;
         post?: never;
         delete?: never;
@@ -498,7 +498,7 @@ export interface paths {
          * Initial setup
          * @description Creates the admin account. Only available while no account exists, and requires the one-time setup code printed in the server log. Repeated wrong codes from one client are refused with 429 for a while.
          */
-        post: operations["processSetup"];
+        post: operations["completeSetup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -533,7 +533,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download shared file
+         * Download a shared file, or a shared folder as a zip
          * @description Downloads the file, or the folder as a zip, a share token opens. Publicly accessible.
          */
         get: operations["downloadSharedItem"];
@@ -787,7 +787,7 @@ export interface operations {
             };
         };
     };
-    invite: {
+    createInvite: {
         parameters: {
             query: {
                 username: string;
@@ -857,7 +857,7 @@ export interface operations {
             };
         };
     };
-    setEnabled: {
+    setAccountEnabled: {
         parameters: {
             query: {
                 enabled: boolean;
@@ -929,7 +929,7 @@ export interface operations {
             };
         };
     };
-    setQuota: {
+    setAccountQuota: {
         parameters: {
             query?: {
                 quota?: string;
@@ -955,7 +955,7 @@ export interface operations {
             };
         };
     };
-    setRole: {
+    setAccountRole: {
         parameters: {
             query: {
                 role: string;
@@ -1021,7 +1021,7 @@ export interface operations {
             };
         };
     };
-    upload: {
+    uploadFiles: {
         parameters: {
             query: {
                 files: string[];
@@ -1046,7 +1046,7 @@ export interface operations {
             };
         };
     };
-    delete: {
+    deleteItem: {
         parameters: {
             query: {
                 path: string;
@@ -1070,7 +1070,7 @@ export interface operations {
             };
         };
     };
-    download: {
+    downloadItem: {
         parameters: {
             query: {
                 path: string;
@@ -1092,7 +1092,7 @@ export interface operations {
             };
         };
     };
-    preview: {
+    previewFile: {
         parameters: {
             query: {
                 path: string;
@@ -1114,7 +1114,7 @@ export interface operations {
             };
         };
     };
-    getFileVersions: {
+    listFileVersions: {
         parameters: {
             query?: never;
             header?: never;
@@ -1329,7 +1329,7 @@ export interface operations {
             };
         };
     };
-    search: {
+    searchFiles: {
         parameters: {
             query: {
                 q: string;
@@ -1444,7 +1444,7 @@ export interface operations {
             };
         };
     };
-    processSetup: {
+    completeSetup: {
         parameters: {
             query?: {
                 code?: string;

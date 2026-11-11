@@ -131,7 +131,7 @@ public class ShareController {
   @GetMapping("/share/{token}/download")
   @Operation(
       operationId = "downloadSharedItem",
-      summary = "Download shared file",
+      summary = "Download a shared file, or a shared folder as a zip",
       description =
           "Downloads the file, or the folder as a zip, a share token opens. Publicly accessible.")
   public ResponseEntity<Resource> downloadSharedItem(
