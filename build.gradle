@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.6'
+	id 'org.springframework.boot' version '3.5.16'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'com.diffplug.spotless' version '6.25.0'
 	id 'jacoco'
@@ -31,6 +31,12 @@ ext {
 	// manages (5.5 and 5.3), which it would otherwise be held back to.
 	set('httpclient5.version', "5.6.4")
 	set('httpcore5.version', "5.4.3")
+	// Ahead of what Spring Boot 3.5.16, the last 3.5 release, manages (Tomcat 10.1.55, Jackson
+	// 2.21.4, pgjdbc 42.7.11), for fixes to known vulnerabilities released since. The Trivy scan
+	// of the image fails on fixable ones (docs/testing.md).
+	set('tomcat.version', "10.1.61")
+	set('jackson-bom.version', "2.21.8")
+	set('postgresql.version', "42.7.14")
 }
 
 dependencies {
