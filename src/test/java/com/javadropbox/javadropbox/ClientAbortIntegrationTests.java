@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.ShareLinkService;
 import com.javadropbox.javadropbox.service.StoragePaths;
@@ -54,6 +55,7 @@ class ClientAbortIntegrationTests {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   @BeforeEach
   void setUp() throws IOException {
@@ -69,6 +71,8 @@ class ClientAbortIntegrationTests {
     new Random(1).nextBytes(noise);
     Files.createDirectories(home.resolve("folder"));
     Files.write(home.resolve("folder/noise.bin"), noise);
+    // Copied in by hand, so listed and shareable once imported.
+    imports.importFiles(users.findByUsername("owner").orElseThrow().getId(), "test");
   }
 
   @AfterEach

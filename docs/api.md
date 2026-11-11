@@ -27,11 +27,11 @@ An account's sessions end at once when it is disabled, or its role or password c
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/files` | Full tree as recursive JSON, read from the database: every file and folder the account has a row for, each with its `id`. Files copied into the store by hand are listed once an admin imports them |
-| `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, each named by a bare file name, plus `path`, the folder they go into, created with any missing parents if it does not exist, each with an id, an owner and a history entry like a folder made with `POST /api/folders`); replaced files keep their previous content as a version |
+| `POST` | `/api/files` | Upload (`multipart/form-data`: one `files` part per file, each named by a bare file name, plus `path`, the folder they go into, created with any missing parents if it does not exist, each with an id, an owner and a history entry like a folder made with `POST /api/folders`); replaced files keep their previous content as a version. An upload onto a file that is listed but was removed from the store by hand becomes that file's content, keeping its versions and share links; one onto a listed folder is a `409`, and one into a path that runs through a listed file a `400` |
 | `DELETE` | `/api/files?path=<path>` | Delete a file, or a folder with everything in it. An item still listed but removed from the store by hand loses its rows; `404` only when neither the database nor the store has it |
 | `GET` | `/api/files/download?path=<path>` | Download a file, or a folder as a streamed `.zip` |
 | `GET` | `/api/files/preview?path=<path>` | Serve a previewable file inline: images and PDFs as themselves, text and source files as `text/plain`; supports range requests. `400` for folders and other kinds of file |
-| `POST` | `/api/folders` (form or multipart: `path`, `name`) | Create a folder |
+| `POST` | `/api/folders` (form or multipart: `path`, `name`) | Create a folder. `409` if anything is listed or stored under that name |
 | `GET` | `/api/storage` | What the account stores, previous versions included, and its quota: `{usedBytes, quotaBytes}` (`quotaBytes` is `null` for no limit) |
 
 ### Search
@@ -68,7 +68,7 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/api/share` (form: `path`, `expirationMinutes`) | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here |
+| `POST` | `/api/share` (form: `path`, `expirationMinutes`) | ✅ | Create a time-limited share link (at most `javadropbox.share.max-expiration`, 7 days by default; 24 hours or that maximum if left out; not for the root): `{url, expiresAt}`. The URL is only returned here. Only a listed item can be shared: `404` for one copied in by hand and not imported yet, or listed but gone from the store |
 | `GET` | `/api/share?path=<path>` | ✅ | The path's links that have not expired or been revoked, soonest to expire first: `[{id, createdAt, expiresAt, createdBy}]` |
 | `DELETE` | `/api/share/{id}` | ✅ | Revoke a link; it stops working at once |
 | `GET` | `/share/{token}` | ❌ | Opened in a browser (`Accept: text/html`), the link's page, which shows what the link opens before anything is downloaded. Any other client gets the file, or the folder as a ZIP, as from `/download` |

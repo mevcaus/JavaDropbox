@@ -11,7 +11,6 @@ import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
-import com.javadropbox.javadropbox.repository.ShareLinkRepository;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
@@ -58,7 +57,6 @@ public class FileService {
   private final FileMetadataRepository files;
   private final FileVersionService versions;
   private final FileHistoryService history;
-  private final ShareLinkRepository shareLinks;
   private final AuthService authService;
   private final UsageMetrics metrics;
   private final StorageQuota quota;
@@ -72,7 +70,6 @@ public class FileService {
       FileMetadataRepository files,
       FileVersionService versions,
       FileHistoryService history,
-      ShareLinkRepository shareLinks,
       AuthService authService,
       UsageMetrics metrics,
       StorageQuota quota,
@@ -84,7 +81,6 @@ public class FileService {
     this.files = files;
     this.versions = versions;
     this.history = history;
-    this.shareLinks = shareLinks;
     this.authService = authService;
     this.metrics = metrics;
     this.quota = quota;
@@ -196,7 +192,7 @@ public class FileService {
       boolean inserted =
           files.insertFolderIfAbsent(user.getId(), key, lastSegment(key), Instant.now()) == 1;
       // Ours, or the one already there: another request creating the same folder, which this
-      // waited for, or a row that outlived its folder because it was removed outside the app.
+      // waited for, or an item listed there whose folder was removed outside the app.
       Optional<FileMetadata> row = files.lockByPath(user.getId(), key);
       Optional<Entry> stored = store.stat(storeKey(home, key));
       if (stored.isPresent()) {
@@ -206,15 +202,21 @@ public class FileService {
         // Made by another request, or outside the app, since this one looked. A row that was
         // added here is kept, so the folder has one, but this request didn't create the folder.
         // Should the other request roll back and remove it again, this row is left without its
-        // folder, and the next request that needs the folder starts the row over and makes it.
+        // folder, and the next request that needs the folder makes it again.
         continue;
       }
       if (row.isEmpty()) {
         // Deleted while this waited for it.
         throw new ConflictException("\"" + key + "\" changed while it was being created");
       }
-      FileMetadata folder = inserted ? row.get() : startOver(row.get(), true, 0);
-      history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
+      if (inserted) {
+        history.recordSuccess(row.get(), ChangeType.CREATE_FOLDER, user, null);
+      } else if (!Boolean.TRUE.equals(row.get().getIsDirectory())) {
+        // Listed as a file whose content was removed outside the app.
+        throw new BadRequestException("\"" + key + "\" is a file, not a folder");
+      }
+      // A folder listed but removed from the store outside the app is the same folder, made
+      // again in the store; it keeps its row, and its history doesn't say it was created.
       created.add(key);
     }
     if (created.isEmpty()) {
@@ -268,8 +270,14 @@ public class FileService {
               row = Optional.of(track(target, size, user));
               current = store.stat(target.storeKey());
             }
+            if (row.isPresent() && Boolean.TRUE.equals(row.get().getIsDirectory())) {
+              throw new ConflictException(
+                  "A folder named \"" + target.name() + "\" already exists here");
+            }
             boolean replacing = current.isPresent();
-            FileMetadata file = replacing ? row.get() : claim(target, row, false, size, user);
+            // A file listed whose content was removed outside the app is still that file: the
+            // upload becomes its content, and it keeps its versions and share links.
+            FileMetadata file = row.isPresent() ? row.get() : claim(target, false, size, user);
             if (replacing) {
               versions.archive(file, current.get(), user);
             }
@@ -365,8 +373,11 @@ public class FileService {
 
       inTransaction(
           () -> {
-            FileMetadata folder =
-                claim(target, files.lockByPath(user.getId(), target.key()), true, 0, user);
+            if (files.lockByPath(user.getId(), target.key()).isPresent()) {
+              // Listed, though removed from the store outside the app.
+              throw new ConflictException("\"" + name + "\" already exists here");
+            }
+            FileMetadata folder = claim(target, true, 0, user);
             store.createFolder(target.storeKey());
             history.recordSuccess(folder, ChangeType.CREATE_FOLDER, user, null);
             searchIndex.changed(target);
@@ -424,6 +435,10 @@ public class FileService {
       quota.refuseIfOver(user, sizeOfScratch(scratch));
       quota.mustFit(user.getId());
       Optional<Entry> current = store.stat(live.storeKey());
+      if (current.isPresent() && current.get().isDirectory()) {
+        // The row says file; a folder put there by hand is not this file's content to archive.
+        throw new ConflictException("A folder named \"" + live.name() + "\" is there now");
+      }
       boolean replacing = current.isPresent();
       if (replacing) {
         versions.archive(file, current.get(), user);
@@ -451,12 +466,13 @@ public class FileService {
       store.copy(source, scratch);
       quota.refuseIfOver(user, sizeOfScratch(scratch));
       quota.mustFit(user.getId());
-      StoragePath target = claimCopyName(parent, file.getFilename(), number);
+      CopyTarget claimed = claimCopyName(parent, file.getFilename(), number, user);
+      StoragePath target = claimed.path();
       OnRollback.undo("creating " + target.storeKey(), () -> store.delete(target.storeKey()));
       store.replace(scratch, target.storeKey());
 
-      FileMetadata copy =
-          claim(target, files.lockByPath(user.getId(), target.key()), false, sizeOf(target), user);
+      FileMetadata copy = claimed.row();
+      resize(copy, sizeOf(target));
       history.recordSuccess(
           copy,
           ChangeType.RESTORE,
@@ -468,10 +484,14 @@ public class FileService {
     }
   }
 
+  private record CopyTarget(StoragePath path, FileMetadata row) {}
+
   // "report_v2.txt", or "report_v2 (2).txt" if that is taken, so a restore never overwrites. The
-  // name is claimed by creating an empty file, which fails if anything is there already, so two
-  // requests can't both pick a name that was free when they looked. The copy replaces it at once.
-  private StoragePath claimCopyName(StoragePath parent, String filename, int number)
+  // name is claimed with its row first, which an import or upload adding the same row waits for or
+  // makes this skip, then with an empty file, which fails if anything unlisted is stored there. So
+  // two requests can't both pick a name that was free when they looked, and nothing can take the
+  // name between the row and the copy. The copy replaces the empty file at once.
+  private CopyTarget claimCopyName(StoragePath parent, String filename, int number, User user)
       throws IOException {
     int dot = filename.lastIndexOf('.');
     String base = dot > 0 ? filename.substring(0, dot) : filename;
@@ -481,9 +501,17 @@ public class FileService {
       String suffix = attempt == 1 ? "" : " (" + attempt + ")";
       StoragePath candidate =
           parent.home().resolveChild(parent, base + "_v" + number + suffix + extension);
-      if (store.createFile(candidate.storeKey())) {
-        return candidate;
+      Instant now = Instant.now();
+      if (!rows.addIfAbsent(user.getId(), candidate.key(), candidate.name(), 0, false, now, now)) {
+        // Listed, even if gone from the store.
+        continue;
       }
+      FileMetadata row = files.lockByPath(user.getId(), candidate.key()).orElseThrow();
+      if (store.createFile(candidate.storeKey())) {
+        return new CopyTarget(candidate, row);
+      }
+      // Something unlisted, copied in by hand, is stored under that name: left as it is.
+      files.delete(row);
     }
     throw new ConflictException("Could not find a free name for the restored copy");
   }
@@ -576,34 +604,12 @@ public class FileService {
         .size();
   }
 
-  /**
-   * The metadata row for a new item at {@code target}. A row can outlive its file, e.g. when the
-   * file was removed outside the app; that {@code leftover} is reset rather than duplicated, and
-   * its versions and share links (which belong to the old file) are dropped.
-   */
-  private FileMetadata claim(
-      StoragePath target,
-      Optional<FileMetadata> leftover,
-      boolean isDirectory,
-      long size,
-      User owner) {
-    if (leftover.isPresent()) {
-      return startOver(leftover.get(), isDirectory, size);
-    }
+  /** The metadata row for a new item at {@code target}, which has none. */
+  private FileMetadata claim(StoragePath target, boolean isDirectory, long size, User owner) {
     FileMetadata row =
         files.save(new FileMetadata(target.key(), target.name(), size, isDirectory, owner));
     quota.add(owner.getId(), row.countedBytes());
     return row;
-  }
-
-  // A leftover row made to describe a new item: the old one's versions and share links go.
-  private FileMetadata startOver(FileMetadata row, boolean isDirectory, long size) {
-    versions.discardAll(row);
-    shareLinks.deleteByFile(row);
-    long before = row.countedBytes();
-    row.startOver(size, isDirectory);
-    quota.add(row.getOwner().getId(), row.countedBytes() - before);
-    return files.save(row);
   }
 
   private long sizeOfScratch(String scratch) throws IOException {

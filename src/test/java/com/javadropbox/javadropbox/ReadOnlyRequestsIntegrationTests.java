@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.net.http.HttpResponse;
@@ -47,6 +48,7 @@ class ReadOnlyRequestsIntegrationTests {
   @Autowired private ObjectMapper json;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   private HttpTestClient http;
   private String sessionCookie;
@@ -110,7 +112,9 @@ class ReadOnlyRequestsIntegrationTests {
     assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
   }
 
+  // Files written to disk here are copied in by hand, so they are shared once imported.
   private String share(String path) throws Exception {
+    imports.importFiles(users.findByUsername("owner").orElseThrow().getId(), "test");
     HttpResponse<String> response =
         http.postForm(
             "/api/share", Map.of("path", path), http.withCsrf(Map.of("Cookie", sessionCookie)));

@@ -36,7 +36,6 @@ public class ShareLinkService {
   private final FileService fileService;
   private final FileTreeService fileTree;
   private final AuthService authService;
-  private final FileRows rows;
 
   public ShareLinkService(
       ShareLinkRepository links,
@@ -45,8 +44,7 @@ public class ShareLinkService {
       FileStore store,
       FileService fileService,
       FileTreeService fileTree,
-      AuthService authService,
-      FileRows rows) {
+      AuthService authService) {
     this.links = links;
     this.files = files;
     this.storagePaths = storagePaths;
@@ -54,35 +52,37 @@ public class ShareLinkService {
     this.fileService = fileService;
     this.fileTree = fileTree;
     this.authService = authService;
-    this.rows = rows;
   }
 
   /** A newly created link. The token is only ever available here, when the link is made. */
   public record CreatedLink(String token, Instant expiresAt) {}
 
   /**
-   * Creates a link to the file or folder at {@code path} in the signed-in user's folder. An item
-   * copied in by hand, which has no metadata row yet, is given one so the link has something to
-   * belong to.
+   * Creates a link to the file or folder at {@code path} in the signed-in user's folder, which has
+   * to be listed (have a row) and be in the store as what its row says it is.
    *
-   * @throws NotFoundException if nothing is there
+   * @throws NotFoundException if it isn't
    */
   @Transactional
   public CreatedLink create(String path, Duration lifetime) throws IOException {
     User user = authService.requireCurrentUser();
     StoragePath target = storagePaths.home(user).resolveItem(path);
-    Entry item =
-        store
-            .stat(target.storeKey())
-            .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
-    // An item with no row yet gets one, waiting for an import or upload giving it one meanwhile.
-    Instant added = Instant.now();
-    rows.addIfAbsent(
-        user.getId(), target.key(), target.name(), item.size(), item.isDirectory(), added, added);
+    // Only what is listed, which has a row, and only while it is in the store, since a link to
+    // anything else would only ever show that it is gone. Files copied in by hand are shared once
+    // they are imported.
     FileMetadata file =
         files
             .findByPath(user.getId(), target.key())
             .orElseThrow(() -> new NotFoundException("Not found: " + target.key()));
+    // As the link's pages would find it, or it would only ever be a 404.
+    boolean stored =
+        store
+            .stat(target.storeKey())
+            .filter(entry -> entry.isDirectory() == Boolean.TRUE.equals(file.getIsDirectory()))
+            .isPresent();
+    if (!stored) {
+      throw new NotFoundException("Not found: " + target.key());
+    }
 
     String token = Tokens.newToken();
     Instant now = Instant.now();

@@ -63,8 +63,8 @@ public interface FileMetadataRepository
    * concurrent insert of the same path makes this one wait for the other transaction and then add
    * nothing, so two requests adding the same item both go on rather than one failing.
    *
-   * <p>The values are those {@code FileMetadata.startOver} gives a new item, apart from the dates;
-   * keep the two in step.
+   * <p>The values are those the {@code FileMetadata} constructor gives a new item, apart from the
+   * dates; keep the two in step.
    *
    * @return 1 if the row was added, 0 if there already was one
    */

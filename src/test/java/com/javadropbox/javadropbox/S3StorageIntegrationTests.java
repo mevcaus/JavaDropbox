@@ -627,7 +627,9 @@ class S3StorageIntegrationTests {
         .andExpect(status().isOk());
   }
 
+  // Objects put in the bucket here are copied in by hand, so they are shared once imported.
   private String share(String path) throws Exception {
+    importService.importFiles(owner.getId(), "test");
     String body =
         mockMvc
             .perform(

@@ -58,15 +58,6 @@ public class FileMetadata {
     this.path = path;
     this.filename = filename;
     this.owner = owner;
-    startOver(size, isDirectory);
-  }
-
-  /**
-   * Resets the row to describe a brand-new item at the same path. Used when a row outlived its
-   * file, e.g. because the file was removed outside the app, so the new item does not inherit the
-   * old one's dates or version numbering.
-   */
-  public void startOver(Long size, Boolean isDirectory) {
     Instant now = Instant.now();
     this.size = size;
     this.isDirectory = isDirectory;

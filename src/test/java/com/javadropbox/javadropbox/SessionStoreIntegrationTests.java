@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.IOException;
@@ -48,6 +49,7 @@ class SessionStoreIntegrationTests {
   @Autowired private PlatformTransactionManager transactionManager;
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   private HttpTestClient http;
   private User owner;
@@ -240,6 +242,7 @@ class SessionStoreIntegrationTests {
   @DisplayName("refused requests, failed sign-ins and share links start no session")
   void anonymousRequestsStartNoSession() throws IOException {
     Files.writeString(localStore.path(storagePaths.home(owner).key()).resolve("a.txt"), "hi");
+    imports.importFiles(owner.getId(), "test");
     String session =
         HttpTestClient.cookieValue(http.login("owner", "correct-horse", Map.of()), "JSESSIONID");
     HttpResponse<String> share =

@@ -328,17 +328,21 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                                         >
                                             <Download className="h-5 w-5" />
                                         </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onShare(file);
-                                            }}
-                                            className="text-blue-600 hover:text-blue-900 mr-4"
-                                            title="Share"
-                                            aria-label={`Share ${file.name}`}
-                                        >
-                                            <Share2 className="h-5 w-5" />
-                                        </button>
+                                        {/* Only a listed item, which has an id, can be shared; a search can
+                                            find a file copied in by hand before it is imported. */}
+                                        {file.id != null && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onShare(file);
+                                                }}
+                                                className="text-blue-600 hover:text-blue-900 mr-4"
+                                                title="Share"
+                                                aria-label={`Share ${file.name}`}
+                                            >
+                                                <Share2 className="h-5 w-5" />
+                                            </button>
+                                        )}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
