@@ -10,11 +10,15 @@ updates:
       github-actions:
         patterns: ["*"]
 
-  # The Trivy image the docker job scans with (.github/trivy/Dockerfile).
+  # The Trivy image the docker job scans with (.github/trivy/Dockerfile). A
+  # release waits a week before it's proposed, time for a tampered one to be
+  # caught and pulled.
   - package-ecosystem: "docker"
     directory: "/.github/trivy"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
 
   # The frontend, the end-to-end tests and the root start script. Minor and
   # patch updates come as one weekly PR; a major (Tailwind 4, say) gets a PR of
