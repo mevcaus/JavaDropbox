@@ -4,7 +4,7 @@
     coverage.py vitest frontend/coverage/coverage-summary.json --name Frontend --badge frontend.json
 
 The table goes to stdout. The badge is a shields.io endpoint file (https://shields.io/badges/endpoint-badge)
-showing the share of lines covered, which the coverage-badge jobs publish on the badges branch.
+showing the share of lines covered, which the Coverage badges workflow publishes on the badges branch.
 """
 
 import argparse

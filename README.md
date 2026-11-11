@@ -383,7 +383,7 @@ flowchart LR
 
     Build & Docker --> Deploy["Deploy demo<br/>on main, once both pass"]
     Deploy --> Fly["Fly.io<br/>javadropbox.mevcaus.dev"]
-    Build & Frontend --> Badges["Coverage badges<br/>on main, once CI passes,<br/>to the badges branch"]
+    Gradle & Frontend --> Badges["Coverage badges<br/>on main, once CI passes,<br/>to the badges branch"]
 ```
 
 Each run puts its coverage in the job summary and uploads the full report as the `backend-coverage` or `frontend-coverage` artifact, so a drop can be looked at without running anything locally.
