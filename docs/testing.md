@@ -87,7 +87,14 @@ Component tests run under **Vitest** in a **jsdom** environment using **Testing 
 ```bash
 cd frontend
 npm test
+
+# The same, with the coverage report and its thresholds, as CI runs it
+npm test -- --coverage
 ```
+
+#### Frontend coverage thresholds
+
+`npm test -- --coverage` measures the frontend's coverage with **`@vitest/coverage-v8`** and writes the report to `frontend/coverage/index.html`, with an `lcov.info` copy beside it. It counts every file under `src/`, not only the ones a test imports, and leaves out the tests themselves, their helpers and the generated `apiSchema.ts`. It fails when the tests cover less than 94% of lines, 87% of branches, 93% of statements or 91% of functions, the thresholds in `vite.config.js`. They sit just under the coverage when they were set (94.6%, 87.7%, 93.8% and 92.1%). The frontend CI runs it this way, so a drop fails the pull request. Raise them when coverage rises; lower them only on purpose, in a change that says why. Plain `npm test` skips coverage, so it stays quick while you work.
 
 | Test Suite | What It Covers |
 |-----------|----------------|

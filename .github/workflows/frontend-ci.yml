@@ -62,8 +62,9 @@ jobs:
           exit 1
         }
 
+    # Fails when coverage drops below the thresholds in vite.config.js.
     - name: Test
-      run: npm test
+      run: npm test -- --coverage
 
     # The suite runs in jsdom and would not catch a broken production bundle.
     - name: Build

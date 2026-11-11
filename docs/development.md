@@ -212,10 +212,10 @@ A migration that disables accounts, changes their role or their password also ha
 ```bash
 ./gradlew test             # backend; Docker must be running (PostgreSQL in Testcontainers)
 ./gradlew check            # the tests, plus the coverage minimums and the format check
-cd frontend && npm test    # frontend
+cd frontend && npm test    # frontend; add -- --coverage for the report and its thresholds
 ```
 
-[testing.md](testing.md) describes what each suite covers, and the backend's [coverage minimums](testing.md#backend-coverage-minimums).
+[testing.md](testing.md) describes what each suite covers, and the coverage minimums of the [backend](testing.md#backend-coverage-minimums) and the [frontend](testing.md#frontend-coverage-thresholds).
 
 ## Code style
 
