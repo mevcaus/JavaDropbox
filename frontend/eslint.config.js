@@ -62,7 +62,11 @@ export default defineConfig([
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [{ group: ['**/generatedApi'], message: 'Import from services/apiSlice instead.' }] },
+        {
+          patterns: [
+            { group: ['**/generatedApi', '**/generatedApi.*'], message: 'Import from services/apiSlice instead.' },
+          ],
+        },
       ],
     },
   },

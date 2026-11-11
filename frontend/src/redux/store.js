@@ -1,6 +1,8 @@
 import { configureStore, createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
 import authReducer, { clearUser, loginUser, logoutUser } from '../features/authSlice';
-import { baseApi } from '../services/baseApi';
+// apiSlice rather than baseApi: importing it is what adds the cache tags and the extra endpoints to
+// the one API object they share.
+import { apiSlice } from '../services/apiSlice';
 
 /**
  * A store with the API slice wired in. The app makes one; tests make their own, so nothing cached
@@ -14,16 +16,16 @@ export const makeStore = () => {
     listener.startListening({
         matcher: isAnyOf(logoutUser.fulfilled, clearUser, loginUser.fulfilled),
         effect: (_action, { dispatch }) => {
-            dispatch(baseApi.util.resetApiState());
+            dispatch(apiSlice.util.resetApiState());
         },
     });
 
     return configureStore({
         reducer: {
             auth: authReducer,
-            [baseApi.reducerPath]: baseApi.reducer,
+            [apiSlice.reducerPath]: apiSlice.reducer,
         },
-        middleware: (getDefault) => getDefault().prepend(listener.middleware).concat(baseApi.middleware),
+        middleware: (getDefault) => getDefault().prepend(listener.middleware).concat(apiSlice.middleware),
     });
 };
 

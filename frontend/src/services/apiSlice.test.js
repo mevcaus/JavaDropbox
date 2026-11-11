@@ -63,6 +63,13 @@ describe('the file tree at the end of a session', () => {
 
         expect(tree(store)).toBeUndefined();
     });
+
+    // Whatever an earlier session left behind is gone before the new one's screens load.
+    it('is forgotten when someone signs in', () => {
+        store.dispatch(loginUser.fulfilled({ username: 'grace', role: 'USER' }, 'signin'));
+
+        expect(tree(store)).toBeUndefined();
+    });
 });
 
 // Every change refetches the tree, so listings can arrive out of order.

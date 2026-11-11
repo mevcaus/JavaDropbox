@@ -38,8 +38,7 @@ const LocationProbe = () => {
     );
 };
 
-const renderDashboard = ({ url = '/dashboard' } = {}) => {
-    const store = makeStore();
+const renderDashboard = ({ url = '/dashboard', store = makeStore() } = {}) => {
     render(
         <Provider store={store}>
             <MemoryRouter initialEntries={[url]}>
@@ -457,6 +456,20 @@ describe('Dashboard', () => {
         store.dispatch(apiSlice.util.invalidateTags(['Files']));
         await waitFor(() => expect(screen.queryByText(/Could not refresh the file list/)).not.toBeInTheDocument());
         expect(screen.getByRole('button', { name: 'Download report.pdf' })).toBeInTheDocument();
+    });
+
+    // A change made in another tab, or an admin's import, shows up when the dashboard is opened again,
+    // rather than the tree cached when it was last open.
+    it('lists the files again each time it opens', async () => {
+        api.get.mockResolvedValue({ data: TREE });
+        const store = renderDashboard();
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+        cleanup();
+
+        renderDashboard({ store });
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+
+        await waitFor(() => expect(api.get.mock.calls.filter(([url]) => url === '/api/files')).toHaveLength(2));
     });
 
     it('keeps the table on screen while the list refreshes', async () => {
