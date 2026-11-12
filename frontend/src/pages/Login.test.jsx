@@ -1,19 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import Login from './Login';
-import authReducer, { fetchCurrentUser, loginUser, SETUP_REQUIRED } from '../features/authSlice';
+import { fetchCurrentUser, loginUser, SETUP_REQUIRED } from '../features/authSlice';
 import api from '../services/api';
-import { resetDemoInfo } from '../services/demo';
+import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
 
 // Seeds the outcome of the session check App runs before anything is shown.
 const renderAfterSessionCheck = (payload, ...laterActions) => {
-    const store = configureStore({ reducer: { auth: authReducer } });
+    const store = makeStore();
     store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, payload));
     laterActions.forEach((action) => store.dispatch(action));
     render(
@@ -29,7 +28,6 @@ describe('Login', () => {
     afterEach(cleanup);
     beforeEach(() => {
         vi.clearAllMocks();
-        resetDemoInfo();
     });
 
     it('shows the public demo\'s account and fills it in', async () => {
@@ -39,7 +37,7 @@ describe('Login', () => {
 
         await user.click(await screen.findByRole('button', { name: /fill in the demo account/i }));
 
-        expect(api.get).toHaveBeenCalledWith('/api/demo');
+        expect(api.get).toHaveBeenCalledWith('/api/demo', expect.anything());
         expect(screen.getByPlaceholderText('Username')).toHaveValue('demo');
         expect(screen.getByPlaceholderText('Password')).toHaveValue('javadropbox');
     });
@@ -48,7 +46,7 @@ describe('Login', () => {
         api.get.mockRejectedValue({ response: { status: 404 } });
         renderAfterSessionCheck('Not authenticated');
 
-        await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/demo'));
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/demo', expect.anything()));
         expect(screen.queryByText(/public demo/i)).not.toBeInTheDocument();
     });
 
@@ -65,7 +63,7 @@ describe('Login', () => {
     });
 
     it('shows what the page that sent the user here had to say', () => {
-        const store = configureStore({ reducer: { auth: authReducer } });
+        const store = makeStore();
         store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, 'Not authenticated'));
         render(
             <Provider store={store}>

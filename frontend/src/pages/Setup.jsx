@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useNavigate, Link } from 'react-router-dom';
-import api from '../services/api';
+import { useCompleteSetupMutation } from '../services/apiSlice';
 import { setupCompleted } from '../features/authSlice';
 import { readableError } from '../utils/errors';
 import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
@@ -17,6 +17,7 @@ const Setup = () => {
     const [error, setError] = useState(null);
     const navigate = useNavigate();
     const dispatch = useDispatch();
+    const [completeSetup] = useCompleteSetupMutation();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -33,15 +34,7 @@ const Setup = () => {
 
         setLoading(true);
         try {
-            // The backend /setup endpoint expects x-www-form-urlencoded params.
-            const params = new URLSearchParams();
-            params.append('code', code);
-            params.append('username', username);
-            params.append('password', password);
-
-            await api.post('/setup', params, {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            });
+            await completeSetup({ body: { code, username, password } }).unwrap();
 
             // Account created — send the user to the login screen, which stops offering setup.
             dispatch(setupCompleted());

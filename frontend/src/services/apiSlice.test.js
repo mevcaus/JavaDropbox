@@ -269,6 +269,44 @@ describe('refreshing the accounts and invitations', () => {
     });
 });
 
+// The storage meter and a search answer from what is stored, so a change to it asks again.
+describe('refreshing storage use and search', () => {
+    let store;
+    const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        api.post.mockResolvedValue({ data: { message: 'Done', files: 0, folders: 0, missing: 0, skipped: 0 } });
+        api.put.mockResolvedValue({ data: { message: 'Quota changed' } });
+        api.delete.mockResolvedValue({ data: { message: 'Deleted' } });
+        store = makeStore();
+        await store.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
+        await store.dispatch(apiSlice.endpoints.searchFiles.initiate({ q: 'plan', path: '' }));
+    });
+
+    it.each([
+        ['an upload', () => apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } })],
+        ['a folder upload', () => apiSlice.endpoints.uploadFolder.initiate({ files: [{ file: new File(['a'], 'a.txt'), relativePath: 'T/a.txt' }], path: '' })],
+        ['a delete', () => apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' })],
+        ['a restore', () => apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' })],
+        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 1 })],
+    ])('asks for storage use and the search again after %s', async (_label, change) => {
+        await store.dispatch(change());
+        await settle();
+
+        expect([gets('/api/storage'), gets('/api/search')]).toEqual([2, 2]);
+    });
+
+    // An admin may change their own quota, which the meter shows.
+    it('asks for storage use again after a quota change, but not the search', async () => {
+        await store.dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } }));
+        await settle();
+
+        expect([gets('/api/storage'), gets('/api/search')]).toEqual([2, 1]);
+    });
+});
+
 // A file with its place inside the uploaded folder, as uploadFolder takes it.
 const pickedFile = (relativePath) => ({ file: new File(['x'], relativePath.split('/').at(-1)), relativePath });
 

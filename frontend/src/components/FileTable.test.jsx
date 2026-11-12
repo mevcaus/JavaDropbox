@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render as renderWithoutStore, screen, waitFor, within } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { makeStore } from '../redux/store';
 import userEvent from '@testing-library/user-event';
 import FileTable from './FileTable';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
+
+// The search gets its answers through the API slice, so the table needs a store. rerender keeps it.
+const render = (ui) => {
+    const store = makeStore();
+    return renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+};
 
 // Searches go to the server; each test that searches says what it answers.
 vi.mock('../services/api');

@@ -25,6 +25,8 @@ const parsedError = (error) => {
     }
 };
 
+// Read straight through api, not the API slice: these are a file's contents, which don't belong in
+// the cache, for the same reason the download endpoints are left out of the generated slice.
 const loadText = async (src, signal) => {
     let response;
     try {

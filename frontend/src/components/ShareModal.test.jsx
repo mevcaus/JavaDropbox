@@ -5,7 +5,6 @@ import { makeStore } from '../redux/store';
 import userEvent from '@testing-library/user-event';
 import ShareModal from './ShareModal';
 import api from '../services/api';
-import { resetDemoInfo } from '../services/demo';
 import { formatDate } from '../utils/date';
 
 // The dialogs get their data through the API slice, so they need a store. rerender keeps it, as the
@@ -69,7 +68,6 @@ describe('ShareModal', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         addToast.mockClear();
-        resetDemoInfo();
         api.get.mockResolvedValue({ data: [] });
     });
 

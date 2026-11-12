@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import AccountLink from './AccountLink';
-import authReducer, { fetchCurrentUser } from '../features/authSlice';
+import { fetchCurrentUser } from '../features/authSlice';
 import api from '../services/api';
+import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
 
@@ -17,7 +17,7 @@ const SignIn = () => <p>Sign-in page: {useLocation().state?.notice}</p>;
 
 // Opens the page as App would, after its session check: signed out, or signed in as signedInAs.
 const renderAt = (path, { signedInAs } = {}) => {
-    const store = configureStore({ reducer: { auth: authReducer } });
+    const store = makeStore();
     store.dispatch(
         signedInAs
             ? fetchCurrentUser.fulfilled({ username: signedInAs, role: 'ADMIN' }, 'startup')
@@ -54,7 +54,7 @@ describe('AccountLink', () => {
 
         expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
         expect(screen.getByText('carol')).toBeInTheDocument();
-        expect(api.get).toHaveBeenCalledWith('/api/invite/tok-1');
+        expect(api.get).toHaveBeenCalledWith('/api/invite/tok-1', expect.anything());
 
         await choose(user, 'long enough');
         await user.click(screen.getByRole('button', { name: 'Create account' }));
@@ -74,7 +74,7 @@ describe('AccountLink', () => {
         await choose(user, 'a new password');
         await user.click(screen.getByRole('button', { name: 'Set password' }));
 
-        expect(api.get).toHaveBeenCalledWith('/api/reset-password/tok-2');
+        expect(api.get).toHaveBeenCalledWith('/api/reset-password/tok-2', expect.anything());
         expect(api.post.mock.calls[0][0]).toBe('/api/reset-password/tok-2');
         expect(await screen.findByText(/Sign-in page: Your password has been changed/)).toBeInTheDocument();
     });
@@ -175,5 +175,14 @@ describe('AccountLink', () => {
 
         expect(await screen.findByRole('alert')).toHaveTextContent('already an account called "carol"');
         expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled();
+    });
+
+    // The token comes from the address bar, and the generated endpoints put it into the URL as it is.
+    it('keeps a crafted token inside the link\'s own route', async () => {
+        api.get.mockResolvedValue({ data: { username: 'carol', expiresAt: '2026-10-08T09:00:00Z' } });
+        renderAt('/invite/..%2Fadmin%2Fusers');
+
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+        expect(api.get.mock.calls[0][0]).toBe('/api/invite/..%2Fadmin%2Fusers');
     });
 });

@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Shared from './Shared';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
+import { Provider } from 'react-redux';
+import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
 
@@ -49,11 +51,13 @@ const serve = (info, text = 'hello\n') =>
 
 const renderAt = (token = 'tok_EN-1') =>
     render(
-        <MemoryRouter initialEntries={[`/share/${token}`]}>
-            <Routes>
-                <Route path="/share/:token" element={<Shared />} />
-            </Routes>
-        </MemoryRouter>,
+        <Provider store={makeStore()}>
+            <MemoryRouter initialEntries={[`/share/${token}`]}>
+                <Routes>
+                    <Route path="/share/:token" element={<Shared />} />
+                </Routes>
+            </MemoryRouter>
+        </Provider>,
     );
 
 describe('Shared', () => {
@@ -70,7 +74,7 @@ describe('Shared', () => {
         expect(await screen.findByRole('heading', { name: 'notes.txt' })).toBeInTheDocument();
         expect(screen.getByText(/^2 KB · Link expires /)).toBeInTheDocument();
         expect((await screen.findByLabelText('Contents of notes.txt')).textContent).toBe('hello\n');
-        expect(api.get).toHaveBeenCalledWith('/share/tok_EN-1/info');
+        expect(api.get).toHaveBeenCalledWith('/share/tok_EN-1/info', expect.anything());
         expect(api.get).toHaveBeenCalledWith('/share/tok_EN-1/preview', expect.objectContaining({ responseType: 'text' }));
 
         const download = screen.getByRole('link', { name: 'Download' });

@@ -19,19 +19,26 @@ export const apiSlice = generatedApi
         // Files: one tag for the whole tree, which comes back as one answer. Once it's listed per
         // folder (#228), each folder can have its own. Versions: a file's, by its id. ShareLinks:
         // an item's active links, by its path. Accounts and Invites: the admin page's two lists.
-        addTagTypes: ['Files', 'Versions', 'ShareLinks', 'Accounts', 'Invites'],
+        // Storage: what the signed-in account stores, and its quota.
+        addTagTypes: ['Files', 'Versions', 'ShareLinks', 'Accounts', 'Invites', 'Storage'],
         endpoints: {
             getFileTree: { providesTags: ['Files'] },
+            getStorageUsage: { providesTags: ['Storage'] },
+            // A search answers from the files as they are, so any change to them asks again.
+            searchFiles: { providesTags: ['Files'] },
+            // Nothing in it changes while the page is open but the next reset time, which is only
+            // shown, so it's asked once, not again each time a screen that shows it opens.
+            getDemoInfo: { keepUnusedDataFor: 24 * 60 * 60 },
             // Uploading over a file keeps its old content as a version, and a delete takes the item's
             // versions and links with it, so those lists are asked again too. Only an open dialog's
             // list is subscribed; the rest are just dropped.
-            uploadFiles: { invalidatesTags: ['Files', 'Versions'] },
-            deleteItem: { invalidatesTags: ['Files', 'Versions', 'ShareLinks'] },
+            uploadFiles: { invalidatesTags: ['Files', 'Versions', 'Storage'] },
+            deleteItem: { invalidatesTags: ['Files', 'Versions', 'ShareLinks', 'Storage'] },
             createFolder: { invalidatesTags: ['Files'] },
             listFileVersions: { providesTags: (_result, _error, { fileId }) => [{ type: 'Versions', id: fileId }] },
             // A restore changes the file, and in place it also keeps the current content as a version.
             restoreVersion: {
-                invalidatesTags: (_result, _error, { fileId }) => ['Files', { type: 'Versions', id: fileId }],
+                invalidatesTags: (_result, _error, { fileId }) => ['Files', 'Storage', { type: 'Versions', id: fileId }],
             },
             listShareLinks: { providesTags: (_result, _error, { path }) => [{ type: 'ShareLinks', id: path }] },
             createShareLink: {
@@ -60,14 +67,15 @@ export const apiSlice = generatedApi
             listAccounts: { providesTags: ['Accounts'] },
             listInvites: { providesTags: ['Invites'] },
             setAccountRole: { invalidatesTags: ['Accounts'] },
-            setAccountQuota: { invalidatesTags: ['Accounts'] },
+            // Storage too, for an admin changing their own quota.
+            setAccountQuota: { invalidatesTags: ['Accounts', 'Storage'] },
             // Disabling an account also withdraws the invitations it made; enabling one doesn't.
             setAccountEnabled: {
                 invalidatesTags: (_result, _error, { body }) => (body.enabled ? ['Accounts'] : ['Accounts', 'Invites']),
             },
             // An import gives the account's files rows, which count toward its storage, and may be into
             // the admin's own account.
-            importFiles: { invalidatesTags: ['Accounts', 'Files'] },
+            importFiles: { invalidatesTags: ['Accounts', 'Files', 'Storage'] },
             createInvite: { invalidatesTags: ['Invites'] },
             // Failed or not: a failure is most often an invitation used or expired meanwhile, which
             // shouldn't stay listed.
@@ -103,7 +111,7 @@ export const apiSlice = generatedApi
                     return { data: last };
                 },
                 // As uploadFiles: an upload over a file keeps its old content as a version.
-                invalidatesTags: ['Files', 'Versions'],
+                invalidatesTags: ['Files', 'Versions', 'Storage'],
             }),
         }),
     });
@@ -128,4 +136,13 @@ export const {
     useImportFilesMutation,
     useCreateInviteMutation,
     useRevokeInviteMutation,
+    useGetStorageUsageQuery,
+    useSearchFilesQuery,
+    useGetDemoInfoQuery,
+    useDescribeSharedItemQuery,
+    useDescribeInviteQuery,
+    useDescribePasswordResetQuery,
+    useAcceptInviteMutation,
+    useResetPasswordMutation,
+    useCompleteSetupMutation,
 } = apiSlice;

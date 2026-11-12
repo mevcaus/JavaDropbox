@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import Setup from './Setup';
-import authReducer, { fetchCurrentUser, SETUP_REQUIRED } from '../features/authSlice';
+import { fetchCurrentUser, SETUP_REQUIRED } from '../features/authSlice';
 import api from '../services/api';
+import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
 
@@ -18,7 +18,7 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 
 // Starts where App leaves a fresh install: the session check found setup pending.
 const renderSetup = () => {
-    const store = configureStore({ reducer: { auth: authReducer } });
+    const store = makeStore();
     store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, SETUP_REQUIRED));
     render(
         <Provider store={store}>
