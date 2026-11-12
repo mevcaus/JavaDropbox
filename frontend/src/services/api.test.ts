@@ -91,6 +91,18 @@ describe('api session expiry', () => {
         expect(onUnauthorized).toHaveBeenCalledOnce();
     });
 
+    // Such as what a request interceptor or a body transform throws: it isn't an answer.
+    it('lets a failure that is not an axios error through unchanged', async () => {
+        const onUnauthorized = vi.fn();
+        setUnauthorizedHandler(onUnauthorized);
+        api.defaults.adapter = async () => {
+            throw undefined;
+        };
+
+        await expect(api.get('/api/files')).rejects.toBeUndefined();
+        expect(onUnauthorized).not.toHaveBeenCalled();
+    });
+
     it('does not treat a 403 as a lost session', async () => {
         const onUnauthorized = vi.fn();
         setUnauthorizedHandler(onUnauthorized);
