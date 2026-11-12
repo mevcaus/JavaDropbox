@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Shared from './Shared';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
+import { Provider } from 'react-redux';
+import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
 
@@ -49,11 +51,13 @@ const serve = (info, text = 'hello\n') =>
 
 const renderAt = (token = 'tok_EN-1') =>
     render(
-        <MemoryRouter initialEntries={[`/share/${token}`]}>
-            <Routes>
-                <Route path="/share/:token" element={<Shared />} />
-            </Routes>
-        </MemoryRouter>,
+        <Provider store={makeStore()}>
+            <MemoryRouter initialEntries={[`/share/${token}`]}>
+                <Routes>
+                    <Route path="/share/:token" element={<Shared />} />
+                </Routes>
+            </MemoryRouter>
+        </Provider>,
     );
 
 describe('Shared', () => {
@@ -70,7 +74,7 @@ describe('Shared', () => {
         expect(await screen.findByRole('heading', { name: 'notes.txt' })).toBeInTheDocument();
         expect(screen.getByText(/^2 KB · Link expires /)).toBeInTheDocument();
         expect((await screen.findByLabelText('Contents of notes.txt')).textContent).toBe('hello\n');
-        expect(api.get).toHaveBeenCalledWith('/share/tok_EN-1/info');
+        expect(api.get).toHaveBeenCalledWith('/share/tok_EN-1/info', expect.anything());
         expect(api.get).toHaveBeenCalledWith('/share/tok_EN-1/preview', expect.objectContaining({ responseType: 'text' }));
 
         const download = screen.getByRole('link', { name: 'Download' });
@@ -152,5 +156,22 @@ describe('Shared', () => {
         await userEvent.setup().click(screen.getByRole('button', { name: 'Day 1' }));
 
         expect(controlsWithoutFocusIndicator(document.body)).toEqual([]);
+    });
+
+    // The token comes from the address bar, and the generated endpoint puts it into the URL as it is.
+    it('keeps a crafted token inside the link\'s own routes', async () => {
+        api.get.mockResolvedValue({ data: { name: 'x', isDirectory: false, size: 1 } });
+        renderAt('..%2F..%2Fapi%2Ffiles');
+
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+        expect(api.get.mock.calls[0][0]).toBe('/share/..%2F..%2Fapi%2Ffiles/info');
+    });
+
+    // Such as the app's HTML, from a request that never reached the server.
+    it('says it cannot open a link whose answer is no description', async () => {
+        api.get.mockResolvedValue({ data: '<!doctype html><html></html>' });
+        renderAt();
+
+        expect(await screen.findByText('Could not open this link.')).toBeInTheDocument();
     });
 });

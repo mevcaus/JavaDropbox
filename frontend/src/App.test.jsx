@@ -58,7 +58,7 @@ describe('App routing', () => {
 
         expect(await screen.findByRole('heading', { name: 'photo.zip' })).toBeInTheDocument();
         expect(window.location.pathname).toBe('/share/abc123');
-        expect(api.get).toHaveBeenCalledWith('/share/abc123/info');
+        expect(api.get).toHaveBeenCalledWith('/share/abc123/info', expect.anything());
     });
 
     it('opens an invitation\'s page without a session', async () => {
@@ -71,7 +71,7 @@ describe('App routing', () => {
 
         expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
         expect(window.location.pathname).toBe('/invite/tok-1');
-        expect(api.get).toHaveBeenCalledWith('/api/invite/tok-1');
+        expect(api.get).toHaveBeenCalledWith('/api/invite/tok-1', expect.anything());
     });
 
     it('shows admins the accounts page', async () => {

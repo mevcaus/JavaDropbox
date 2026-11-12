@@ -269,6 +269,115 @@ describe('refreshing the accounts and invitations', () => {
     });
 });
 
+// The storage meter follows the tree: each listing asks for storage use again, once.
+describe('refreshing storage use', () => {
+    let store;
+    const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        api.post.mockResolvedValue({ data: { message: 'Done', files: 0, folders: 0, missing: 0, skipped: 0 } });
+        api.put.mockResolvedValue({ data: { message: 'Quota changed' } });
+        api.delete.mockResolvedValue({ data: { message: 'Deleted' } });
+        store = makeStore();
+        await store.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
+        await subscribe(store);
+        await settle();
+        api.get.mockClear();
+    });
+
+    // Whatever changed the files, here, in another tab or by the demo's reset.
+    it('asks again once each time the tree is listed', async () => {
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
+        await settle();
+        await settle();
+
+        expect([gets('/api/files'), gets('/api/storage')]).toEqual([1, 1]);
+    });
+
+    it.each([
+        ['an upload', () => apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } })],
+        ['a folder upload', () => apiSlice.endpoints.uploadFolder.initiate({ files: [{ file: new File(['a'], 'a.txt'), relativePath: 'T/a.txt' }], path: '' })],
+        ['a delete', () => apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' })],
+        ['a restore', () => apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' })],
+    ])('asks once after %s, through the listing it causes', async (_label, change) => {
+        await store.dispatch(change());
+        await settle();
+        await settle();
+
+        expect([gets('/api/files'), gets('/api/storage')]).toEqual([1, 1]);
+    });
+
+    // The admin page lists no files, so these ask for storage use themselves.
+    it.each([
+        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 1 })],
+        ['a quota change', () => apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } })],
+    ])('asks again after %s', async (_label, change) => {
+        // As on the admin page: storage use shown, no tree listed.
+        const admin = makeStore();
+        await admin.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
+        api.get.mockClear();
+
+        await admin.dispatch(change());
+        await settle();
+
+        expect(gets('/api/storage')).toBe(1);
+    });
+
+    // A search answers from the files as they are, so a change asks again, once.
+    it('asks for a search again once after a change to the files', async () => {
+        await store.dispatch(apiSlice.endpoints.searchFiles.initiate({ q: 'plan', path: '' }));
+        api.get.mockClear();
+
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }));
+        await settle();
+        await settle();
+
+        expect(gets('/api/search')).toBe(1);
+    });
+});
+
+// Asked once per page, and a 404 on an ordinary install is an answer, not a failure to retry.
+describe('the demo\'s limits', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it('are null on an ordinary install, asked once however many screens show them', async () => {
+        api.get.mockRejectedValue({ response: { status: 404, data: { message: 'Not found' } } });
+        const store = makeStore();
+
+        const first = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(first.data).toBeNull();
+        expect(api.get).toHaveBeenCalledTimes(1);
+    });
+
+    // A passing failure isn't kept as "no demo", which would hide the demo's banner and limits.
+    it('are asked again after any other failure', async () => {
+        api.get
+            .mockRejectedValueOnce({ response: { status: 500, data: '' } })
+            .mockResolvedValueOnce({ data: { username: 'demo' } });
+        const store = makeStore();
+
+        const failed = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        const retried = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(failed.isError).toBe(true);
+        expect(retried.data).toEqual({ username: 'demo' });
+    });
+
+    it('are the demo\'s account and limits on the demo', async () => {
+        api.get.mockResolvedValue({ data: { username: 'demo', maxShareMinutes: 15 } });
+        const store = makeStore();
+
+        const result = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(result.data).toEqual({ username: 'demo', maxShareMinutes: 15 });
+    });
+});
+
 // A file with its place inside the uploaded folder, as uploadFolder takes it.
 const pickedFile = (relativePath) => ({ file: new File(['x'], relativePath.split('/').at(-1)), relativePath });
 

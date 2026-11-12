@@ -1,38 +1,16 @@
-import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Folder, HardDrive, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import Logo from './Logo';
 import { useSelector } from 'react-redux';
 import { totalSize } from '../features/files';
-import { apiSlice } from '../services/apiSlice';
+import { apiSlice, useGetStorageUsageQuery } from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
-import api from '../services/api';
 import { formatSize } from '../utils/format';
 
-export const STORAGE_ENDPOINT = '/api/storage';
-
-// What the signed-in user stores, previous versions included, and their quota: asked again
-// whenever the file list changes, which every upload, delete and restore makes it do. Null until
-// the server has answered.
-const useStorageUsage = () => {
-    // The tree the dashboard loaded, read from the cache without fetching it here.
-    const { data: files } = apiSlice.endpoints.getFileTree.useQueryState();
-    const [usage, setUsage] = useState(null);
-
-    useEffect(() => {
-        let cancelled = false;
-        api.get(STORAGE_ENDPOINT)
-            .then((response) => !cancelled && setUsage(response.data))
-            .catch(() => {
-                // The meter falls back to the size of the file list.
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [files]);
-
-    return usage;
-};
+// What the signed-in user stores, previous versions included, and their quota. Asked again through
+// the Storage tag after each listing of the files, whatever changed them, and after an import or a
+// quota change. Undefined until the server has answered, or if it couldn't.
+const useStorageUsage = () => useGetStorageUsageQuery().currentData;
 
 // Written out in full: Tailwind only generates classes it finds as complete strings in the source.
 const barColour = (fraction) => {
@@ -43,6 +21,8 @@ const barColour = (fraction) => {
 
 const StorageMeter = ({ isCollapsed }) => {
     const usage = useStorageUsage();
+    // Until then, or if storage use couldn't be loaded, the size of the tree the dashboard loaded,
+    // read from the cache without fetching it here.
     const { data: tree } = apiSlice.endpoints.getFileTree.useQueryState();
     const treeSize = totalSize(tree);
     const used = usage?.usedBytes ?? treeSize;

@@ -1,18 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { skipToken } from '@reduxjs/toolkit/query';
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import api from '../services/api';
+import {
+    useAcceptInviteMutation,
+    useDescribeInviteQuery,
+    useDescribePasswordResetQuery,
+    useResetPasswordMutation,
+} from '../services/apiSlice';
 import { clearUser, logoutUser } from '../features/authSlice';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
 
-// What each kind of link is for: where the API answers it, and the words on its page.
+// What each kind of link is for, and the words on its page.
 const PURPOSES = {
     invite: {
-        api: '/api/invite',
         heading: 'Create your account',
         intro: (username) => (
             <>
@@ -26,7 +31,6 @@ const PURPOSES = {
         failed: 'Could not create the account.',
     },
     reset: {
-        api: '/api/reset-password',
         heading: 'Choose a new password',
         intro: (username) => (
             <>
@@ -56,40 +60,33 @@ const AccountLink = ({ purpose }) => {
     const dispatch = useDispatch();
     const { isAuthenticated, user } = useSelector((state) => state.auth);
     const text = PURPOSES[purpose];
-    const endpoint = `${text.api}/${encodeURIComponent(token)}`;
+    // Encoded, since the generated endpoints put it into the URL as it is: a token from the address
+    // bar could otherwise hold "../" and send the request somewhere else in the API.
+    const linkToken = encodeURIComponent(token);
+    // Both pages' hooks run, as hooks must, and the one for the other kind of link asks nothing.
+    const invite = useDescribeInviteQuery(purpose === 'invite' ? { token: linkToken } : skipToken);
+    const reset = useDescribePasswordResetQuery(purpose === 'reset' ? { token: linkToken } : skipToken);
+    const described = purpose === 'invite' ? invite : reset;
+    const [acceptInvite] = useAcceptInviteMutation();
+    const [resetPassword] = useResetPasswordMutation();
+    const setPasswordWith = purpose === 'invite' ? acceptInvite : resetPassword;
 
-    const [link, setLink] = useState(null);
-    const [loadError, setLoadError] = useState(null);
+    // Anything but the link's description, such as the app's HTML from a request that never reached
+    // the server, is no link to show a form for.
+    const link = typeof described.currentData?.username === 'string' ? described.currentData : null;
+    let loadError = null;
+    if (described.error) {
+        loadError =
+            described.error.status === 404
+                ? 'This link has expired or has already been used. Ask your admin for a new one.'
+                : readableError(described.error, 'Could not open this link.');
+    } else if (described.currentData !== undefined && !link) {
+        loadError = 'Could not open this link.';
+    }
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
-
-    useEffect(() => {
-        let cancelled = false;
-        api.get(endpoint)
-            .then((response) => {
-                if (cancelled) return;
-                // Anything but the link's description, such as the app's HTML from a request that
-                // never reached the server, is no link to show a form for.
-                if (typeof response.data?.username !== 'string') {
-                    setLoadError('Could not open this link.');
-                    return;
-                }
-                setLink(response.data);
-            })
-            .catch((err) => {
-                if (cancelled) return;
-                setLoadError(
-                    err.response?.status === 404
-                        ? 'This link has expired or has already been used. Ask your admin for a new one.'
-                        : readableError(err, 'Could not open this link.'),
-                );
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [endpoint]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -104,9 +101,7 @@ const AccountLink = ({ purpose }) => {
         }
         setSaving(true);
         try {
-            await api.post(endpoint, new URLSearchParams({ password }), {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            });
+            await setPasswordWith({ token: linkToken, body: { password } }).unwrap();
             if (isAuthenticated) {
                 // A reset of this account's own password has already ended its session on the
                 // server; anyone else is still signed in there, and stays signed out here regardless.

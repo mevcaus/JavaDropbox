@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ChevronRight, Download, Link2Off, Loader2 } from 'lucide-react';
-import api from '../services/api';
+import { useDescribeSharedItemQuery } from '../services/apiSlice';
 import FileIcon from '../components/FileIcon';
 import FilePreview from '../components/FilePreview';
 import Logo from '../components/Logo';
@@ -87,21 +87,17 @@ const FolderContents = ({ folder }) => {
 const Shared = () => {
     const { token } = useParams();
     const link = `/share/${encodeURIComponent(token)}`;
-    const [item, setItem] = useState(null);
-    const [error, setError] = useState(null);
-
-    useEffect(() => {
-        let cancelled = false;
-        api.get(`${link}/info`)
-            .then((response) => !cancelled && setItem(response.data))
-            .catch((err) => {
-                if (cancelled) return;
-                setError(err.response?.status === 404 ? 'gone' : readableError(err, 'Could not open this link.'));
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [link]);
+    // Encoded, as in link above: the generated endpoint puts it into the URL as it is.
+    const described = useDescribeSharedItemQuery({ token: encodeURIComponent(token) });
+    // Anything but the item's description, such as the app's HTML from a request that never reached
+    // the server, is nothing to show.
+    const item = typeof described.currentData?.name === 'string' ? described.currentData : null;
+    let error = null;
+    if (described.error) {
+        error = described.error.status === 404 ? 'gone' : readableError(described.error, 'Could not open this link.');
+    } else if (described.currentData !== undefined && !item) {
+        error = 'Could not open this link.';
+    }
 
     useEffect(() => {
         if (!item) return undefined;

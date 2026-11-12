@@ -156,7 +156,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
     const query = searchQuery.trim();
     const searching = query !== '';
     // The server searches names and the text inside files, everywhere below this folder.
-    const { answer, pending } = useFileSearch(query, currentPath, files);
+    const { answer, pending } = useFileSearch(query, currentPath);
 
     const handleSearchChange = (e) => {
         setSearchQuery(e.target.value);

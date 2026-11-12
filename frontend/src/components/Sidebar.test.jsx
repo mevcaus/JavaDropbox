@@ -45,7 +45,7 @@ describe('Sidebar', () => {
         expect(meter).toHaveAttribute('aria-valuenow', String(GB));
         expect(meter).toHaveAttribute('aria-valuemax', String(4 * GB));
         expect(screen.getByText('1 GB of 4 GB used')).toBeInTheDocument();
-        expect(api.get).toHaveBeenCalledWith('/api/storage');
+        expect(api.get).toHaveBeenCalledWith('/api/storage', expect.anything());
     });
 
     it('without a quota, says what is stored and draws no meter', async () => {
@@ -56,14 +56,14 @@ describe('Sidebar', () => {
         expect(screen.queryByRole('meter')).toBeNull();
     });
 
-    it('asks again when the files change', async () => {
+    // Each listing of the files, an import and a quota change invalidate the Storage tag.
+    it('asks again after a change to what is stored', async () => {
         api.get.mockResolvedValue({ data: { usedBytes: 0, quotaBytes: null } });
         const { store } = renderSidebar();
         await screen.findByText('0 B stored');
 
         api.get.mockResolvedValue({ data: { usedBytes: 4096, quotaBytes: null } });
-        // A refresh of the file list, as every upload, delete or restore makes.
-        store.dispatch(apiSlice.util.upsertQueryData('getFileTree', undefined, []));
+        store.dispatch(apiSlice.util.invalidateTags(['Storage']));
 
         expect(await screen.findByText('4 KB stored')).toBeInTheDocument();
     });

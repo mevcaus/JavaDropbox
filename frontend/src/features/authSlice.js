@@ -3,6 +3,8 @@ import api from '../services/api';
 import { readableError } from '../utils/errors';
 
 // Async thunk for login
+// Signing in and out go through api, not the API slice: Spring Security answers /login and /logout,
+// so they aren't in the API spec the slice is generated from.
 export const loginUser = createAsyncThunk(
     'auth/loginUser',
     async ({ username, password }, { rejectWithValue }) => {
