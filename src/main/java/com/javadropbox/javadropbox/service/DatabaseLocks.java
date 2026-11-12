@@ -4,7 +4,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -23,6 +27,10 @@ final class DatabaseLocks {
 
   /** Resetting the public demo's files. */
   static final long DEMO_RESET = 0x4a44_4244_656d_6f52L;
+
+  private static final Duration RETRY_EVERY = Duration.ofMillis(200);
+
+  private static final Logger log = LoggerFactory.getLogger(DatabaseLocks.class);
 
   private DatabaseLocks() {}
 
@@ -55,40 +63,84 @@ final class DatabaseLocks {
   }
 
   /**
-   * Runs {@code work} holding the lock {@code key}, waiting while another server or thread holds
-   * it: for work too long for one transaction, which makes transactions of its own. The lock is
-   * held on a connection of its own, outside any transaction, for as long as the work takes, and
-   * let go when it ends, or by PostgreSQL should the connection drop. That connection is one more
-   * from the pool, besides those the work takes, so call it from one thread per server at a time.
+   * Runs {@code work} holding the lock {@code key}, for work too long for one transaction, which
+   * makes transactions of its own. Waits up to {@code wait} while another server or thread holds
+   * it, and returns false without running the work if it is still held then: one server's stalled
+   * work mustn't hold up another's requests for good. Returns true once the work has run.
+   *
+   * <ul>
+   *   <li>The lock is held on a connection of its own, outside any transaction, for as long as the
+   *       work takes, and let go when it ends, or by PostgreSQL should the connection drop. That
+   *       connection is one more from the pool, besides those the work takes, so call it from one
+   *       thread per server at a time.
+   *   <li>It isn't re-entrant: work that asks for the same lock again waits for itself.
+   *   <li>It needs a direct connection to PostgreSQL. Behind a pooler such as PgBouncer in
+   *       transaction mode, taking and letting go of the lock could reach different sessions.
+   * </ul>
    */
-  static void whileHeld(JdbcTemplate jdbc, long key, Work work) throws IOException {
+  static boolean whileHeld(JdbcTemplate jdbc, long key, Duration wait, Work work)
+      throws IOException {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       // Inside one, the connection would be the transaction's, and the work's would join it.
       throw new IllegalStateException("A lock held while work runs needs no transaction");
     }
     try {
-      jdbc.execute(
-          (ConnectionCallback<Void>)
+      return jdbc.execute(
+          (ConnectionCallback<Boolean>)
               connection -> {
-                call(connection, "SELECT pg_advisory_lock(?)", key);
+                if (!take(connection, key, wait)) {
+                  return false;
+                }
                 try {
                   work.run();
                 } catch (IOException e) {
                   throw new UncheckedIOException(e);
                 } finally {
-                  call(connection, "SELECT pg_advisory_unlock(?)", key);
+                  letGo(connection, key);
                 }
-                return null;
+                return true;
               });
     } catch (UncheckedIOException e) {
       throw e.getCause();
     }
   }
 
-  private static void call(Connection connection, String sql, long key) throws SQLException {
-    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+  // Tries again every so often until the wait is over, rather than waiting in PostgreSQL, which
+  // would wait for as long as the lock is held.
+  private static boolean take(Connection connection, long key, Duration wait) throws SQLException {
+    long deadline = System.nanoTime() + wait.toNanos();
+    while (true) {
+      try (PreparedStatement statement =
+          connection.prepareStatement("SELECT pg_try_advisory_lock(?)")) {
+        statement.setLong(1, key);
+        try (ResultSet result = statement.executeQuery()) {
+          result.next();
+          if (result.getBoolean(1)) {
+            return true;
+          }
+        }
+      }
+      if (System.nanoTime() - deadline >= 0) {
+        return false;
+      }
+      try {
+        Thread.sleep(RETRY_EVERY.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+  }
+
+  // A failure to let go is logged, not thrown, so it neither hides the work's own failure nor
+  // turns work that succeeded into one. The connection is most likely gone, and the lock with it.
+  private static void letGo(Connection connection, long key) {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT pg_advisory_unlock(?)")) {
       statement.setLong(1, key);
       statement.executeQuery().close();
+    } catch (SQLException e) {
+      log.warn("Could not let go of the database lock {}: {}", key, e.toString());
     }
   }
 }

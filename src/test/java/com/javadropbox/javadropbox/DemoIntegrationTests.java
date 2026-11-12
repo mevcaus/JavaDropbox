@@ -345,7 +345,6 @@ class DemoIntegrationTests {
         .getCookie("JSESSIONID");
   }
 
-  // The demo account's folder.
   // Each server's DemoService, on the database and the store they share.
   @Test
   @DisplayName("two servers starting at once create one account and reset the files once")
@@ -447,6 +446,7 @@ class DemoIntegrationTests {
         demo.quotaBytes() + "B");
   }
 
+  // The demo account's folder.
   private Path home() {
     return localStore.path(storagePaths.home(users.findByUsername("demo").orElseThrow()).key());
   }

@@ -53,6 +53,10 @@ public class DemoService implements ApplicationRunner {
   // After a failed reset, how long until the next request tries again.
   private static final Duration RETRY_AFTER_FAILURE = Duration.ofMinutes(10);
 
+  // How long a server waits while another resets the files, its requests waiting with it. A reset
+  // takes a few seconds.
+  private static final Duration RESET_LOCK_WAIT = Duration.ofSeconds(30);
+
   private static final String SAMPLES = "demo/";
 
   private record Sample(String folder, String name, String resource) {}
@@ -193,19 +197,30 @@ public class DemoService implements ApplicationRunner {
         return;
       }
       try {
-        DatabaseLocks.whileHeld(
-            jdbc,
-            DatabaseLocks.DEMO_RESET,
-            () -> {
-              // Another server may have reset the files while this one waited.
-              Instant due = resetTimeAfter(lastReset());
-              if (clock.instant().isBefore(due)) {
-                nextReset = due;
-                return;
-              }
-              reset();
-              nextReset = resetTimeAfter(clock.instant());
-            });
+        boolean ran =
+            DatabaseLocks.whileHeld(
+                jdbc,
+                DatabaseLocks.DEMO_RESET,
+                RESET_LOCK_WAIT,
+                () -> {
+                  // Another server may have reset the files while this one waited.
+                  Instant last = lastReset();
+                  Instant due = resetTimeAfter(last);
+                  if (clock.instant().isBefore(due)) {
+                    log.info("The demo's files were already reset, at {}", last);
+                    nextReset = due;
+                    return;
+                  }
+                  reset();
+                  nextReset = resetTimeAfter(clock.instant());
+                });
+        if (!ran) {
+          log.warn(
+              "Another server has been resetting the demo's files for over {}; trying again in {}",
+              RESET_LOCK_WAIT,
+              RETRY_AFTER_FAILURE);
+          nextReset = clock.instant().plus(RETRY_AFTER_FAILURE);
+        }
       } catch (IOException | RuntimeException e) {
         log.error("Could not reset the demo's files", e);
         nextReset = clock.instant().plus(RETRY_AFTER_FAILURE);
@@ -270,7 +285,7 @@ public class DemoService implements ApplicationRunner {
           jdbc.update("UPDATE users SET used_bytes = 0");
         });
 
-    // The app's own folder stays: it holds the search index, and the marker of the last reset.
+    // The app's own folder stays: it holds the search index.
     for (FileStore.Entry entry : store.list("")) {
       if (!entry.key().equals(StoragePaths.INTERNAL_DIR)) {
         store.deleteRecursively(entry.key());
