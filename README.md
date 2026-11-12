@@ -414,9 +414,9 @@ cd JavaDropbox
 docker compose --profile app up --build
 ```
 
-Then open `http://localhost:8080` and create the first account with the setup code from `docker compose logs app`.
+Then open `http://localhost:8080` and create the first account with the setup code from `docker compose logs app`. `docker compose --profile elasticsearch up --build` runs the same app with search on Elasticsearch ([when to pick it](docs/self-hosting.md#lucene-or-elasticsearch)).
 
-- **[Self-hosting](docs/self-hosting.md):** first-run setup, configuration, reverse proxies, password recovery, health and metrics
+- **[Self-hosting](docs/self-hosting.md):** first-run setup, configuration, files in S3, search on Elasticsearch, reverse proxies, password recovery, health and metrics
 - **[Development](docs/development.md):** running from source with hot reload, project structure, database migrations, code style
 - **[Testing](docs/testing.md):** what each backend, frontend and end-to-end test suite covers
 - **[API reference](docs/api.md):** every endpoint, with Swagger UI available in development

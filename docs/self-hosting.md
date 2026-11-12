@@ -14,7 +14,7 @@ docker compose --profile app up --build
 
 The logos and favicon are stored in Git LFS (run `git lfs install` once before cloning). Cloned without it, they are small text pointers instead of images: run `git lfs pull` to fetch them. The Docker build stops with a message saying so rather than ship broken images.
 
-Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Uploads are kept in the volume while they arrive too, not in the container, so the volume needs room for them. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. To run search on Elasticsearch instead, see [Lucene or Elasticsearch](#lucene-or-elasticsearch). Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Uploads are kept in the volume while they arrive too, not in the container, so the volume needs room for them. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
 
 The container runs as uid and gid `10001`. To keep the files in a host directory instead of the volume, mount it at `/data` and hand it to that user first, e.g. `sudo chown -R 10001:10001 /srv/javadropbox`. A volume created by an image from before the uid was fixed belongs to a different uid; hand it over once with `docker compose run --rm --no-deps --user root --entrypoint chown app -R 10001:10001 /data`.
 
@@ -170,6 +170,44 @@ The files stored are the source of truth, and the index only mirrors them:
 - To rebuild the index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
 
 A PDF or Word document that cannot be read, such as a damaged or password-protected one, is logged at `WARN` and is still found by its name.
+
+### Lucene or Elasticsearch
+
+Keep the default, Lucene, for one app server. Its index is inside the app, so there's no second service to run, secure, upgrade or back up, and no network hop between a change and the index. It handles one server's files with room to spare. The live demo runs on it.
+
+Pick Elasticsearch to run several app servers behind a load balancer. Each server's Lucene index only knows the changes made through that server, and a Lucene index on a network filesystem isn't reliable. On Elasticsearch, every server reads and writes one index, so a file uploaded through one server turns up in searches on the others. What it costs:
+- a service that wants a gigabyte or more of memory, and has to be secured;
+- a network hop for every search;
+- search answers `503` while the service is down, though everything else keeps working.
+
+Several servers also need the files in [S3](#storing-files-in-s3), so they all see the same store. [#336](https://github.com/mevcaus/JavaDropbox/issues/336) tracks what else they need.
+
+To try it on one host, `compose.yaml` has an `elasticsearch` profile:
+
+```bash
+docker compose --profile elasticsearch up --build
+```
+
+That starts PostgreSQL, Elasticsearch 8.18, and `app-elasticsearch`: the app on Elasticsearch, on port 8080, with the same files and database as `--profile app`. Run one profile or the other, not both. The setup code is in `docker compose logs app-elasticsearch`.
+
+On its first start, the app fills the index from the files. The index lives in the `elasticsearch-data` volume, and needs no backup, since it can be filled again from the files.
+- Elasticsearch gets a 1 GB heap. Set `ES_JAVA_OPTS` to change it, e.g. `ES_JAVA_OPTS="-Xms2g -Xmx2g"`.
+- Its security is off. Only the app, over the compose network, and this host, on `127.0.0.1:9200`, can reach it. That's fine on one machine, but not for a service other machines reach.
+
+For app servers on several machines, run Elasticsearch with security on (its default), and give each app server the same settings:
+
+```bash
+JAVADROPBOX_SEARCH_BACKEND=elasticsearch
+JAVADROPBOX_SEARCH_ELASTICSEARCH_URL=https://search.internal:9200
+JAVADROPBOX_SEARCH_ELASTICSEARCH_USERNAME=javadropbox
+JAVADROPBOX_SEARCH_ELASTICSEARCH_PASSWORD=...
+```
+
+Switching either way loses nothing, since both indexes are filled from the files.
+- **Lucene to Elasticsearch:** the first start fills the Elasticsearch index. The old `search-index` folder can then be deleted.
+- **Back to Lucene:** a `search-index` folder still there is brought up to date at startup, reading only the files that changed.
+
+### On Elasticsearch
 
 With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearch service instead, and searches find and show the same things. Every app server can then search what any of them stored. Each still reconciles every ten minutes, and a reconcile only reads again the files that changed. The app was tested against Elasticsearch 8.18 (OpenSearch isn't supported: Elasticsearch's client refuses it).
 

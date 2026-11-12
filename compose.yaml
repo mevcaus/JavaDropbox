@@ -23,7 +23,7 @@ services:
   # The whole app in one container. Behind the "app" profile so ./gradlew bootRun,
   # which starts this file for its database, does not start it too:
   #   docker compose --profile app up --build
-  app:
+  app: &app
     profiles: ["app"]
     build: .
     # Restarts the app if it exits. The image's HEALTHCHECK shows in docker compose ps.
@@ -31,7 +31,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
+    environment: &app-environment
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/javadropbox
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -44,6 +44,50 @@ services:
     volumes:
       - javadropbox-data:/data
 
+  # Search on Elasticsearch, a service several app servers can share, instead of
+  # the index inside the app (see docs/self-hosting.md#search). Behind the
+  # "elasticsearch" profile, with a copy of the app that uses it:
+  #   docker compose --profile elasticsearch up --build
+  # Security is off, so it is for one host: the app reaches it over the compose
+  # network, and nothing outside this host can. A cluster other machines reach
+  # needs security on.
+  elasticsearch:
+    profiles: ["elasticsearch"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.18.6
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      # Without a heap size, Elasticsearch takes half the machine's memory.
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+    ports:
+      # Local connections only, for ./gradlew bootRun (see docs/development.md).
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  # The app as above, with its search on that Elasticsearch. It has the same
+  # port, files and database, so run one or the other: --profile app, or
+  # --profile elasticsearch. The index fills from the files when it starts.
+  app-elasticsearch:
+    <<: *app
+    profiles: ["elasticsearch"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      <<: *app-environment
+      JAVADROPBOX_SEARCH_BACKEND: elasticsearch
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_URL: http://elasticsearch:9200
+
 volumes:
   postgres-data:
   javadropbox-data:
+  elasticsearch-data:
