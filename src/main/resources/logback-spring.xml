@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot's own console logging, with one change: the values a log line is given have their line
+  breaks and other control characters escaped (EscapedValuesConverter), so a username or file name
+  can't forge a line. Levels are still set in application.properties.
+-->
+<configuration>
+  <conversionRule conversionWord="m" class="com.javadropbox.javadropbox.config.EscapedValuesConverter"/>
+  <conversionRule conversionWord="msg" class="com.javadropbox.javadropbox.config.EscapedValuesConverter"/>
+  <conversionRule conversionWord="message" class="com.javadropbox.javadropbox.config.EscapedValuesConverter"/>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+</configuration>

@@ -22,10 +22,14 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
@@ -36,6 +40,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 @DisplayName("Observability Integration Tests")
 @TempServingDirectory
 class ObservabilityIntegrationTests {
@@ -78,6 +83,17 @@ class ObservabilityIntegrationTests {
       userRepository.save(new User("testuser", "unused", "ROLE_USER"));
     }
     return localStore.path(storagePaths.home(admin).key());
+  }
+
+  @Test
+  @DisplayName("a value logged with a line break stays on its log line")
+  void logValuesCannotStartALine(CapturedOutput output) {
+    LoggerFactory.getLogger(ObservabilityIntegrationTests.class)
+        .info("Signed in as \"{}\"", "ada\n2026-01-01T00:00:00Z  INFO forged line");
+
+    assertThat(output.getOut())
+        .contains("Signed in as \"ada\\n2026-01-01T00:00:00Z  INFO forged line\"")
+        .doesNotContain("\n2026-01-01T00:00:00Z  INFO forged line");
   }
 
   @Test
