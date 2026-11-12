@@ -46,6 +46,24 @@ if [ "$zap" != 0 ]; then
   exit 3
 fi
 
+# Code scanning only takes locations in the repository, so each alert's URL becomes its path, as if
+# it were a file, and the full URL leads its message. A built asset's path drops its content hash,
+# so an alert on it stays the same alert from one build to the next.
+python3 - "$out/zap.sarif.json" <<'PY'
+import json, re, sys
+from urllib.parse import urlsplit
+
+sarif = json.load(open(sys.argv[1]))
+for result in sarif["runs"][0]["results"]:
+    for location in result["locations"]:
+        artifact = location["physicalLocation"]["artifactLocation"]
+        url = urlsplit(artifact["uri"])
+        path = re.sub(r"^(assets/.+)-[\w-]{8}(\.\w+)$", r"\1\2", url.path.lstrip("/"))
+        artifact["uri"] = (path or "index.html") + (f"?{url.query}" if url.query else "")
+        result["message"]["text"] = f"{url.geturl()}\n\n{result['message']['text']}"
+json.dump(sarif, open(sys.argv[1], "w"), indent=2)
+PY
+
 # Every alert left once the plan's filters have marked the accepted ones as false positives.
 python3 - "$out/zap.json" <<'PY'
 import json, sys
