@@ -2,21 +2,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render as renderWithoutStore, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { makeStore } from '../redux/store';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
+import type { ReactElement, ReactNode } from 'react';
 import FileTable from './FileTable';
-import api from '../services/api';
-import { apiSlice } from '../services/apiSlice';
+import mockedApi from '../services/api';
+import { apiSlice, type FileTreeNode, type SearchResult, type Snippet as SnippetData } from '../services/apiSlice';
+import { fieldsOf } from '../utils/errors';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
 // The search gets its answers through the API slice, so the table needs a store. rerender keeps it.
-const render = (ui) => {
+const render = (ui: ReactElement) => {
     const store = makeStore();
-    const view = renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+    const view = renderWithoutStore(ui, {
+        wrapper: ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>,
+    });
     return { ...view, store };
 };
 
 // Searches go to the server; each test that searches says what it answers.
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 afterEach(() => {
     cleanup();
@@ -24,30 +29,44 @@ afterEach(() => {
     vi.resetAllMocks();
 });
 
+// An item of the tree as getFileTree answers it, with what a test leaves out filled in: no id
+// (as for a file copied in by hand), no children, no preview.
+const node = (
+    fields: Pick<FileTreeNode, 'name' | 'isDirectory' | 'size' | 'relativePath'> & Partial<FileTreeNode>,
+): FileTreeNode => ({
+    id: null,
+    children: [],
+    createdDate: null,
+    lastModified: null,
+    ownerName: 'ada',
+    previewType: null,
+    ...fields,
+});
+
 // lastModified arrives from the backend as absolute ISO-8601 instants, so the fixtures use
 // that exact shape, including the trailing Z.
 const APPLES_FILES = [
-    { id: 100, name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '2026-02-02T10:00:00Z', relativePath: 'apples/budget.xlsx' },
-    { id: 101, name: 'photo.png', isDirectory: false, size: 900, lastModified: '2026-02-03T10:00:00Z', relativePath: 'apples/photo.png' },
+    node({ id: 100, name: 'budget.xlsx', isDirectory: false, size: 512, lastModified: '2026-02-02T10:00:00Z', relativePath: 'apples/budget.xlsx' }),
+    node({ id: 101, name: 'photo.png', isDirectory: false, size: 900, lastModified: '2026-02-03T10:00:00Z', relativePath: 'apples/photo.png' }),
 ];
 
 const ROOT_FILES = [
-    {
+    node({
         id: 102, name: 'Zebra Folder', isDirectory: true, size: 96, lastModified: '2026-01-05T09:00:00Z', relativePath: 'Zebra Folder',
         children: [
-            { id: 103, name: 'deep.txt', isDirectory: false, size: 10, lastModified: '2026-04-01T08:00:00Z', relativePath: 'Zebra Folder/deep.txt' },
-            {
+            node({ id: 103, name: 'deep.txt', isDirectory: false, size: 10, lastModified: '2026-04-01T08:00:00Z', relativePath: 'Zebra Folder/deep.txt' }),
+            node({
                 id: 104, name: 'nested', isDirectory: true, size: 20, lastModified: '2026-04-02T08:00:00Z', relativePath: 'Zebra Folder/nested',
                 children: [
-                    { id: 105, name: 'buried.log', isDirectory: false, size: 20, lastModified: '2026-04-03T08:00:00Z', relativePath: 'Zebra Folder/nested/buried.log' },
+                    node({ id: 105, name: 'buried.log', isDirectory: false, size: 20, lastModified: '2026-04-03T08:00:00Z', relativePath: 'Zebra Folder/nested/buried.log' }),
                 ],
-            },
+            }),
         ],
-    },
-    { id: 106, name: 'apples', isDirectory: true, size: 128, lastModified: '2025-12-31T23:59:00Z', relativePath: 'apples', children: [...APPLES_FILES] },
-    { id: 107, name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '2026-09-09T14:38:00Z', relativePath: 'notes.txt' },
-    { id: 108, name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '2026-03-04T02:38:00Z', relativePath: 'Big.zip' },
-    { id: 109, name: 'tiny.md', isDirectory: false, size: 12, lastModified: '2026-01-02T00:05:00Z', relativePath: 'tiny.md' },
+    }),
+    node({ id: 106, name: 'apples', isDirectory: true, size: 128, lastModified: '2025-12-31T23:59:00Z', relativePath: 'apples', children: [...APPLES_FILES] }),
+    node({ id: 107, name: 'notes.txt', isDirectory: false, size: 2048, lastModified: '2026-09-09T14:38:00Z', relativePath: 'notes.txt' }),
+    node({ id: 108, name: 'Big.zip', isDirectory: false, size: 1048576, lastModified: '2026-03-04T02:38:00Z', relativePath: 'Big.zip' }),
+    node({ id: 109, name: 'tiny.md', isDirectory: false, size: 12, lastModified: '2026-01-02T00:05:00Z', relativePath: 'tiny.md' }),
 ];
 
 const noopHandlers = {
@@ -66,26 +85,28 @@ const visibleOrder = () =>
     screen
         .getAllByRole('row')
         .slice(1)
-        .map((row) => within(row).getAllByRole('cell')[0].querySelector('.ml-4').firstElementChild.textContent);
+        .map((row) => within(row).getAllByRole('cell')[0]?.querySelector('.ml-4')?.firstElementChild?.textContent);
 
 const visiblePaths = () =>
     screen
         .getAllByRole('row')
         .slice(1)
-        .map((row) => within(row).getAllByRole('cell')[0].querySelector('.ml-4 > div.text-xs').textContent);
+        .map((row) => within(row).getAllByRole('cell')[0]?.querySelector('.ml-4 > div.text-xs')?.textContent);
 
 // The tree's node at a path in ROOT_FILES.
-const nodeAt = (path, nodes = ROOT_FILES) => {
+const nodeAt = (path: string, nodes: readonly FileTreeNode[] = ROOT_FILES): FileTreeNode | undefined => {
     for (const node of nodes) {
         if (node.relativePath === path) return node;
-        const found = node.children && nodeAt(path, node.children);
+        const found: FileTreeNode | undefined = nodeAt(path, node.children);
         if (found) return found;
     }
     return undefined;
 };
 
 // A search result for a node, as GET /api/search describes it.
-const hit = (node, snippet = null) => ({
+const hit = (node: FileTreeNode | undefined, snippet: SnippetData | null = null): SearchResult => {
+    if (!node) throw new Error('No such node in the fixtures');
+    return {
     name: node.name,
     relativePath: node.relativePath,
     isDirectory: node.isDirectory,
@@ -93,23 +114,24 @@ const hit = (node, snippet = null) => ({
     lastModified: node.lastModified,
     previewType: node.previewType ?? null,
     snippet,
-});
+    };
+};
 
 // The server's answer to a search, best match first.
-const answer = (results, { total = results.length, indexing = false } = {}) => ({
+const answer = (results: SearchResult[], { total = results.length, indexing = false } = {}) => ({
     data: { results, total, indexing },
 });
 
 const searchBox = () => screen.getByRole('textbox', { name: 'Search files' });
 
 // Types a search and waits for the server's answer to be shown.
-const searchFor = async (user, text) => {
+const searchFor = async (user: UserEvent, text: string) => {
     await user.type(searchBox(), text);
     await waitFor(() => expect(screen.queryByText(/Searching…/)).not.toBeInTheDocument());
 };
 
-const header = (name) => screen.getByRole('button', { name });
-const columnHeader = (name) => screen.getByRole('columnheader', { name });
+const header = (name: string | RegExp) => screen.getByRole('button', { name });
+const columnHeader = (name: string | RegExp) => screen.getByRole('columnheader', { name });
 
 describe('FileTable default ordering', () => {
     it('groups folders ahead of files, each sorted by name ascending', () => {
@@ -150,7 +172,7 @@ describe('FileTable search', () => {
         await searchFor(user, 'notes');
 
         expect(api.get).toHaveBeenCalledTimes(1);
-        expect(api.get.mock.calls[0][1].params.q).toBe('notes');
+        expect(fieldsOf(api.get.mock.calls[0]?.[1]?.params).q).toBe('notes');
     });
 
     it('searches the folder being viewed, not the whole tree', async () => {
@@ -160,7 +182,7 @@ describe('FileTable search', () => {
 
         await searchFor(user, 'budget');
 
-        expect(api.get.mock.calls[0][1].params).toEqual({ q: 'budget', path: 'apples' });
+        expect(api.get.mock.calls[0]?.[1]?.params).toEqual({ q: 'budget', path: 'apples' });
     });
 
     it('shows the passage of text that matched, with the matching words marked', async () => {
@@ -188,8 +210,8 @@ describe('FileTable search', () => {
     });
 
     it('shows a result as the tree has it, so a file the app tracks offers its versions', async () => {
-        const tracked = { name: 'plan.txt', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'docs/plan.txt', id: 7 };
-        const tree = [{ name: 'docs', isDirectory: true, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'docs', children: [tracked] }];
+        const tracked = node({ name: 'plan.txt', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'docs/plan.txt', id: 7 });
+        const tree = [node({ name: 'docs', isDirectory: true, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'docs', children: [tracked] })];
         api.get.mockResolvedValue(answer([hit(tracked)]));
         const onVersions = vi.fn();
         const user = userEvent.setup();
@@ -202,7 +224,7 @@ describe('FileTable search', () => {
     });
 
     it('still lists a result the tree does not have yet, such as a file uploaded elsewhere', async () => {
-        const fresh = { name: 'fresh.txt', isDirectory: false, size: 3, lastModified: '2026-05-01T00:00:00Z', relativePath: 'new/fresh.txt' };
+        const fresh = node({ name: 'fresh.txt', isDirectory: false, size: 3, lastModified: '2026-05-01T00:00:00Z', relativePath: 'new/fresh.txt' });
         api.get.mockResolvedValue(answer([hit(fresh)]));
         const onDownload = vi.fn();
         const user = userEvent.setup();
@@ -256,7 +278,7 @@ describe('FileTable search', () => {
     });
 
     it('drops an answer that arrives after a newer search has started', async () => {
-        let answerFirst;
+        let answerFirst!: (value: unknown) => void;
         api.get
             .mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve; }))
             .mockResolvedValueOnce(answer([hit(nodeAt('notes.txt'))]));
@@ -269,7 +291,7 @@ describe('FileTable search', () => {
         answerFirst(answer([hit(nodeAt('tiny.md')), hit(nodeAt('Big.zip'))]));
         await new Promise((resolve) => setTimeout(resolve, 50));
 
-        expect(api.get.mock.calls[1][1].params.q).toBe('older');
+        expect(fieldsOf(api.get.mock.calls[1]?.[1]?.params).q).toBe('older');
         expect(visibleOrder()).toEqual(['notes.txt']);
     });
 
@@ -377,8 +399,8 @@ describe('FileTable sorting', () => {
         // The backend drops the fraction when an instant lands exactly on a second, so a list
         // mixes both shapes. A lexical compare sorts "." before "Z" and would flip these.
         const mixed = [
-            { name: 'later.txt', isDirectory: false, size: 1, lastModified: '2026-05-01T12:00:00.500Z', relativePath: 'later.txt' },
-            { name: 'earlier.txt', isDirectory: false, size: 1, lastModified: '2026-05-01T12:00:00Z', relativePath: 'earlier.txt' },
+            node({ name: 'later.txt', isDirectory: false, size: 1, lastModified: '2026-05-01T12:00:00.500Z', relativePath: 'later.txt' }),
+            node({ name: 'earlier.txt', isDirectory: false, size: 1, lastModified: '2026-05-01T12:00:00Z', relativePath: 'earlier.txt' }),
         ];
         render(<FileTable files={mixed} currentPath="" {...noopHandlers} />);
 
@@ -443,10 +465,14 @@ describe('FileTable folder navigation', () => {
 
 describe('FileTable row actions', () => {
     // A row renders the filename and its relativePath, so a name can appear twice in one row.
-    const rowFor = (name) =>
-        screen.getAllByRole('row').find((row) => within(row).queryAllByText(name).length > 0);
+    const rowFor = (name: string) => {
+        const row =
+            screen.getAllByRole('row').find((row) => within(row).queryAllByText(name).length > 0);
+        if (!row) throw new Error(`No row for ${name}`);
+        return row;
+    };
 
-    const actionButton = (name, action) =>
+    const actionButton = (name: string, action: string) =>
         within(rowFor(name)).getByRole('button', { name: `${action} ${name}` });
 
     it.each([
@@ -520,8 +546,8 @@ describe('FileTable row actions', () => {
 describe('FileTable action names', () => {
     it('says which file each action is for', () => {
         const files = [
-            { name: 'a.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'a.txt', id: 1 },
-            { name: 'b.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'b.txt', id: 2 },
+            node({ name: 'a.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'a.txt', id: 1 }),
+            node({ name: 'b.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'b.txt', id: 2 }),
         ];
         render(<FileTable files={files} currentPath="" {...noopHandlers} onVersions={vi.fn()} />);
 
@@ -537,8 +563,8 @@ describe('FileTable versions action', () => {
     it('offers version history only for tracked files', async () => {
         const user = userEvent.setup();
         const onVersions = vi.fn();
-        const tracked = { name: 'kept.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'kept.txt', id: 4 };
-        const untracked = { name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' };
+        const tracked = node({ name: 'kept.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'kept.txt', id: 4 });
+        const untracked = node({ name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' });
         render(<FileTable files={[tracked, untracked]} currentPath="" {...noopHandlers} onVersions={onVersions} />);
 
         expect(screen.getAllByRole('button', { name: /^Versions of/ })).toHaveLength(1);
@@ -549,8 +575,8 @@ describe('FileTable versions action', () => {
     // A search can find a file copied in by hand that has no row yet; until it is imported it can't
     // be shared, so it isn't offered.
     it('offers sharing only for listed items, which have an id', () => {
-        const listed = { name: 'kept.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'kept.txt', id: 4 };
-        const unlisted = { name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' };
+        const listed = node({ name: 'kept.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'kept.txt', id: 4 });
+        const unlisted = node({ name: 'loose.txt', isDirectory: false, size: 1, lastModified: '2026-01-01T00:00:00Z', relativePath: 'loose.txt' });
         render(<FileTable files={[listed, unlisted]} currentPath="" {...noopHandlers} />);
 
         expect(screen.getAllByRole('button', { name: /^Share / })).toHaveLength(1);
@@ -567,7 +593,10 @@ describe('FileTable versions action', () => {
 
 // jsdom has no layout engine, so these check the classes that decide it.
 describe('FileTable on narrow touch screens', () => {
-    const classesOf = (element) => element.className.split(/\s+/);
+    const classesOf = (element: Element | null | undefined) => {
+        if (!element) throw new Error('No such element');
+        return element.className.split(/\s+/);
+    };
 
     it('scrolls the table sideways instead of clipping the actions column', () => {
         renderTable();
@@ -605,9 +634,9 @@ describe('FileTable empty state', () => {
 
 describe('FileTable previews', () => {
     const FILES = [
-        { name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos', children: [] },
-        { name: 'notes.txt', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'notes.txt', previewType: 'text' },
-        { name: 'Big.zip', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Big.zip', previewType: null },
+        node({ name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos', children: [] }),
+        node({ name: 'notes.txt', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'notes.txt', previewType: 'text' }),
+        node({ name: 'Big.zip', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Big.zip', previewType: null }),
     ];
 
     it("opens a previewable file's preview from its name", async () => {

@@ -3,18 +3,21 @@ import { act, cleanup, render as renderWithoutStore, screen } from '@testing-lib
 import { Provider } from 'react-redux';
 import { makeStore } from '../redux/store';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import VersionHistoryModal from './VersionHistoryModal';
-import api from '../services/api';
+import mockedApi from '../services/api';
 
 // The dialogs get their data through the API slice, so they need a store. rerender keeps it, as the
 // app keeps one store while dialogs open and close.
-const render = (ui) => {
+const render = (ui: ReactElement) => {
     const store = makeStore();
-    return renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+    return renderWithoutStore(ui, {
+        wrapper: ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>,
+    });
 };
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const addToast = vi.fn();
 vi.mock('../hooks/useToast', () => ({
@@ -46,6 +49,14 @@ describe('VersionHistoryModal', () => {
         expect(await screen.findByText('Version 2')).toBeInTheDocument();
         expect(screen.getByText(/2 KB/)).toBeInTheDocument();
         expect(api.get).toHaveBeenCalledWith('/api/files/7/versions', expect.anything());
+    });
+
+    // A file copied in by hand has no row, so no id, and nothing to ask the versions of.
+    it('opens for nothing that has no id', () => {
+        render(<VersionHistoryModal isOpen file={{ id: null, name: 'loose.txt' }} onClose={vi.fn()} />);
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(api.get).not.toHaveBeenCalled();
     });
 
     it('explains an empty history', async () => {
@@ -137,7 +148,7 @@ describe('VersionHistoryModal', () => {
         const ONE_VERSION = [{ id: 10, version: 1, size: 1, createdAt: '2026-02-01T10:00:00Z', createdBy: 'ada' }];
 
         const Harness = () => {
-            const [file, setFile] = useState(null);
+            const [file, setFile] = useState<{ id: number; name: string } | null>(null);
             return (
                 <>
                     <button onClick={() => setFile(A)}>open a</button>
@@ -150,8 +161,14 @@ describe('VersionHistoryModal', () => {
         // Starts a restore for a.txt, leaves it running, and opens b.txt's history.
         const startRestoreForAThenOpenB = async () => {
             api.get.mockResolvedValue({ data: ONE_VERSION });
-            const restoreA = {};
-            api.post.mockReturnValueOnce(new Promise((resolve, reject) => Object.assign(restoreA, { resolve, reject })));
+            let resolve!: (value: unknown) => void;
+            let reject!: (reason: unknown) => void;
+            api.post.mockReturnValueOnce(
+                new Promise((res, rej) => {
+                    resolve = res;
+                    reject = rej;
+                }),
+            );
             const user = userEvent.setup();
             render(<Harness />);
 
@@ -161,7 +178,7 @@ describe('VersionHistoryModal', () => {
             await user.click(screen.getByText('open b'));
             await screen.findByRole('dialog', { name: /b\.txt/ });
             await screen.findByText('Version 1');
-            return restoreA;
+            return { resolve, reject };
         };
 
         it('starts b.txt\'s dialog with its buttons idle', async () => {

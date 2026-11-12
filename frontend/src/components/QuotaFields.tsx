@@ -1,10 +1,28 @@
+import type { Ref } from 'react';
 import { QUOTA_UNITS } from '../utils/quota';
 
 /**
  * An amount and a unit for a storage quota; an empty amount means no limit. inputRef reaches the
  * amount field, e.g. for a dialog to focus it.
  */
-const QuotaFields = ({ id, amount, unit, onAmountChange, onUnitChange, disabled, inputRef }) => (
+const QuotaFields = ({
+    id,
+    amount,
+    unit,
+    onAmountChange,
+    onUnitChange,
+    disabled,
+    inputRef,
+}: {
+    id: string;
+    amount: string;
+    // A string, as the select hands it back; formToQuota checks it.
+    unit: string;
+    onAmountChange: (amount: string) => void;
+    onUnitChange: (unit: string) => void;
+    disabled?: boolean;
+    inputRef?: Ref<HTMLInputElement>;
+}) => (
     <div>
         <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
             Storage quota

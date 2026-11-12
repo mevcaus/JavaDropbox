@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Modal from './Modal';
 
 afterEach(cleanup);
@@ -74,7 +74,7 @@ describe('Modal', () => {
     describe('never lets focus leave or get lost', () => {
         const focusIsInDialog = () => screen.getByRole('dialog').contains(document.activeElement);
 
-        const Page = ({ children }) => (
+        const Page = ({ children }: { children: ReactNode }) => (
             <>
                 <button>Behind the dialog</button>
                 {children}
@@ -112,7 +112,9 @@ describe('Modal', () => {
                     </Modal>
                 </Page>,
             );
-            document.activeElement.blur();
+            const focused = document.activeElement;
+            if (!(focused instanceof HTMLElement)) throw new Error('Nothing is focused');
+            focused.blur();
 
             await user.tab();
 
@@ -128,7 +130,7 @@ describe('Modal', () => {
                     </Modal>
                 </Page>,
             );
-            screen.getByRole('button', { name: 'Close' }).closest('[tabindex="-1"]').focus();
+            screen.getByRole('button', { name: 'Close' }).closest<HTMLElement>('[tabindex="-1"]')?.focus();
 
             await user.tab({ shift: true });
 

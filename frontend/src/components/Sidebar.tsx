@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { Folder, HardDrive, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import Logo from './Logo';
-import { useSelector } from 'react-redux';
+import { useAppSelector } from '../redux/withTypes';
 import { totalSize } from '../features/files';
 import { apiSlice, useGetStorageUsageQuery } from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
@@ -13,13 +13,13 @@ import { formatSize } from '../utils/format';
 const useStorageUsage = () => useGetStorageUsageQuery().currentData;
 
 // Written out in full: Tailwind only generates classes it finds as complete strings in the source.
-const barColour = (fraction) => {
+const barColour = (fraction: number) => {
     if (fraction >= 0.9) return 'bg-red-500';
     if (fraction >= 0.75) return 'bg-amber-400';
     return 'bg-blue-500';
 };
 
-const StorageMeter = ({ isCollapsed }) => {
+const StorageMeter = ({ isCollapsed }: { isCollapsed: boolean }) => {
     const usage = useStorageUsage();
     // Until then, or if storage use couldn't be loaded, the size of the tree the dashboard loaded,
     // read from the cache without fetching it here.
@@ -55,8 +55,16 @@ const StorageMeter = ({ isCollapsed }) => {
     );
 };
 
-const Sidebar = ({ onClose, isCollapsed, toggleCollapse }) => {
-    const isAdmin = useSelector(selectIsAdmin);
+const Sidebar = ({
+    onClose,
+    isCollapsed,
+    toggleCollapse,
+}: {
+    onClose: () => void;
+    isCollapsed: boolean;
+    toggleCollapse: () => void;
+}) => {
+    const isAdmin = useAppSelector(selectIsAdmin);
 
     const navigation = [
         { name: 'My Files', href: '/dashboard', icon: Folder },

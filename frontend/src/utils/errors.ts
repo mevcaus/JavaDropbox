@@ -5,8 +5,14 @@ const isHtmlDocument = (value: string): boolean => /^\s*<(!doctype|html)/i.test(
 
 // The fields of something that may or may not be an object, such as an error or the body of an
 // answer; none when it isn't one.
-const fieldsOf = (value: unknown): Record<string, unknown> =>
+export const fieldsOf = (value: unknown): Record<string, unknown> =>
     typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+/** The HTTP status an axios request failed with, if it got an answer. */
+export const statusOf = (error: unknown): number | undefined => {
+    const { status } = fieldsOf(fieldsOf(error).response);
+    return typeof status === 'number' ? status : undefined;
+};
 
 /**
  * A message fit to show for a failed request: the server's own message when it sent one, otherwise

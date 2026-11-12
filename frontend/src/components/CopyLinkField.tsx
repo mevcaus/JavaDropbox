@@ -4,10 +4,10 @@ import { useToast } from '../hooks/useToast';
 import { copyToClipboard } from '../utils/clipboard';
 
 /** A link the server shows once, such as a share link or an invitation, with a button to copy it. */
-const CopyLinkField = ({ url, label }) => {
+const CopyLinkField = ({ url, label }: { url: string; label: string }) => {
     const [copied, setCopied] = useState(false);
-    const inputRef = useRef(null);
-    const copiedTimerRef = useRef(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const { addToast } = useToast();
 
     useEffect(() => () => clearTimeout(copiedTimerRef.current), []);

@@ -1,6 +1,6 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { Loader2, UserPlus } from 'lucide-react';
-import { useCreateInviteMutation } from '../services/apiSlice';
+import { useCreateInviteMutation, type NewLink } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { QUOTA_ERROR, formToQuota } from '../utils/quota';
@@ -14,22 +14,23 @@ import { primaryButton, secondaryButton } from './modalStyles';
  * over, at which the invitee chooses a password. Making it refreshes the page's list of invitations
  * through its cache tag.
  */
-const InviteModal = ({ isOpen, onClose }) => (isOpen ? <InviteDialog onClose={onClose} /> : null);
+const InviteModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? <InviteDialog onClose={onClose} /> : null;
 
-const InviteDialog = ({ onClose }) => {
+const InviteDialog = ({ onClose }: { onClose: () => void }) => {
     const [createInvite] = useCreateInviteMutation();
     const [username, setUsername] = useState('');
     const [role, setRole] = useState('USER');
     const [amount, setAmount] = useState('');
     const [unit, setUnit] = useState('GB');
     const [sending, setSending] = useState(false);
-    const [error, setError] = useState(null);
-    const [link, setLink] = useState(null);
-    const usernameRef = useRef(null);
+    const [error, setError] = useState<string | null>(null);
+    const [link, setLink] = useState<NewLink | null>(null);
+    const usernameRef = useRef<HTMLInputElement>(null);
     const quotaId = useId();
     const roleId = useId();
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const quota = formToQuota(amount, unit);
         if (quota === null) {

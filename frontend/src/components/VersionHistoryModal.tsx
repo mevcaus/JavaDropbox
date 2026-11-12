@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { History, Loader2 } from 'lucide-react';
-import { useListFileVersionsQuery, useRestoreVersionMutation } from '../services/apiSlice';
+import { useListFileVersionsQuery, useRestoreVersionMutation, type FileTreeNode } from '../services/apiSlice';
 import { useToast } from '../hooks/useToast';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
@@ -12,11 +12,22 @@ import { secondaryButton } from './modalStyles';
  * Previous versions of a file, kept each time it is replaced. Restoring puts a version back in
  * place (the current content is kept as a new version first) or next to it as a copy.
  */
-const VersionHistoryModal = ({ isOpen, onClose, file }) =>
-    // Mounted while open and keyed by file, so each file's dialog has its own restore.
-    isOpen && file ? <VersionHistoryDialog key={file.id} onClose={onClose} file={file} /> : null;
+const VersionHistoryModal = ({
+    isOpen,
+    onClose,
+    file,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    file: { id?: FileTreeNode['id']; name: string } | null;
+}) =>
+    // Mounted while open and keyed by file, so each file's dialog has its own restore. Every stored
+    // file has an id; an item without one has no versions to list.
+    isOpen && file && file.id != null ? (
+        <VersionHistoryDialog key={file.id} onClose={onClose} file={{ id: file.id, name: file.name }} />
+    ) : null;
 
-const VersionHistoryDialog = ({ onClose, file }) => {
+const VersionHistoryDialog = ({ onClose, file }: { onClose: () => void; file: { id: number; name: string } }) => {
     // Listed again each time the dialog opens, so a version added since (by uploading over the file,
     // here or in another tab) shows. currentData is only ever this file's.
     const { currentData: versions, error: loadError } = useListFileVersionsQuery(
@@ -34,7 +45,7 @@ const VersionHistoryDialog = ({ onClose, file }) => {
 
     // A restore changes the file whichever dialog is on screen by the time it finishes, so its
     // outcome is a toast, and the file list refreshes through its cache tag either way.
-    const restore = async (version, mode) => {
+    const restore = async (version: number, mode: 'OVERWRITE' | 'COPY') => {
         try {
             await restoreVersion({ fileId: file.id, version, mode }).unwrap();
             addToast(mode === 'COPY' ? `Version ${version} restored as a copy.` : `Version ${version} restored.`, 'success');
@@ -43,7 +54,8 @@ const VersionHistoryDialog = ({ onClose, file }) => {
         }
     };
 
-    const busy = restoring.isLoading ? `${restoring.originalArgs.version}:${restoring.originalArgs.mode}` : null;
+    const restoringArgs = restoring.isLoading ? restoring.originalArgs : undefined;
+    const busy = restoringArgs ? `${restoringArgs.version}:${restoringArgs.mode}` : null;
     const error = loadError ? readableError(loadError, 'Could not load the versions.') : null;
 
     return (
@@ -69,7 +81,7 @@ const VersionHistoryDialog = ({ onClose, file }) => {
                         No previous versions yet. One is kept each time this file is replaced.
                     </p>
                 )}
-                {versions?.length > 0 && (
+                {versions && versions.length > 0 && (
                     <ul className="divide-y divide-gray-200 border border-gray-200 rounded-md max-h-80 overflow-y-auto">
                         {versions.map((v) => (
                             <li key={v.id} className="px-3 py-2 flex flex-wrap items-center gap-2 justify-between">

@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import Navbar from './Navbar';
-import authReducer, { loginUser } from '../features/authSlice';
-import api from '../services/api';
+import { loginUser } from '../features/authSlice';
+import { makeStore } from '../redux/store';
+import mockedApi from '../services/api';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const addToast = vi.fn();
 vi.mock('../hooks/useToast', () => ({
@@ -15,8 +16,8 @@ vi.mock('../hooks/useToast', () => ({
 }));
 
 const renderSignedIn = () => {
-    const store = configureStore({ reducer: { auth: authReducer } });
-    store.dispatch(loginUser.fulfilled({ username: 'ada' }, 'seed'));
+    const store = makeStore();
+    store.dispatch(loginUser.fulfilled({ username: 'ada', role: null }, 'seed', { username: 'ada', password: '' }));
     render(
         <Provider store={store}>
             <Navbar onMenuClick={vi.fn()} />

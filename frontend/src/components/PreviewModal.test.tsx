@@ -1,13 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import PreviewModal from './PreviewModal';
-import api from '../services/api';
+import PreviewModal, { type PreviewItem } from './PreviewModal';
+import mockedApi from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
-const item = (overrides) => ({ name: 'notes.txt', path: 'docs/notes.txt', previewType: 'text', size: 18, ...overrides });
+// A file as the dashboard hands it over, size included, though the dialog reads its size from the answer.
+const item = (overrides: Partial<PreviewItem & { size: number }> = {}): PreviewItem & { size: number } => ({
+    name: 'notes.txt',
+    path: 'docs/notes.txt',
+    previewType: 'text',
+    size: 18,
+    ...overrides,
+});
 
 const renderModal = (props = {}) => {
     const handlers = { onClose: vi.fn(), onDownload: vi.fn(), ...props };

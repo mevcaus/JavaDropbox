@@ -1,6 +1,6 @@
 import { Home, ChevronRight } from 'lucide-react';
 
-const Breadcrumbs = ({ currentPath, onNavigate }) => {
+const Breadcrumbs = ({ currentPath, onNavigate }: { currentPath: string; onNavigate: (path: string) => void }) => {
     // currentPath is assumed to be something like "folder1/folder2"
     // We want to link to:
     // Home (Root) -> ""

@@ -1,6 +1,11 @@
 import { useId, useState } from 'react';
 import { Link2, Loader2 } from 'lucide-react';
-import { useCreateShareLinkMutation, useListShareLinksQuery, useRevokeShareLinkMutation } from '../services/apiSlice';
+import {
+    useCreateShareLinkMutation,
+    useListShareLinksQuery,
+    useRevokeShareLinkMutation,
+    type ShareLinkDto,
+} from '../services/apiSlice';
 import { useToast } from '../hooks/useToast';
 import { useDemoInfo } from '../hooks/useDemoInfo';
 import { readableError } from '../utils/errors';
@@ -17,7 +22,7 @@ const EXPIRATION_OPTIONS = [
 ];
 
 // The choices a server allowing links of at most maxMinutes accepts (all of them when unlimited).
-const expirationOptions = (maxMinutes) => {
+const expirationOptions = (maxMinutes: number | undefined) => {
     if (!maxMinutes) return EXPIRATION_OPTIONS;
     const allowed = EXPIRATION_OPTIONS.filter((opt) => opt.minutes <= maxMinutes);
     return allowed.length > 0 ? allowed : [{ label: `${maxMinutes} minutes`, minutes: maxMinutes }];
@@ -26,10 +31,23 @@ const expirationOptions = (maxMinutes) => {
 // Keyed by path, so sharing another item starts from a fresh dialog with its own request to make a
 // link: no link, error or spinner from the previous one carries over, and its late answers land in a
 // dialog that is gone. The list of links is per item regardless (see ActiveLinks).
-const ShareModal = ({ isOpen, onClose, item }) =>
+/** What can be shared: a file or a folder, by its path from the root. */
+export interface ShareItem {
+    path: string;
+    name: string;
+    isDirectory: boolean;
+}
+
+interface ShareModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    item: ShareItem | null;
+}
+
+const ShareModal = ({ isOpen, onClose, item }: ShareModalProps) =>
     item ? <ShareDialog key={item.path} isOpen={isOpen} onClose={onClose} item={item} /> : null;
 
-const ShareDialog = ({ isOpen, onClose, item }) => {
+const ShareDialog = ({ isOpen, onClose, item }: ShareModalProps & { item: ShareItem }) => {
     const [expirationMinutes, setExpirationMinutes] = useState(EXPIRATION_OPTIONS[2].minutes);
     const [createShareLink, created] = useCreateShareLinkMutation();
     // The public demo only allows short links. Until its limits have loaded, all choices show.
@@ -112,7 +130,7 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
 
 // The item's links that still work, each with a Revoke button. Only a hash of a link's token is
 // stored, so a link's URL cannot be shown again here.
-const ActiveLinks = ({ path }) => {
+const ActiveLinks = ({ path }: { path: string }) => {
     // Listed again each time the dialog opens, so links that expired, or went with a deleted item,
     // don't show. currentData is only ever this path's, never another item's while this one loads.
     const {
@@ -125,7 +143,7 @@ const ActiveLinks = ({ path }) => {
     const { addToast } = useToast();
 
     // A revoked link drops out when the list is asked again, which revoking does through its tag.
-    const revoke = async (link) => {
+    const revoke = async (link: ShareLinkDto) => {
         try {
             await revokeShareLink({ id: link.id }).unwrap();
             addToast('Link revoked', 'success');
@@ -138,7 +156,7 @@ const ActiveLinks = ({ path }) => {
     const error = failure
         ? readableError(failure, revoking.error ? 'Could not revoke the link.' : 'Could not load the active links.')
         : null;
-    const revokingId = revoking.isLoading ? revoking.originalArgs.id : null;
+    const revokingId = revoking.isLoading ? (revoking.originalArgs?.id ?? null) : null;
 
     if (links.length === 0 && !error) return null;
 

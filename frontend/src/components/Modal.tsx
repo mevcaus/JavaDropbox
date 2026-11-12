@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { X } from 'lucide-react';
 
 const FOCUSABLE =
@@ -10,21 +10,34 @@ const FALLBACK_FOCUS = 'main[tabindex]';
 
 // Whether focus has nowhere sensible to be: on <body>, or on an element that was just disabled or
 // removed (browsers differ in when they move focus off those, so check for them directly).
-const isFocusLost = (active) => !active || active === document.body || active.disabled || !active.isConnected;
+const isFocusLost = (active: Element | null): boolean =>
+    !active || active === document.body || ('disabled' in active && active.disabled === true) || !active.isConnected;
 
 // Written out in full: Tailwind only generates classes it finds as complete strings in the source.
 const WIDTHS = {
     default: 'sm:max-w-lg',
     wide: 'sm:max-w-4xl',
-};
+} as const;
+
+export interface ModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    title: ReactNode;
+    icon?: ReactNode;
+    iconClassName?: string;
+    /** What to focus when it opens; the first control otherwise. */
+    initialFocusRef?: RefObject<HTMLElement | null>;
+    size?: keyof typeof WIDTHS;
+    children?: ReactNode;
+}
 
 /**
  * The dialog shell every modal shares. It behaves the way aria-modal promises: Escape closes it,
  * Tab stays inside it, focus moves in when it opens and back to where it was when it closes.
  */
-const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusRef, size = 'default', children }) => {
+const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusRef, size = 'default', children }: ModalProps) => {
     const titleId = useId();
-    const panelRef = useRef(null);
+    const panelRef = useRef<HTMLDivElement>(null);
 
     // The latest onClose, without re-running the focus effect every time the parent re-renders.
     const onCloseRef = useRef(onClose);
@@ -36,10 +49,12 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
         if (!isOpen) return undefined;
 
         const previouslyFocused = document.activeElement;
+        // Rendered whenever the dialog is open, which is the only time this runs.
         const panel = panelRef.current;
-        (initialFocusRef?.current ?? panel.querySelector(FOCUSABLE) ?? panel).focus();
+        if (!panel) return undefined;
+        (initialFocusRef?.current ?? panel.querySelector<HTMLElement>(FOCUSABLE) ?? panel).focus();
 
-        const onKeyDown = (event) => {
+        const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 event.stopPropagation();
                 onCloseRef.current();
@@ -47,7 +62,7 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
             }
             if (event.key !== 'Tab') return;
 
-            const focusable = [...panel.querySelectorAll(FOCUSABLE)];
+            const focusable = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
             if (focusable.length === 0) {
                 event.preventDefault();
                 panel.focus();
@@ -83,7 +98,7 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
             document.removeEventListener('keydown', onKeyDown);
             observer.disconnect();
             const target = isFocusLost(previouslyFocused) ? document.querySelector(FALLBACK_FOCUS) : previouslyFocused;
-            target?.focus?.();
+            if (target instanceof HTMLElement || target instanceof SVGElement) target.focus();
         };
     }, [isOpen, initialFocusRef]);
 
@@ -132,7 +147,7 @@ const Modal = ({ isOpen, onClose, title, icon, iconClassName = '', initialFocusR
 };
 
 /** The row of buttons at the bottom of a modal, primary action first. */
-export const ModalActions = ({ children }) => (
+export const ModalActions = ({ children }: { children: ReactNode }) => (
     <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse sm:gap-3">{children}</div>
 );
 

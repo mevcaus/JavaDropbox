@@ -3,7 +3,7 @@ import type { AxiosResponse } from 'axios';
 import { createAppAsyncThunk } from '../redux/withTypes';
 import api from '../services/api';
 import type { CurrentUser } from '../services/apiSlice';
-import { readableError } from '../utils/errors';
+import { readableError, statusOf } from '../utils/errors';
 
 /** Who is signed in, as sign-in and the session check answer it; the role is null when unknown. */
 export type SignedInUser = Pick<CurrentUser, 'username'> & { role: CurrentUser['role'] | null };
@@ -25,14 +25,6 @@ const accountIn = (data: unknown): SignedInUser | null => {
         return null;
     }
     return { username: data.username, role: 'role' in data && typeof data.role === 'string' ? data.role : null };
-};
-
-// The HTTP status a failed request was answered with, if it got an answer.
-const statusOf = (error: unknown): number | undefined => {
-    if (typeof error !== 'object' || error === null || !('response' in error)) return undefined;
-    const { response } = error;
-    if (typeof response !== 'object' || response === null || !('status' in response)) return undefined;
-    return typeof response.status === 'number' ? response.status : undefined;
 };
 
 // Async thunk for login

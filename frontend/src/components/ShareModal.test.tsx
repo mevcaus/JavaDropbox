@@ -3,18 +3,23 @@ import { act, cleanup, render as renderWithoutStore, screen, within } from '@tes
 import { Provider } from 'react-redux';
 import { makeStore } from '../redux/store';
 import userEvent from '@testing-library/user-event';
-import ShareModal from './ShareModal';
-import api from '../services/api';
+import type { ReactElement, ReactNode } from 'react';
+import ShareModal, { type ShareItem } from './ShareModal';
+import mockedApi from '../services/api';
 import { formatDate } from '../utils/date';
+import { fieldsOf } from '../utils/errors';
 
 // The dialogs get their data through the API slice, so they need a store. rerender keeps it, as the
 // app keeps one store while dialogs open and close.
-const render = (ui) => {
+const render = (ui: ReactElement) => {
     const store = makeStore();
-    return renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+    return renderWithoutStore(ui, {
+        wrapper: ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>,
+    });
 };
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const addToast = vi.fn();
 vi.mock('../hooks/useToast', () => ({
@@ -28,9 +33,9 @@ const originalGlobals = {
     clipboard: Object.getOwnPropertyDescriptor(navigator, 'clipboard'),
     execCommand: Object.getOwnPropertyDescriptor(document, 'execCommand'),
 };
-const restore = (target, key, descriptor) => {
+const restore = (target: object, key: string, descriptor: PropertyDescriptor | undefined) => {
     if (descriptor) Object.defineProperty(target, key, descriptor);
-    else delete target[key];
+    else Reflect.deleteProperty(target, key);
 };
 afterEach(() => {
     restore(navigator, 'clipboard', originalGlobals.clipboard);
@@ -54,7 +59,12 @@ const renderModal = (props = {}) => {
 
 const expirationSelect = () => screen.getByLabelText(/Link expires in/i);
 const generateButton = () => screen.getByRole('button', { name: /Generate link/i });
-const postedParams = () => api.post.mock.calls[0][1];
+// The form the first request posted, checked to be one.
+const postedParams = () => {
+    const body = api.post.mock.calls[0]?.[1];
+    expect(body).toBeInstanceOf(URLSearchParams);
+    return body as URLSearchParams;
+};
 const sharesAsked = () => api.get.mock.calls.filter(([url]) => url === '/api/share').length;
 
 // userEvent.setup() installs its own clipboard stub, so override it afterwards.
@@ -202,7 +212,7 @@ describe('ShareModal', () => {
 
     it('disables the button while the request is in flight so it cannot double-submit', async () => {
         const user = userEvent.setup();
-        let resolvePost;
+        let resolvePost!: (value: unknown) => void;
         api.post.mockReturnValueOnce(new Promise((resolve) => { resolvePost = resolve; }));
         renderModal();
 
@@ -210,8 +220,8 @@ describe('ShareModal', () => {
 
         // The label is swapped for a spinner while in flight, so the button loses its name
         expect(screen.queryByRole('button', { name: /Generate link/i })).not.toBeInTheDocument();
-        const busy = screen.getAllByRole('button').find((b) => b.disabled);
-        expect(busy).toBeDefined();
+        const busy = screen.getAllByRole('button').find((b) => b instanceof HTMLButtonElement && b.disabled);
+        if (!busy) throw new Error('No button is waiting');
 
         await user.click(busy);
 
@@ -355,7 +365,7 @@ describe('ShareModal', () => {
     });
 
     it('ignores a list that arrives after a different item is shown', async () => {
-        let resolveFirst;
+        let resolveFirst!: (value: unknown) => void;
         api.get.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; })).mockResolvedValue({ data: [] });
         const { rerender } = renderModal();
 
@@ -377,11 +387,11 @@ describe('ShareModal', () => {
         const A_URL = 'http://localhost/share/token-for-A';
 
         // As Dashboard renders it: always mounted, with item set back to null on cancel.
-        const dialogFor = (item) => <ShareModal isOpen={item !== null} onClose={vi.fn()} item={item} />;
+        const dialogFor = (item: ShareItem | null) => <ShareModal isOpen={item !== null} onClose={vi.fn()} item={item} />;
 
         it('ignores a link that arrives for the previous item', async () => {
             const user = userEvent.setup();
-            let resolveA;
+            let resolveA!: (value: unknown) => void;
             api.post.mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve; }));
             const { rerender } = render(dialogFor(A));
 
@@ -401,7 +411,7 @@ describe('ShareModal', () => {
 
         it('ignores an error that arrives for the previous item', async () => {
             const user = userEvent.setup();
-            let rejectA;
+            let rejectA!: (reason: unknown) => void;
             api.post.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectA = reject; }));
             const { rerender } = render(dialogFor(A));
 
@@ -433,7 +443,7 @@ describe('ShareModal', () => {
     // does this, and currentData would even without it.
     it('never shows the previous item\'s links while the next item\'s load', async () => {
         api.get.mockImplementation((url, config) =>
-            url === '/api/share' && config.params.path === 'photo.png'
+            url === '/api/share' && fieldsOf(config?.params).path === 'photo.png'
                 ? new Promise(() => {})
                 : Promise.resolve({ data: url === '/api/share' ? [LINK] : null }),
         );
