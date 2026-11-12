@@ -4,8 +4,6 @@
 // A file's contents, served as a download or for the browser to show (see FileController).
 export const DOWNLOAD_ENDPOINT = '/api/files/download';
 export const PREVIEW_ENDPOINT = '/api/files/preview';
-// Names and file contents, searched on the server (see SearchController).
-export const SEARCH_ENDPOINT = '/api/search';
 
 /** Where a file from the folder picker sits inside the chosen folder, e.g. "Photos/2024/beach.jpg". */
 export const relativePathOf = (file) => file.webkitRelativePath || file.name;

@@ -157,4 +157,21 @@ describe('Shared', () => {
 
         expect(controlsWithoutFocusIndicator(document.body)).toEqual([]);
     });
+
+    // The token comes from the address bar, and the generated endpoint puts it into the URL as it is.
+    it('keeps a crafted token inside the link\'s own routes', async () => {
+        api.get.mockResolvedValue({ data: { name: 'x', isDirectory: false, size: 1 } });
+        renderAt('..%2F..%2Fapi%2Ffiles');
+
+        await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+        expect(api.get.mock.calls[0][0]).toBe('/share/..%2F..%2Fapi%2Ffiles/info');
+    });
+
+    // Such as the app's HTML, from a request that never reached the server.
+    it('says it cannot open a link whose answer is no description', async () => {
+        api.get.mockResolvedValue({ data: '<!doctype html><html></html>' });
+        renderAt();
+
+        expect(await screen.findByText('Could not open this link.')).toBeInTheDocument();
+    });
 });

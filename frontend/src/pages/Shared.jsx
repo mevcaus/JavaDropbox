@@ -89,10 +89,14 @@ const Shared = () => {
     const link = `/share/${encodeURIComponent(token)}`;
     // Encoded, as in link above: the generated endpoint puts it into the URL as it is.
     const described = useDescribeSharedItemQuery({ token: encodeURIComponent(token) });
-    const item = described.currentData ?? null;
+    // Anything but the item's description, such as the app's HTML from a request that never reached
+    // the server, is nothing to show.
+    const item = typeof described.currentData?.name === 'string' ? described.currentData : null;
     let error = null;
     if (described.error) {
         error = described.error.status === 404 ? 'gone' : readableError(described.error, 'Could not open this link.');
+    } else if (described.currentData !== undefined && !item) {
+        error = 'Could not open this link.';
     }
 
     useEffect(() => {

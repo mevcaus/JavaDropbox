@@ -10,8 +10,8 @@ export const SEARCH_DELAY_MS = 250;
 /**
  * Searches names and file contents on the server, everywhere below `folder`, as `query` is typed,
  * and again whenever `files` changes, so that a file deleted or uploaded meanwhile drops out of
- * the results or turns up in them. (A change made through the app also asks again by itself,
- * through the Files cache tag the search's answers carry.)
+ * the results or turns up in them. Every change made in the app lists the files again, so this is
+ * one search per change.
  *
  * `answer` is the latest answer for this folder: `{ query, results, total, indexing, error }`,
  * with the results best first. It can be for an earlier query while the current one is on its
@@ -20,8 +20,10 @@ export const SEARCH_DELAY_MS = 250;
  * as the current one's.
  */
 export const useFileSearch = (query, folder, files) => {
-    // What to ask, once typing has paused. Only ever set from the timer, never during render.
+    // What to ask, once typing has paused: set from the timer, and cleared with the box, so typing
+    // the same words again waits and asks again rather than finding the last search still asked.
     const [asked, setAsked] = useState(null);
+    if (!query && asked !== null) setAsked(null);
 
     useEffect(() => {
         if (!query) return undefined;
@@ -31,7 +33,9 @@ export const useFileSearch = (query, folder, files) => {
 
     // A search for what's typed now; one asked for earlier words or another folder is let go.
     const current = query && asked?.q === query && asked.path === folder ? asked : null;
-    const search = useSearchFilesQuery(current ?? skipToken);
+    // Asked again whenever a search starts, even for words searched before: the index may have
+    // caught up since, and a search the user starts over is one they want answered now.
+    const search = useSearchFilesQuery(current ?? skipToken, { refetchOnMountOrArgChange: true });
 
     // files is only a signal that something changed; the server has its own view of them.
     const { refetch } = search;

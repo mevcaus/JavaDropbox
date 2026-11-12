@@ -1,5 +1,5 @@
 import { generatedApi } from './generatedApi';
-import type { Message } from './generatedApi';
+import type { DemoInfo, Message } from './generatedApi';
 import { filesByFolder } from '../features/files';
 import { REQUEST_BODIES } from './requestBodies';
 
@@ -22,23 +22,31 @@ export const apiSlice = generatedApi
         // Storage: what the signed-in account stores, and its quota.
         addTagTypes: ['Files', 'Versions', 'ShareLinks', 'Accounts', 'Invites', 'Storage'],
         endpoints: {
-            getFileTree: { providesTags: ['Files'] },
+            // Each listing also asks for storage use again, so the meter follows the files whatever
+            // changed them: a change here, in another tab, or the demo's daily reset.
+            getFileTree: {
+                providesTags: ['Files'],
+                async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+                    try {
+                        await queryFulfilled;
+                    } catch {
+                        return;
+                    }
+                    // generatedApi's own type has none of the tags added here, hence the cast.
+                    dispatch(generatedApi.util.invalidateTags(['Storage' as never]));
+                },
+            },
             getStorageUsage: { providesTags: ['Storage'] },
-            // A search answers from the files as they are, so any change to them asks again.
-            searchFiles: { providesTags: ['Files'] },
-            // Nothing in it changes while the page is open but the next reset time, which is only
-            // shown, so it's asked once, not again each time a screen that shows it opens.
-            getDemoInfo: { keepUnusedDataFor: 24 * 60 * 60 },
             // Uploading over a file keeps its old content as a version, and a delete takes the item's
             // versions and links with it, so those lists are asked again too. Only an open dialog's
             // list is subscribed; the rest are just dropped.
-            uploadFiles: { invalidatesTags: ['Files', 'Versions', 'Storage'] },
-            deleteItem: { invalidatesTags: ['Files', 'Versions', 'ShareLinks', 'Storage'] },
+            uploadFiles: { invalidatesTags: ['Files', 'Versions'] },
+            deleteItem: { invalidatesTags: ['Files', 'Versions', 'ShareLinks'] },
             createFolder: { invalidatesTags: ['Files'] },
             listFileVersions: { providesTags: (_result, _error, { fileId }) => [{ type: 'Versions', id: fileId }] },
             // A restore changes the file, and in place it also keeps the current content as a version.
             restoreVersion: {
-                invalidatesTags: (_result, _error, { fileId }) => ['Files', 'Storage', { type: 'Versions', id: fileId }],
+                invalidatesTags: (_result, _error, { fileId }) => ['Files', { type: 'Versions', id: fileId }],
             },
             listShareLinks: { providesTags: (_result, _error, { path }) => [{ type: 'ShareLinks', id: path }] },
             createShareLink: {
@@ -75,6 +83,7 @@ export const apiSlice = generatedApi
             },
             // An import gives the account's files rows, which count toward its storage, and may be into
             // the admin's own account.
+            // Storage too: the admin page lists no files, so no listing would ask for it.
             importFiles: { invalidatesTags: ['Accounts', 'Files', 'Storage'] },
             createInvite: { invalidatesTags: ['Invites'] },
             // Failed or not: a failure is most often an invitation used or expired meanwhile, which
@@ -84,6 +93,21 @@ export const apiSlice = generatedApi
     })
     .injectEndpoints({
         endpoints: (build) => ({
+            /**
+             * The public demo's account and limits, or null on an ordinary install, where /api/demo
+             * isn't there. A 404 is an answer, not a failure, so it's asked once rather than again by
+             * every screen that shows it; any other failure counts as no demo too, since nothing
+             * depends on it. Nothing in it changes while the page is open but the next reset time,
+             * which is only shown, so it's kept for the page's life.
+             */
+            demoInfo: build.query<DemoInfo | null, void>({
+                async queryFn(_arg, _api, _extra, baseQuery) {
+                    const result = await baseQuery({ url: '/api/demo' });
+                    const info = result.data as DemoInfo | undefined;
+                    return { data: !result.error && typeof info?.username === 'string' ? info : null };
+                },
+                keepUnusedDataFor: 24 * 60 * 60,
+            }),
             /**
              * Uploads files into the folder at path, each into the subfolder its relativePath
              * names, so a folder from the folder picker or dropped on the page keeps its structure.
@@ -111,7 +135,7 @@ export const apiSlice = generatedApi
                     return { data: last };
                 },
                 // As uploadFiles: an upload over a file keeps its old content as a version.
-                invalidatesTags: ['Files', 'Versions', 'Storage'],
+                invalidatesTags: ['Files', 'Versions'],
             }),
         }),
     });
@@ -138,7 +162,7 @@ export const {
     useRevokeInviteMutation,
     useGetStorageUsageQuery,
     useSearchFilesQuery,
-    useGetDemoInfoQuery,
+    useDemoInfoQuery,
     useDescribeSharedItemQuery,
     useDescribeInviteQuery,
     useDescribePasswordResetQuery,

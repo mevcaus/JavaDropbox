@@ -269,8 +269,8 @@ describe('refreshing the accounts and invitations', () => {
     });
 });
 
-// The storage meter and a search answer from what is stored, so a change to it asks again.
-describe('refreshing storage use and search', () => {
+// The storage meter follows the tree: each listing asks for storage use again, once.
+describe('refreshing storage use', () => {
     let store;
     const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
 
@@ -282,7 +282,18 @@ describe('refreshing storage use and search', () => {
         api.delete.mockResolvedValue({ data: { message: 'Deleted' } });
         store = makeStore();
         await store.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
-        await store.dispatch(apiSlice.endpoints.searchFiles.initiate({ q: 'plan', path: '' }));
+        await subscribe(store);
+        await settle();
+        api.get.mockClear();
+    });
+
+    // Whatever changed the files, here, in another tab or by the demo's reset.
+    it('asks again once each time the tree is listed', async () => {
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
+        await settle();
+        await settle();
+
+        expect([gets('/api/files'), gets('/api/storage')]).toEqual([1, 1]);
     });
 
     it.each([
@@ -290,20 +301,65 @@ describe('refreshing storage use and search', () => {
         ['a folder upload', () => apiSlice.endpoints.uploadFolder.initiate({ files: [{ file: new File(['a'], 'a.txt'), relativePath: 'T/a.txt' }], path: '' })],
         ['a delete', () => apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' })],
         ['a restore', () => apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' })],
-        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 1 })],
-    ])('asks for storage use and the search again after %s', async (_label, change) => {
+    ])('asks once after %s, through the listing it causes', async (_label, change) => {
         await store.dispatch(change());
         await settle();
-
-        expect([gets('/api/storage'), gets('/api/search')]).toEqual([2, 2]);
-    });
-
-    // An admin may change their own quota, which the meter shows.
-    it('asks for storage use again after a quota change, but not the search', async () => {
-        await store.dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } }));
         await settle();
 
-        expect([gets('/api/storage'), gets('/api/search')]).toEqual([2, 1]);
+        expect([gets('/api/files'), gets('/api/storage')]).toEqual([1, 1]);
+    });
+
+    // The admin page lists no files, so these ask for storage use themselves.
+    it.each([
+        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 1 })],
+        ['a quota change', () => apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } })],
+    ])('asks again after %s', async (_label, change) => {
+        // As on the admin page: storage use shown, no tree listed.
+        const admin = makeStore();
+        await admin.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
+        api.get.mockClear();
+
+        await admin.dispatch(change());
+        await settle();
+
+        expect(gets('/api/storage')).toBe(1);
+    });
+
+    // A search is asked again by the search itself, once the files it was handed change.
+    it('leaves a search to ask again itself', async () => {
+        await store.dispatch(apiSlice.endpoints.searchFiles.initiate({ q: 'plan', path: '' }));
+        api.get.mockClear();
+
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }));
+        await settle();
+
+        expect(gets('/api/search')).toBe(0);
+    });
+});
+
+// Asked once per page, and a 404 on an ordinary install is an answer, not a failure to retry.
+describe('the demo\'s limits', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it('are null on an ordinary install, asked once however many screens show them', async () => {
+        api.get.mockRejectedValue({ response: { status: 404, data: { message: 'Not found' } } });
+        const store = makeStore();
+
+        const first = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(first.data).toBeNull();
+        expect(api.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('are the demo\'s account and limits on the demo', async () => {
+        api.get.mockResolvedValue({ data: { username: 'demo', maxShareMinutes: 15 } });
+        const store = makeStore();
+
+        const result = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(result.data).toEqual({ username: 'demo', maxShareMinutes: 15 });
     });
 });
 
