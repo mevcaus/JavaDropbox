@@ -16,7 +16,9 @@ import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.FileVersionRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.AccountSessions;
 import com.javadropbox.javadropbox.service.DemoService;
+import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
@@ -28,25 +30,37 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -57,6 +71,14 @@ class DemoIntegrationTests {
 
   @Value("${javadropbox.serving.directory}")
   private Path servingDir;
+
+  @Value("${javadropbox.demo.reset-at}")
+  private LocalTime resetAt;
+
+  @Autowired private PasswordEncoder passwordEncoder;
+  @Autowired private FileService fileService;
+  @Autowired private PlatformTransactionManager transactions;
+  @Autowired private AccountSessions accountSessions;
 
   @Autowired private MockMvc mockMvc;
   @Autowired private DemoService demo;
@@ -151,10 +173,7 @@ class DemoIntegrationTests {
         .andExpect(status().isOk());
     Files.delete(home().resolve("Welcome.md"));
 
-    // As if the last reset were two days ago.
-    Files.setLastModifiedTime(
-        servingDir.resolve(".javadropbox/demo-reset"),
-        FileTime.from(Instant.now().minus(Duration.ofDays(2))));
+    lastResetDaysAgo(2);
     demo.run(new DefaultApplicationArguments());
 
     assertThat(home().resolve("mine.txt")).doesNotExist();
@@ -324,6 +343,109 @@ class DemoIntegrationTests {
         .andReturn()
         .getResponse()
         .getCookie("JSESSIONID");
+  }
+
+  // Each server's DemoService, on the database and the store they share.
+  @Test
+  @DisplayName("two servers starting at once create one account and reset the files once")
+  @ExtendWith(OutputCaptureExtension.class)
+  void twoServersStartingAtOnce(CapturedOutput output) throws Exception {
+    clear();
+    DemoService other = otherServer();
+    int before = resets(output);
+
+    CountDownLatch go = new CountDownLatch(1);
+    List<Future<?>> starts = new ArrayList<>();
+    try (ExecutorService threads = Executors.newFixedThreadPool(2)) {
+      for (DemoService server : List.of(demo, other)) {
+        starts.add(
+            threads.submit(
+                () -> {
+                  go.await(10, TimeUnit.SECONDS);
+                  server.run(new DefaultApplicationArguments());
+                  return null;
+                }));
+      }
+      go.countDown();
+      for (Future<?> start : starts) {
+        start.get();
+      }
+    }
+
+    assertThat(users.findAll()).extracting(User::getUsername).containsExactly("demo");
+    assertThat(resets(output) - before).isEqualTo(1);
+    assertThat(home().resolve("Welcome.md")).exists();
+  }
+
+  @Test
+  @DisplayName("a reset that is due, asked for by two servers at once, happens once")
+  @ExtendWith(OutputCaptureExtension.class)
+  void dueResetHappensOnce(CapturedOutput output) throws Exception {
+    DemoService other = otherServer();
+    other.run(new DefaultApplicationArguments());
+    // The reset time passes for both servers at once.
+    lastResetDaysAgo(2);
+    ReflectionTestUtils.setField(demo, "nextReset", Instant.MIN);
+    ReflectionTestUtils.setField(other, "nextReset", Instant.MIN);
+    int before = resets(output);
+
+    try (ExecutorService threads = Executors.newFixedThreadPool(2)) {
+      Future<?> first = threads.submit(demo::resetIfDue);
+      Future<?> second = threads.submit(other::resetIfDue);
+      first.get();
+      second.get();
+    }
+
+    assertThat(resets(output) - before).isEqualTo(1);
+    assertThat(other.nextReset()).isEqualTo(demo.nextReset()).isAfter(Instant.now());
+  }
+
+  @Test
+  @DisplayName("a demo upgraded from a release that kept the reset time in a file keeps to it")
+  void resetTimeFromBeforeIsKept() throws Exception {
+    jdbc.update("DELETE FROM demo_reset");
+    Path oldMarker = servingDir.resolve(".javadropbox/demo-reset");
+    Files.createDirectories(oldMarker.getParent());
+    Files.writeString(oldMarker, "");
+    Files.delete(home().resolve("Welcome.md"));
+
+    demo.run(new DefaultApplicationArguments());
+    assertThat(home().resolve("Welcome.md")).as("not due yet").doesNotExist();
+
+    Files.setLastModifiedTime(oldMarker, FileTime.from(Instant.now().minus(Duration.ofDays(2))));
+    demo.run(new DefaultApplicationArguments());
+    assertThat(home().resolve("Welcome.md")).as("due").exists();
+    // Still written, for a release that reads it.
+    assertThat(Files.getLastModifiedTime(oldMarker).toInstant())
+        .isAfter(Instant.now().minus(Duration.ofMinutes(1)));
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM demo_reset", Integer.class)).isOne();
+  }
+
+  private void lastResetDaysAgo(int days) {
+    jdbc.update(
+        "UPDATE demo_reset SET reset_at = ?",
+        Instant.now().minus(Duration.ofDays(days)).atOffset(ZoneOffset.UTC));
+  }
+
+  private static int resets(CapturedOutput output) {
+    return output.getAll().split("Reset the demo's files", -1).length - 1;
+  }
+
+  private DemoService otherServer() {
+    return new DemoService(
+        users,
+        passwordEncoder,
+        fileService,
+        storagePaths,
+        localStore,
+        searchIndex,
+        jdbc,
+        transactions,
+        accountSessions,
+        demo.username(),
+        demo.password(),
+        resetAt,
+        demo.quotaBytes() + "B");
   }
 
   // The demo account's folder.

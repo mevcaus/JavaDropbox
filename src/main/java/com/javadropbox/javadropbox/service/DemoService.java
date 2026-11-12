@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -38,16 +39,26 @@ import org.springframework.util.unit.DataSize;
  * task: the demo's host suspends the server while nobody uses it, and a timer cannot fire then.
  * Instead the server checks at startup and on every request (see DemoResetFilter), so the first
  * visitor after the reset time gets fresh files before anything else happens.
+ *
+ * <p>Several servers sharing the database reset the files once a day between them: the time of the
+ * last reset is kept in the database, and a reset holds a lock there, so a server that waited for
+ * another's sees it done and doesn't do it again. Creating the account holds one too.
  */
 @Service
 @Profile("demo")
 public class DemoService implements ApplicationRunner {
 
-  /** When the last reset finished, as the file's modification time. Survives restarts. */
-  private static final String MARKER = "demo-reset";
+  // Where releases before the time was kept in the database kept it: as this file's modification
+  // time, in the app's own folder. Read if the database has none, and still written, so that going
+  // back to such a release doesn't reset the files at once.
+  private static final String OLD_MARKER = "demo-reset";
 
   // After a failed reset, how long until the next request tries again.
   private static final Duration RETRY_AFTER_FAILURE = Duration.ofMinutes(10);
+
+  // How long a server waits while another resets the files, its requests waiting with it. A reset
+  // takes a few seconds.
+  private static final Duration RESET_LOCK_WAIT = Duration.ofSeconds(30);
 
   private static final String SAMPLES = "demo/";
 
@@ -189,8 +200,33 @@ public class DemoService implements ApplicationRunner {
         return;
       }
       try {
-        reset();
-        nextReset = resetTimeAfter(clock.instant());
+        boolean ran =
+            DatabaseLocks.whileHeld(
+                jdbc,
+                DatabaseLocks.DEMO_RESET,
+                RESET_LOCK_WAIT,
+                () -> {
+                  // Another server may have reset the files while this one waited.
+                  Instant last = lastReset();
+                  Instant due = resetTimeAfter(last);
+                  if (clock.instant().isBefore(due)) {
+                    log.info("The demo's files were already reset, at {}", last);
+                    // By another server, behind this one's search index, if it keeps one of its
+                    // own.
+                    searchIndex.changedEverywhere();
+                    nextReset = due;
+                    return;
+                  }
+                  reset();
+                  nextReset = resetTimeAfter(clock.instant());
+                });
+        if (!ran) {
+          log.warn(
+              "Another server has been resetting the demo's files for over {}; trying again in {}",
+              RESET_LOCK_WAIT,
+              RETRY_AFTER_FAILURE);
+          nextReset = clock.instant().plus(RETRY_AFTER_FAILURE);
+        }
       } catch (IOException | RuntimeException e) {
         log.error("Could not reset the demo's files", e);
         nextReset = clock.instant().plus(RETRY_AFTER_FAILURE);
@@ -203,6 +239,8 @@ public class DemoService implements ApplicationRunner {
   // must never manage accounts: upgrading to accounts of their own made the first account, which on
   // the demo is this one, an admin.
   private void ensureAccount() {
+    // Two servers starting at once would otherwise both create it, and one would fail to start.
+    DatabaseLocks.holdUntilCommit(jdbc, DatabaseLocks.DEMO_ACCOUNT);
     User user = users.findByUsername(username).orElse(null);
     if (user == null) {
       User created = new User(username, passwordEncoder.encode(password), User.ROLE_USER);
@@ -253,7 +291,7 @@ public class DemoService implements ApplicationRunner {
           jdbc.update("UPDATE users SET used_bytes = 0");
         });
 
-    // The app's own folder stays: it holds the search index, and the marker of the last reset.
+    // The app's own folder stays: it holds the search index.
     for (FileStore.Entry entry : store.list("")) {
       if (!entry.key().equals(StoragePaths.INTERNAL_DIR)) {
         store.deleteRecursively(entry.key());
@@ -271,7 +309,11 @@ public class DemoService implements ApplicationRunner {
           owner);
     }
 
-    Path marker = storagePaths.internalDir().resolve(MARKER);
+    jdbc.update(
+        "INSERT INTO demo_reset (id, reset_at) VALUES (1, ?)"
+            + " ON CONFLICT (id) DO UPDATE SET reset_at = EXCLUDED.reset_at",
+        clock.instant().atOffset(ZoneOffset.UTC));
+    Path marker = storagePaths.internalDir().resolve(OLD_MARKER);
     Files.createDirectories(marker.getParent());
     Files.writeString(marker, "");
     Files.setLastModifiedTime(marker, FileTime.from(clock.instant()));
@@ -279,8 +321,15 @@ public class DemoService implements ApplicationRunner {
   }
 
   private Instant lastReset() throws IOException {
+    List<Instant> stored =
+        jdbc.query(
+            "SELECT reset_at FROM demo_reset",
+            (row, number) -> row.getObject(1, OffsetDateTime.class).toInstant());
+    if (!stored.isEmpty()) {
+      return stored.getFirst();
+    }
     try {
-      return Files.getLastModifiedTime(storagePaths.internalDir().resolve(MARKER)).toInstant();
+      return Files.getLastModifiedTime(storagePaths.internalDir().resolve(OLD_MARKER)).toInstant();
     } catch (NoSuchFileException e) {
       return Instant.MIN;
     }
