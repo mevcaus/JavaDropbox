@@ -1,4 +1,4 @@
-import axios, { type AxiosError } from 'axios';
+import axios from 'axios';
 
 const api = axios.create({
     baseURL: '', // Use relative path to leverage Vite proxy
@@ -51,8 +51,9 @@ export const setUnauthorizedHandler = (handler: () => void): void => {
 // and signing them out over it would throw away a session that is still valid.
 api.interceptors.response.use(
     (response) => response,
-    (error: AxiosError) => {
-        if (error.response?.status === 401) {
+    // Anything a request interceptor, the adapter or a body transform throws arrives here too.
+    (error: unknown) => {
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
             handleUnauthorized();
         }
         return Promise.reject(error);
