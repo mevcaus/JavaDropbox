@@ -45,3 +45,6 @@ out/
 ### Claude Code ###
 # Per-machine permission rules; saved commands can contain secrets
 **/.claude/settings.local.json
+
+# Docker Compose's settings for this host (docs/self-hosting.md), which can hold passwords.
+.env

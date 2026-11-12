@@ -193,6 +193,8 @@ The `setup` project runs first. On a fresh stack it reads the setup code from `d
 
 Docker Compose's own `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` are honoured when reading the log, for a stack started under another name or with an override file.
 
+The `docker` job runs the suite twice: on the stack as above, then on the same image with search on Elasticsearch, started as [self-hosting.md](self-hosting.md#lucene-or-elasticsearch) sets it up (`COMPOSE_PROFILES=app,elasticsearch` and `JAVADROPBOX_SEARCH_BACKEND=elasticsearch`), after checking the app's log says it uses it. To run it that way locally, start the stack with those two variables set, and stop it with `docker compose --profile app --profile elasticsearch down --volumes`.
+
 CI runs the suite in the `docker` job of `.github/workflows/gradle.yml` after the stack is up, and uploads the HTML report as the `playwright-report` artifact when a test fails.
 
 | Test Suite | What It Covers |

@@ -13,6 +13,8 @@ e2e/
 *.log
 # Local Vite env files are per-developer and would be baked into the bundle.
 **/.env*.local
+# Docker Compose's settings for this host, which can hold passwords.
+/.env
 
 # Tooling and editor files
 .git
