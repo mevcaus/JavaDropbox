@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosError } from 'axios';
 
 const api = axios.create({
     baseURL: '', // Use relative path to leverage Vite proxy
@@ -16,9 +16,9 @@ const api = axios.create({
 // still starting up, a database that is down -- login becomes impossible rather than merely
 // failing. Prime the cookie on demand instead of depending on that one call having succeeded.
 const CSRF_COOKIE = 'XSRF-TOKEN';
-const SAFE_METHODS = ['get', 'head', 'options'];
+const SAFE_METHODS: readonly string[] = ['get', 'head', 'options'];
 
-const hasCsrfToken = () =>
+const hasCsrfToken = (): boolean =>
     document.cookie.split('; ').some((cookie) => cookie.startsWith(`${CSRF_COOKIE}=`));
 
 api.interceptors.request.use(async (config) => {
@@ -41,9 +41,9 @@ api.interceptors.request.use(async (config) => {
 // What to do when the backend says the session is gone. The app registers this at startup
 // (see main.jsx) rather than this module importing the store: the store's slices import this
 // module, so importing the store here made the modules depend on each other's load order.
-let handleUnauthorized = () => {};
+let handleUnauthorized: () => void = () => {};
 
-export const setUnauthorizedHandler = (handler) => {
+export const setUnauthorizedHandler = (handler: () => void): void => {
     handleUnauthorized = handler;
 };
 
@@ -51,7 +51,7 @@ export const setUnauthorizedHandler = (handler) => {
 // and signing them out over it would throw away a session that is still valid.
 api.interceptors.response.use(
     (response) => response,
-    (error) => {
+    (error: AxiosError) => {
         if (error.response?.status === 401) {
             handleUnauthorized();
         }

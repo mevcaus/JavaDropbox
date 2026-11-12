@@ -1,4 +1,5 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
+import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api, { setUnauthorizedHandler } from './api';
 
@@ -19,12 +20,12 @@ afterEach(() => {
 });
 
 describe('api csrf priming', () => {
-    let adapter;
+    let adapter: Mock;
 
     beforeEach(() => {
         vi.restoreAllMocks();
         clearCookies();
-        adapter = vi.fn(async (config) => ({
+        adapter = vi.fn(async (config: InternalAxiosRequestConfig) => ({
             data: '',
             status: 200,
             statusText: 'OK',
@@ -75,9 +76,9 @@ describe('api csrf priming', () => {
 
 describe('api session expiry', () => {
     // Answers every request with the given status, failing the way axios's own adapters do.
-    const answerWith = (status) => {
+    const answerWith = (status: number) => {
         api.defaults.adapter = async (config) => {
-            const response = { status, statusText: '', data: '', headers: {}, config };
+            const response = { status, statusText: '', data: '', headers: new AxiosHeaders(), config };
             throw new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_REQUEST', config, null, response);
         };
     };
