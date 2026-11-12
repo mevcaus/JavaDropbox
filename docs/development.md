@@ -50,14 +50,16 @@ Then open `http://localhost:5173`. While no account exists, the sign-in page off
 
 ### With search on Elasticsearch
 
-To work on the Elasticsearch backend, start Elasticsearch from `compose.yaml` by name, which leaves the app on it alone. Then run the backend against it:
+To work on the Elasticsearch backend, run Elasticsearch with its port on this host, then run the backend against it. `compose.yaml`'s Elasticsearch publishes no port, since its security is off.
 
 ```bash
-docker compose up -d elasticsearch
+docker run --rm -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false \
+  -e ES_JAVA_OPTS="-Xms1g -Xmx1g" docker.elastic.co/elasticsearch/elasticsearch:8.18.6
+
 JAVADROPBOX_SEARCH_BACKEND=elasticsearch ./gradlew bootRun
 ```
 
-The URL's default, `http://localhost:9200`, is where compose puts it. The tests start their own in Testcontainers, so they don't need this.
+The URL's default, `http://localhost:9200`, is where that puts it. The tests start their own in Testcontainers, so they don't need this. Don't use the `.env` from [self-hosting.md](self-hosting.md#lucene-or-elasticsearch) in a checkout you develop in: `bootRun` starts `compose.yaml` too, and with that `.env` it would start the app's container beside it.
 
 ### With the files in S3
 
@@ -210,7 +212,7 @@ JavaDropbox/
 │   └── application-demo.properties # The live demo: shared account, small limits
 ├── src/test/                       # See testing.md
 ├── build.gradle                    # Dependencies, Spring Boot plugin, Spotless, JaCoCo, -PbundleFrontend
-├── compose.yaml                    # PostgreSQL, the app behind the "app" profile, Elasticsearch and the app on it behind "elasticsearch"
+├── compose.yaml                    # PostgreSQL, the app behind the "app" profile, Elasticsearch behind "elasticsearch"
 ├── Dockerfile                      # Multi-stage: frontend bundle -> Gradle build -> JRE runtime
 ├── fly.toml                        # The live demo on Fly.io
 ├── package.json                    # Root: `concurrently` wrapper used by start.sh

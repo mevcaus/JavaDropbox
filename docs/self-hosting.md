@@ -160,14 +160,14 @@ Sessions are kept in the database, so restarting the server doesn't sign anyone 
 
 ## Search
 
-The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a PDF, PDFBox may keep parts of it in scratch files in `.javadropbox/tmp`, up to about the PDF's own size (mostly for protected PDFs, which it decrypts there), and deletes them when it is done.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). By default the index is a Lucene index inside the app (see [Lucene or Elasticsearch](#lucene-or-elasticsearch)), kept in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a PDF, PDFBox may keep parts of it in scratch files in `.javadropbox/tmp`, up to about the PDF's own size (mostly for protected PDFs, which it decrypts there), and deletes them when it is done.
 
 The files stored are the source of truth, and the index only mirrors them:
 
 - Changes made through the app are searchable a moment after they are saved: a background thread reads the new text, so uploads don't wait for it.
 - Files added, changed or removed outside the app, such as copied into the serving directory by hand or into the bucket with another tool, are picked up at startup and then every ten minutes, when each file's size and modification time are compared with the index. Once [the layout changes](#layout-going-away), they come in through an import an admin runs instead.
 - The first start after upgrading reads every file once to build the index, logging `Building the search index` and then how many items it indexed. Until that finishes, search results say some files may be missing.
-- To rebuild the index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
+- To rebuild Lucene's index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
 
 A PDF or Word document that cannot be read, such as a damaged or password-protected one, is logged at `WARN` and is still found by its name.
 
@@ -182,17 +182,22 @@ Pick Elasticsearch to run several app servers behind a load balancer. Each serve
 
 Several servers also need the files in [S3](#storing-files-in-s3), so they all see the same store. [#336](https://github.com/mevcaus/JavaDropbox/issues/336) tracks what else they need.
 
-To try it on one host, `compose.yaml` has an `elasticsearch` profile:
+To try it on one host, `compose.yaml` has Elasticsearch 8.18 behind an `elasticsearch` profile. Turn the profile on and point the app at it, in a `.env` file next to `compose.yaml`, so every later `docker compose` command (`logs`, `down`, a restart) runs the same stack:
 
 ```bash
-docker compose --profile elasticsearch up --build
+cat > .env <<'EOF'
+COMPOSE_PROFILES=app,elasticsearch
+JAVADROPBOX_SEARCH_BACKEND=elasticsearch
+EOF
+docker compose up --build
 ```
 
-That starts PostgreSQL, Elasticsearch 8.18, and `app-elasticsearch`: the app on Elasticsearch, on port 8080, with the same files and database as `--profile app`. Run one profile or the other, not both. The setup code is in `docker compose logs app-elasticsearch`.
+It's the same `app` service as above, with the same port, files, database and anything a `compose.override.yaml` sets for it. Only its search changes. It waits for Elasticsearch to be healthy before it starts. To go back to Lucene, delete the two lines and run `docker compose up -d` again.
 
 On its first start, the app fills the index from the files. The index lives in the `elasticsearch-data` volume, and needs no backup, since it can be filled again from the files.
-- Elasticsearch gets a 1 GB heap. Set `ES_JAVA_OPTS` to change it, e.g. `ES_JAVA_OPTS="-Xms2g -Xmx2g"`.
-- Its security is off. Only the app, over the compose network, and this host, on `127.0.0.1:9200`, can reach it. That's fine on one machine, but not for a service other machines reach.
+- Elasticsearch gets a 1 GB heap. Set `ES_JAVA_OPTS` to change it, e.g. `ES_JAVA_OPTS=-Xms2g -Xmx2g` in `.env`.
+- Its security is off, and it publishes no port. Only the app can reach it, over the compose network. That's fine on one machine, but not for a service other machines reach.
+- Once its disk is 95% full, Elasticsearch stops taking writes. Search keeps answering from what it has, the changes wait, and `search` in the health check says why. The files' volume is usually on the same disk, so keep an eye on it.
 
 For app servers on several machines, run Elasticsearch with security on (its default), and give each app server the same settings:
 

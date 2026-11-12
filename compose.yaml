@@ -23,7 +23,7 @@ services:
   # The whole app in one container. Behind the "app" profile so ./gradlew bootRun,
   # which starts this file for its database, does not start it too:
   #   docker compose --profile app up --build
-  app: &app
+  app:
     profiles: ["app"]
     build: .
     # Restarts the app if it exits. The image's HEALTHCHECK shows in docker compose ps.
@@ -31,10 +31,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment: &app-environment
+      # Only when the elasticsearch profile below is on.
+      elasticsearch:
+        condition: service_healthy
+        required: false
+    environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/javadropbox
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      # lucene, the index inside the app, or elasticsearch, the service below
+      # (see docs/self-hosting.md#lucene-or-elasticsearch).
+      JAVADROPBOX_SEARCH_BACKEND: ${JAVADROPBOX_SEARCH_BACKEND:-lucene}
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_URL: http://elasticsearch:9200
       # To keep the files in a bucket rather than the javadropbox-data volume (see
       # docs/self-hosting.md#storing-files-in-s3):
       # JAVADROPBOX_STORAGE_TYPE: s3
@@ -45,12 +53,12 @@ services:
       - javadropbox-data:/data
 
   # Search on Elasticsearch, a service several app servers can share, instead of
-  # the index inside the app (see docs/self-hosting.md#search). Behind the
-  # "elasticsearch" profile, with a copy of the app that uses it:
-  #   docker compose --profile elasticsearch up --build
-  # Security is off, so it is for one host: the app reaches it over the compose
-  # network, and nothing outside this host can. A cluster other machines reach
-  # needs security on.
+  # the index inside the app. Behind the "elasticsearch" profile, and used by the
+  # app once JAVADROPBOX_SEARCH_BACKEND=elasticsearch:
+  #   COMPOSE_PROFILES=app,elasticsearch JAVADROPBOX_SEARCH_BACKEND=elasticsearch \
+  #     docker compose up --build
+  # Its security is off, and it publishes no port: only the app, over the compose
+  # network, can reach it. The index holds every account's file names and text.
   elasticsearch:
     profiles: ["elasticsearch"]
     image: docker.elastic.co/elasticsearch/elasticsearch:8.18.6
@@ -60,9 +68,6 @@ services:
       xpack.security.enabled: "false"
       # Without a heap size, Elasticsearch takes half the machine's memory.
       ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
-    ports:
-      # Local connections only, for ./gradlew bootRun (see docs/development.md).
-      - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     healthcheck:
@@ -70,22 +75,6 @@ services:
       interval: 10s
       timeout: 10s
       retries: 30
-
-  # The app as above, with its search on that Elasticsearch. It has the same
-  # port, files and database, so run one or the other: --profile app, or
-  # --profile elasticsearch. The index fills from the files when it starts.
-  app-elasticsearch:
-    <<: *app
-    profiles: ["elasticsearch"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-    environment:
-      <<: *app-environment
-      JAVADROPBOX_SEARCH_BACKEND: elasticsearch
-      JAVADROPBOX_SEARCH_ELASTICSEARCH_URL: http://elasticsearch:9200
 
 volumes:
   postgres-data:
