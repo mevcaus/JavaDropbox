@@ -28,9 +28,6 @@ const expirationOptions = (maxMinutes: number | undefined) => {
     return allowed.length > 0 ? allowed : [{ label: `${maxMinutes} minutes`, minutes: maxMinutes }];
 };
 
-// Keyed by path, so sharing another item starts from a fresh dialog with its own request to make a
-// link: no link, error or spinner from the previous one carries over, and its late answers land in a
-// dialog that is gone. The list of links is per item regardless (see ActiveLinks).
 /** What can be shared: a file or a folder, by its path from the root. */
 export interface ShareItem {
     path: string;
@@ -44,6 +41,9 @@ interface ShareModalProps {
     item: ShareItem | null;
 }
 
+// Keyed by path, so sharing another item starts from a fresh dialog with its own request to make a
+// link: no link, error or spinner from the previous one carries over, and its late answers land in a
+// dialog that is gone. The list of links is per item regardless (see ActiveLinks).
 const ShareModal = ({ isOpen, onClose, item }: ShareModalProps) =>
     item ? <ShareDialog key={item.path} isOpen={isOpen} onClose={onClose} item={item} /> : null;
 

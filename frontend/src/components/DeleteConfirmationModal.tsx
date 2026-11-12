@@ -12,7 +12,7 @@ const DeleteConfirmationModal = ({
     isOpen: boolean;
     onClose: () => void;
     onConfirm: () => void;
-    itemName: string;
+    itemName?: string;
     isDeleting?: boolean;
 }) => (
     <Modal

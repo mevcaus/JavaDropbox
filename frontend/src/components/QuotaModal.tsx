@@ -7,10 +7,6 @@ import Modal, { ModalActions } from './Modal';
 import QuotaFields from './QuotaFields';
 import { primaryButton, secondaryButton } from './modalStyles';
 
-/**
- * Changes an account's quota. onSaved runs once the server has stored it; the accounts list
- * refreshes through its cache tag.
- */
 interface QuotaModalProps {
     /** The account whose quota to change; nothing is shown without one. */
     account: AccountDto | null;
@@ -18,6 +14,10 @@ interface QuotaModalProps {
     onSaved: () => void;
 }
 
+/**
+ * Changes an account's quota. onSaved runs once the server has stored it; the accounts list
+ * refreshes through its cache tag.
+ */
 const QuotaModal = ({ account, onClose, onSaved }: QuotaModalProps) =>
     account ? <QuotaDialog key={account.id} account={account} onClose={onClose} onSaved={onSaved} /> : null;
 

@@ -2,22 +2,19 @@ import { Fragment, useState, useMemo, type ChangeEvent } from 'react';
 import { Download, Share2, Trash2, Search, ChevronUp, ChevronDown, History } from 'lucide-react';
 import FileIcon from './FileIcon';
 import { useFileSearch, type SearchAnswer } from '../hooks/useFileSearch';
-import type { FileTreeNode, Snippet as SnippetData } from '../services/apiSlice';
+import type { FileTreeNode, SearchResult } from '../services/apiSlice';
 import { formatDate, toTimestamp } from '../utils/date';
 import { formatSize } from '../utils/format';
 
-// Every node below the open folder by its path. A search result is shown as the tree's own node
-// where there is one, which carries what the result does not: the id that versions need, and a
-// folder's size.
 /**
  * A row of the table: an item of the folder, or a search result, which is the tree's own node where
  * there is one. A result the tree doesn't list (a file copied in by hand before it's imported) has
  * no id.
  */
 export type FileRow = Pick<FileTreeNode, 'name' | 'isDirectory' | 'relativePath' | 'previewType' | 'lastModified'> & {
-    id?: number | null;
-    size: number | null;
-    snippet?: SnippetData | null;
+    id?: FileTreeNode['id'];
+    size: SearchResult['size'];
+    snippet?: SearchResult['snippet'];
 };
 
 type SortKey = 'name' | 'size' | 'lastModified';
@@ -27,6 +24,9 @@ interface SortConfig {
     direction: 'asc' | 'desc';
 }
 
+// Every node below the open folder by its path. A search result is shown as the tree's own node
+// where there is one, which carries what the result does not: the id that versions need, and a
+// folder's size.
 const indexByPath = (nodes: readonly FileTreeNode[], byPath = new Map<string, FileTreeNode>()) => {
     for (const node of nodes) {
         byPath.set(node.relativePath, node);
@@ -39,7 +39,7 @@ const indexByPath = (nodes: readonly FileTreeNode[], byPath = new Map<string, Fi
 
 // The passage of a file's text that matched, with the matching words marked. The server gives
 // plain text and where the matches are, so nothing in a file is ever rendered as markup.
-const Snippet = ({ snippet }: { snippet: SnippetData }) => {
+const Snippet = ({ snippet }: { snippet: NonNullable<SearchResult['snippet']> }) => {
     const parts: { text: string; match?: boolean }[] = [];
     let at = 0;
     for (const { start, end } of snippet.highlights) {

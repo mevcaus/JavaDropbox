@@ -6,7 +6,7 @@ import userEvent, { type UserEvent } from '@testing-library/user-event';
 import type { ReactElement, ReactNode } from 'react';
 import FileTable from './FileTable';
 import mockedApi from '../services/api';
-import { apiSlice, type FileTreeNode, type SearchResult, type Snippet as SnippetData } from '../services/apiSlice';
+import { apiSlice, type FileTreeNode, type SearchResult } from '../services/apiSlice';
 import { fieldsOf } from '../utils/errors';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
@@ -104,7 +104,7 @@ const nodeAt = (path: string, nodes: readonly FileTreeNode[] = ROOT_FILES): File
 };
 
 // A search result for a node, as GET /api/search describes it.
-const hit = (node: FileTreeNode | undefined, snippet: SnippetData | null = null): SearchResult => {
+const hit = (node: FileTreeNode | undefined, snippet: SearchResult['snippet'] = null): SearchResult => {
     if (!node) throw new Error('No such node in the fixtures');
     return {
     name: node.name,

@@ -62,8 +62,8 @@ const generateButton = () => screen.getByRole('button', { name: /Generate link/i
 // The form the first request posted, checked to be one.
 const postedParams = () => {
     const body = api.post.mock.calls[0]?.[1];
-    expect(body).toBeInstanceOf(URLSearchParams);
-    return body as URLSearchParams;
+    if (!(body instanceof URLSearchParams)) throw new Error('The first request posted no form');
+    return body;
 };
 const sharesAsked = () => api.get.mock.calls.filter(([url]) => url === '/api/share').length;
 

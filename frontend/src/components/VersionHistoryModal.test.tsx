@@ -52,7 +52,7 @@ describe('VersionHistoryModal', () => {
     });
 
     // A file copied in by hand has no row, so no id, and nothing to ask the versions of.
-    it('opens for nothing that has no id', () => {
+    it('opens nothing for an item without an id', () => {
         render(<VersionHistoryModal isOpen file={{ id: null, name: 'loose.txt' }} onClose={vi.fn()} />);
 
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

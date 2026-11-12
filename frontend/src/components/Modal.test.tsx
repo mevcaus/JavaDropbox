@@ -130,7 +130,9 @@ describe('Modal', () => {
                     </Modal>
                 </Page>,
             );
-            screen.getByRole('button', { name: 'Close' }).closest<HTMLElement>('[tabindex="-1"]')?.focus();
+            const panel = screen.getByRole('button', { name: 'Close' }).closest('[tabindex="-1"]');
+            if (!(panel instanceof HTMLElement)) throw new Error('No dialog panel');
+            panel.focus();
 
             await user.tab({ shift: true });
 
