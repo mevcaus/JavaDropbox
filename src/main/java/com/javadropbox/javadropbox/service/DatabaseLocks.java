@@ -1,6 +1,7 @@
 package com.javadropbox.javadropbox.service;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * PostgreSQL advisory locks, for work only one server may do at a time when several share the
@@ -29,6 +30,9 @@ final class DatabaseLocks {
    * </ul>
    */
   static void holdUntilCommit(JdbcTemplate jdbc, long key) {
-    jdbc.execute("SELECT pg_advisory_xact_lock(" + key + ")");
+    if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+      throw new IllegalStateException("An advisory lock held until commit needs a transaction");
+    }
+    jdbc.query("SELECT pg_advisory_xact_lock(?)", row -> null, key);
   }
 }

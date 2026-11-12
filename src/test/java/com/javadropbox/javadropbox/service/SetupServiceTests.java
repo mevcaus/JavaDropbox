@@ -259,6 +259,28 @@ class SetupServiceTests {
         .doesNotThrowAnyException();
   }
 
+  // Another server sets up between this request's first look and its check of the code.
+  @Test
+  @DisplayName("a setup another server finished meanwhile answers 409, and makes no new code")
+  void setupFinishedMeanwhile() {
+    String printed = code();
+    when(authService.isSetupRequired()).thenReturn(true, false);
+    jdbc.update("DELETE FROM setup_code");
+
+    assertThatThrownBy(() -> setup.createFirstUser(OWNER, printed, "ada", "long enough"))
+        .isInstanceOf(ConflictException.class);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
+    assertThat(codeAttempts.retryAfter(OWNER)).isZero();
+  }
+
+  @Test
+  @DisplayName("before any server has printed a code, none is taken")
+  void noCodeBeforeOneIsPrinted() {
+    assertThatThrownBy(() -> setup.createFirstUser(OWNER, "ABCDE-FGHJK", "ada", "long enough"))
+        .isInstanceOf(ForbiddenException.class);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
+  }
+
   @Test
   @DisplayName("the code is used up once the account exists")
   void codeIsUsedUp() {

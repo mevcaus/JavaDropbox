@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
-import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -85,18 +85,16 @@ public class SetupService {
   }
 
   /**
-   * The code setup needs: the configured one, or the one kept in the database, which the first
-   * server to need it generates.
+   * The code to print: the configured one, or the one kept in the database, which the first server
+   * to start generates. Only a server printing it makes one, so that no code is ever made that
+   * nobody has seen.
    */
   String code() {
-    if (!configuredCode.isEmpty()) {
-      return configuredCode;
+    Optional<String> current = currentCode();
+    if (current.isPresent()) {
+      return current.get();
     }
-    List<String> stored = jdbc.queryForList("SELECT code FROM setup_code", String.class);
-    if (!stored.isEmpty()) {
-      return stored.getFirst();
-    }
-    // Two servers asking at once both get the one that was stored first.
+    // Two servers starting at once both get the one that was stored first.
     return jdbc.queryForObject(
         "INSERT INTO setup_code (id, code, created_at) VALUES (1, ?, now())"
             + " ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id RETURNING code",
@@ -153,7 +151,21 @@ public class SetupService {
     firstAccountImport.forNewFirstAccount(user);
   }
 
+  // The configured code, or the one stored; none once setup is done, or before any server has
+  // printed one.
+  private Optional<String> currentCode() {
+    if (!configuredCode.isEmpty()) {
+      return Optional.of(configuredCode);
+    }
+    return jdbc.queryForList("SELECT code FROM setup_code", String.class).stream().findFirst();
+  }
+
   private void checkCode(String client, String submitted) {
+    Optional<String> expected = currentCode();
+    // Used up by another request, here or on another server, since this one checked.
+    if (expected.isEmpty() && !authService.isSetupRequired()) {
+      throw new ConflictException("Setup has already been completed");
+    }
     Duration wait = codeAttempts.tryAcquire(client);
     if (!wait.isZero()) {
       throw new TooManyRequestsException(
@@ -163,9 +175,10 @@ public class SetupService {
 
     boolean matches =
         submitted != null
+            && expected.isPresent()
             && MessageDigest.isEqual(
                 normalize(submitted).getBytes(StandardCharsets.UTF_8),
-                normalize(code()).getBytes(StandardCharsets.UTF_8));
+                normalize(expected.get()).getBytes(StandardCharsets.UTF_8));
     if (matches) {
       codeAttempts.recordSuccess(client);
       return;
