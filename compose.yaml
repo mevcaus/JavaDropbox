@@ -42,7 +42,9 @@ services:
       # lucene, the index inside the app, or elasticsearch, the service below
       # (see docs/self-hosting.md#lucene-or-elasticsearch).
       JAVADROPBOX_SEARCH_BACKEND: ${JAVADROPBOX_SEARCH_BACKEND:-lucene}
-      JAVADROPBOX_SEARCH_ELASTICSEARCH_URL: http://elasticsearch:9200
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_URL: ${JAVADROPBOX_SEARCH_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_USERNAME: ${JAVADROPBOX_SEARCH_ELASTICSEARCH_USERNAME:-}
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_PASSWORD: ${JAVADROPBOX_SEARCH_ELASTICSEARCH_PASSWORD:-}
       # To keep the files in a bucket rather than the javadropbox-data volume (see
       # docs/self-hosting.md#storing-files-in-s3):
       # JAVADROPBOX_STORAGE_TYPE: s3

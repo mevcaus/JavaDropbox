@@ -175,14 +175,19 @@ A PDF or Word document that cannot be read, such as a damaged or password-protec
 
 Keep the default, Lucene, for one app server. Its index is inside the app, so there's no second service to run, secure, upgrade or back up, and no network hop between a change and the index. It handles one server's files with room to spare. The live demo runs on it.
 
-Pick Elasticsearch to run several app servers behind a load balancer. Each server's Lucene index only knows the changes made through that server, and a Lucene index on a network filesystem isn't reliable. On Elasticsearch, every server reads and writes one index, so a file uploaded through one server turns up in searches on the others. What it costs:
+Elasticsearch is for several app servers behind a load balancer. Each server's Lucene index only knows the changes made through that server, and a Lucene index on a network filesystem isn't reliable. On Elasticsearch, every server reads and writes one index, so a file uploaded through one server turns up in searches on the others. What it costs:
 - a service that wants a gigabyte or more of memory, and has to be secured;
 - a network hop for every search;
 - search answers `503` while the service is down, though everything else keeps working.
 
-Several servers also need the files in [S3](#storing-files-in-s3), so they all see the same store. [#336](https://github.com/mevcaus/JavaDropbox/issues/336) tracks what else they need.
+Search is only one of the things several servers need, though, and the app doesn't support running more than one yet. Until [#336](https://github.com/mevcaus/JavaDropbox/issues/336) is done:
+- the setup code only works on one of them;
+- each counts wrong passwords on its own;
+- with the files in [S3](#storing-files-in-s3), which several servers need anyway, a folder one server deleted and another made again can vanish once its last file is deleted.
 
-To try it on one host, `compose.yaml` has Elasticsearch 8.18 behind an `elasticsearch` profile. Turn the profile on and point the app at it, in a `.env` file next to `compose.yaml`, so every later `docker compose` command (`logs`, `down`, a restart) runs the same stack:
+So for now Lucene is the right pick. Elasticsearch is here to try, and to build on.
+
+To try it on one host, `compose.yaml` has Elasticsearch 8.18 behind an `elasticsearch` profile (it needs Docker Compose 2.20 or later). Turn the profile on and point the app at it, in a `.env` file next to `compose.yaml`, so every later `docker compose` command (`logs`, `down`, a restart) runs the same stack:
 
 ```bash
 cat > .env <<'EOF'
@@ -192,14 +197,16 @@ EOF
 docker compose up --build
 ```
 
-It's the same `app` service as above, with the same port, files, database and anything a `compose.override.yaml` sets for it. Only its search changes. It waits for Elasticsearch to be healthy before it starts. To go back to Lucene, delete the two lines and run `docker compose up -d` again.
+It's the same `app` service as above, with the same port, files, database and anything a `compose.override.yaml` sets for it. Only its search changes. It waits for Elasticsearch to be healthy before it starts.
+- With this `.env`, leave `--profile` out of every command, including the ones elsewhere on this page. A `--profile` given on the command line replaces `COMPOSE_PROFILES` rather than adding to it, so `docker compose --profile app up` would start the app on Elasticsearch without Elasticsearch.
+- To go back to Lucene, run `docker compose down` first, while the `.env` still names both profiles, so it stops Elasticsearch too. Then delete the two lines and run `docker compose --profile app up -d`. The volumes stay, Elasticsearch's included, until `docker volume rm`.
 
 On its first start, the app fills the index from the files. The index lives in the `elasticsearch-data` volume, and needs no backup, since it can be filled again from the files.
 - Elasticsearch gets a 1 GB heap. Set `ES_JAVA_OPTS` to change it, e.g. `ES_JAVA_OPTS=-Xms2g -Xmx2g` in `.env`.
 - Its security is off, and it publishes no port. Only the app can reach it, over the compose network. That's fine on one machine, but not for a service other machines reach.
 - Once its disk is 95% full, Elasticsearch stops taking writes. Search keeps answering from what it has, the changes wait, and `search` in the health check says why. The files' volume is usually on the same disk, so keep an eye on it.
 
-For app servers on several machines, run Elasticsearch with security on (its default), and give each app server the same settings:
+For an Elasticsearch elsewhere, with security on (its default), give each app server the same settings. With `compose.yaml`, put them in `.env` with `COMPOSE_PROFILES=app` alone, and compose passes them to the app:
 
 ```bash
 JAVADROPBOX_SEARCH_BACKEND=elasticsearch
