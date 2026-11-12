@@ -325,15 +325,16 @@ describe('refreshing storage use', () => {
         expect(gets('/api/storage')).toBe(1);
     });
 
-    // A search is asked again by the search itself, once the files it was handed change.
-    it('leaves a search to ask again itself', async () => {
+    // A search answers from the files as they are, so a change asks again, once.
+    it('asks for a search again once after a change to the files', async () => {
         await store.dispatch(apiSlice.endpoints.searchFiles.initiate({ q: 'plan', path: '' }));
         api.get.mockClear();
 
         await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }));
         await settle();
+        await settle();
 
-        expect(gets('/api/search')).toBe(0);
+        expect(gets('/api/search')).toBe(1);
     });
 });
 
@@ -351,6 +352,20 @@ describe('the demo\'s limits', () => {
 
         expect(first.data).toBeNull();
         expect(api.get).toHaveBeenCalledTimes(1);
+    });
+
+    // A passing failure isn't kept as "no demo", which would hide the demo's banner and limits.
+    it('are asked again after any other failure', async () => {
+        api.get
+            .mockRejectedValueOnce({ response: { status: 500, data: '' } })
+            .mockResolvedValueOnce({ data: { username: 'demo' } });
+        const store = makeStore();
+
+        const failed = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        const retried = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(failed.isError).toBe(true);
+        expect(retried.data).toEqual({ username: 'demo' });
     });
 
     it('are the demo\'s account and limits on the demo', async () => {

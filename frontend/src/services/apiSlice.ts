@@ -32,11 +32,13 @@ export const apiSlice = generatedApi
                     } catch {
                         return;
                     }
-                    // generatedApi's own type has none of the tags added here, hence the cast.
-                    dispatch(generatedApi.util.invalidateTags(['Storage' as never]));
+                    dispatch(apiSlice.util.invalidateTags(['Storage']));
                 },
             },
             getStorageUsage: { providesTags: ['Storage'] },
+            // A search answers from the files as they are, so a change to them asks again, once any
+            // search already on its way has answered.
+            searchFiles: { providesTags: ['Files'] },
             // Uploading over a file keeps its old content as a version, and a delete takes the item's
             // versions and links with it, so those lists are asked again too. Only an open dialog's
             // list is subscribed; the rest are just dropped.
@@ -96,15 +98,17 @@ export const apiSlice = generatedApi
             /**
              * The public demo's account and limits, or null on an ordinary install, where /api/demo
              * isn't there. A 404 is an answer, not a failure, so it's asked once rather than again by
-             * every screen that shows it; any other failure counts as no demo too, since nothing
-             * depends on it. Nothing in it changes while the page is open but the next reset time,
-             * which is only shown, so it's kept for the page's life.
+             * every screen that shows it. Nothing in it changes while the page is open but the next
+             * reset time, which is only shown, so it's kept until the session changes (signing in or
+             * out drops the whole cache).
              */
             demoInfo: build.query<DemoInfo | null, void>({
                 async queryFn(_arg, _api, _extra, baseQuery) {
                     const result = await baseQuery({ url: '/api/demo' });
+                    // Any other failure is reported, so the next screen that shows it asks again.
+                    if (result.error && result.error.status !== 404) return { error: result.error };
                     const info = result.data as DemoInfo | undefined;
-                    return { data: !result.error && typeof info?.username === 'string' ? info : null };
+                    return { data: typeof info?.username === 'string' ? info : null };
                 },
                 keepUnusedDataFor: 24 * 60 * 60,
             }),

@@ -56,8 +56,7 @@ describe('Sidebar', () => {
         expect(screen.queryByRole('meter')).toBeNull();
     });
 
-    // Every change that stores, removes or restores a file, imports files or changes a quota
-    // invalidates the Storage tag.
+    // Each listing of the files, an import and a quota change invalidate the Storage tag.
     it('asks again after a change to what is stored', async () => {
         api.get.mockResolvedValue({ data: { usedBytes: 0, quotaBytes: null } });
         const { store } = renderSidebar();

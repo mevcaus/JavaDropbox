@@ -7,9 +7,9 @@ import { apiSlice, useGetStorageUsageQuery } from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
 import { formatSize } from '../utils/format';
 
-// What the signed-in user stores, previous versions included, and their quota. Every change that
-// stores, removes or restores a file, imports files or changes a quota asks again, through the
-// Storage tag. Undefined until the server has answered, or if it couldn't.
+// What the signed-in user stores, previous versions included, and their quota. Asked again through
+// the Storage tag after each listing of the files, whatever changed them, and after an import or a
+// quota change. Undefined until the server has answered, or if it couldn't.
 const useStorageUsage = () => useGetStorageUsageQuery().currentData;
 
 // Written out in full: Tailwind only generates classes it finds as complete strings in the source.

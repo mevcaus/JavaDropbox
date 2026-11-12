@@ -5,12 +5,14 @@ import { makeStore } from '../redux/store';
 import userEvent from '@testing-library/user-event';
 import FileTable from './FileTable';
 import api from '../services/api';
+import { apiSlice } from '../services/apiSlice';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
 // The search gets its answers through the API slice, so the table needs a store. rerender keeps it.
 const render = (ui) => {
     const store = makeStore();
-    return renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+    const view = renderWithoutStore(ui, { wrapper: ({ children }) => <Provider store={store}>{children}</Provider> });
+    return { ...view, store };
 };
 
 // Searches go to the server; each test that searches says what it answers.
@@ -308,11 +310,12 @@ describe('FileTable search', () => {
             .mockResolvedValueOnce(answer([hit(nodeAt('notes.txt')), hit(nodeAt('tiny.md'))]))
             .mockResolvedValueOnce(answer([hit(nodeAt('tiny.md'))]));
         const user = userEvent.setup();
-        const { rerender } = renderTable();
+        const { rerender, store } = renderTable();
         await searchFor(user, 'e');
         expect(visibleOrder()).toEqual(['notes.txt', 'tiny.md']);
 
-        // Dashboard hands over a new tree once a delete has gone through.
+        // What a delete does: the files are stale, and Dashboard hands over the new tree.
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
         rerender(<FileTable files={ROOT_FILES.filter((f) => f.name !== 'notes.txt')} currentPath="" {...noopHandlers} />);
 
         await waitFor(() => expect(visibleOrder()).toEqual(['tiny.md']));

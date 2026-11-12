@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { skipToken } from '@reduxjs/toolkit/query';
 import { useSearchFilesQuery } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
@@ -9,9 +9,9 @@ export const SEARCH_DELAY_MS = 250;
 
 /**
  * Searches names and file contents on the server, everywhere below `folder`, as `query` is typed,
- * and again whenever `files` changes, so that a file deleted or uploaded meanwhile drops out of
- * the results or turns up in them. Every change made in the app lists the files again, so this is
- * one search per change.
+ * and again after every change to the files made in the app, through the Files cache tag its
+ * answers carry, so that a file deleted or uploaded meanwhile drops out of the results or turns up
+ * in them. A change made while a search is on its way asks again once that one has answered.
  *
  * `answer` is the latest answer for this folder: `{ query, results, total, indexing, error }`,
  * with the results best first. It can be for an earlier query while the current one is on its
@@ -19,7 +19,7 @@ export const SEARCH_DELAY_MS = 250;
  * keystrokes. Each search is a cache entry of its own, so an answer for an older one never shows
  * as the current one's.
  */
-export const useFileSearch = (query, folder, files) => {
+export const useFileSearch = (query, folder) => {
     // What to ask, once typing has paused: set from the timer, and cleared with the box, so typing
     // the same words again waits and asks again rather than finding the last search still asked.
     const [asked, setAsked] = useState(null);
@@ -36,15 +36,6 @@ export const useFileSearch = (query, folder, files) => {
     // Asked again whenever a search starts, even for words searched before: the index may have
     // caught up since, and a search the user starts over is one they want answered now.
     const search = useSearchFilesQuery(current ?? skipToken, { refetchOnMountOrArgChange: true });
-
-    // files is only a signal that something changed; the server has its own view of them.
-    const { refetch } = search;
-    const lastFiles = useRef(files);
-    useEffect(() => {
-        if (lastFiles.current === files) return;
-        lastFiles.current = files;
-        if (current) refetch();
-    }, [files, current, refetch]);
 
     // The last answer shown, kept while the next search is on its way. Updated while rendering, as
     // React recommends for state that follows other state, whenever the current search answers.
