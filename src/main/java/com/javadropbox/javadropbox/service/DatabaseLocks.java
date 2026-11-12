@@ -105,8 +105,8 @@ final class DatabaseLocks {
     }
   }
 
-  // Tries again every so often until the wait is over, rather than waiting in PostgreSQL, which
-  // would wait for as long as the lock is held.
+  // Tries again every so often until the wait is over. PostgreSQL's own lock_timeout would limit
+  // pg_advisory_lock too, but set for the session it would stay on the pooled connection after.
   private static boolean take(Connection connection, long key, Duration wait) throws SQLException {
     long deadline = System.nanoTime() + wait.toNanos();
     while (true) {
@@ -127,7 +127,7 @@ final class DatabaseLocks {
         Thread.sleep(RETRY_EVERY.toMillis());
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        return false;
+        throw new IllegalStateException("Interrupted while waiting for the database lock " + key);
       }
     }
   }
@@ -138,7 +138,13 @@ final class DatabaseLocks {
     try (PreparedStatement statement =
         connection.prepareStatement("SELECT pg_advisory_unlock(?)")) {
       statement.setLong(1, key);
-      statement.executeQuery().close();
+      try (ResultSet result = statement.executeQuery()) {
+        // False when the session no longer held it: its connection dropped while the work ran, and
+        // another server may have taken it meanwhile.
+        if (result.next() && !result.getBoolean(1)) {
+          log.warn("The database lock {} was lost while its work ran", key);
+        }
+      }
     } catch (SQLException e) {
       log.warn("Could not let go of the database lock {}: {}", key, e.toString());
     }

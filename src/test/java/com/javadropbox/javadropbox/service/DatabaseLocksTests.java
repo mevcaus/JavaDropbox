@@ -80,6 +80,33 @@ class DatabaseLocksTests {
   }
 
   @Test
+  @DisplayName("while another holds the lock, it waits, and runs the work once it is let go")
+  void waitsForTheLock() throws Exception {
+    Connection other = DATABASE.getConnection();
+    try (Statement statement = other.createStatement()) {
+      statement.execute("SELECT pg_advisory_lock(" + KEY + ")");
+    }
+    Thread letGo =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  try {
+                    Thread.sleep(300);
+                    other.close();
+                  } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                  }
+                });
+    AtomicBoolean ran = new AtomicBoolean();
+
+    boolean took = DatabaseLocks.whileHeld(jdbc, KEY, Duration.ofSeconds(5), () -> ran.set(true));
+
+    letGo.join();
+    assertThat(took).isTrue();
+    assertThat(ran).isTrue();
+  }
+
+  @Test
   @DisplayName("a lock held while work runs is refused inside a transaction")
   void whileHeldNeedsNoTransaction() {
     TransactionTemplate transaction =

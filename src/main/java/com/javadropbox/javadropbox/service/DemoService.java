@@ -5,6 +5,8 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -47,7 +49,8 @@ import org.springframework.util.unit.DataSize;
 public class DemoService implements ApplicationRunner {
 
   // Where releases before the time was kept in the database kept it: as this file's modification
-  // time, in the app's own folder. Read once if the database has none, then deleted.
+  // time, in the app's own folder. Read if the database has none, and still written, so that going
+  // back to such a release doesn't reset the files at once.
   private static final String OLD_MARKER = "demo-reset";
 
   // After a failed reset, how long until the next request tries again.
@@ -208,6 +211,9 @@ public class DemoService implements ApplicationRunner {
                   Instant due = resetTimeAfter(last);
                   if (clock.instant().isBefore(due)) {
                     log.info("The demo's files were already reset, at {}", last);
+                    // By another server, behind this one's search index, if it keeps one of its
+                    // own.
+                    searchIndex.changedEverywhere();
                     nextReset = due;
                     return;
                   }
@@ -307,7 +313,10 @@ public class DemoService implements ApplicationRunner {
         "INSERT INTO demo_reset (id, reset_at) VALUES (1, ?)"
             + " ON CONFLICT (id) DO UPDATE SET reset_at = EXCLUDED.reset_at",
         clock.instant().atOffset(ZoneOffset.UTC));
-    Files.deleteIfExists(storagePaths.internalDir().resolve(OLD_MARKER));
+    Path marker = storagePaths.internalDir().resolve(OLD_MARKER);
+    Files.createDirectories(marker.getParent());
+    Files.writeString(marker, "");
+    Files.setLastModifiedTime(marker, FileTime.from(clock.instant()));
     log.info("Reset the demo's files");
   }
 

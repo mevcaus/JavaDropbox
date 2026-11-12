@@ -415,7 +415,9 @@ class DemoIntegrationTests {
     Files.setLastModifiedTime(oldMarker, FileTime.from(Instant.now().minus(Duration.ofDays(2))));
     demo.run(new DefaultApplicationArguments());
     assertThat(home().resolve("Welcome.md")).as("due").exists();
-    assertThat(oldMarker).doesNotExist();
+    // Still written, for a release that reads it.
+    assertThat(Files.getLastModifiedTime(oldMarker).toInstant())
+        .isAfter(Instant.now().minus(Duration.ofMinutes(1)));
     assertThat(jdbc.queryForObject("SELECT count(*) FROM demo_reset", Integer.class)).isOne();
   }
 
