@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.javadropbox.javadropbox.ElasticsearchTestSupport;
+import com.javadropbox.javadropbox.exception.ServiceUnavailableException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -52,7 +53,8 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
   }
 
   @Test
-  @DisplayName("an index under its name that the app didn't make is left alone, and search is off")
+  @DisplayName(
+      "an index under its name that the app didn't make is left alone, and searches are refused")
   void foreignIndexIsLeftAlone() throws Exception {
     send("PUT", "/" + alias, "{}");
     send("PUT", "/" + alias + "/_doc/1?refresh=true", "{\"someone\":\"else's\"}");
@@ -61,8 +63,9 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
     SearchIndex index = open();
     reconcile(index);
 
-    assertThat(paths(index, "mine")).isEmpty();
-    assertThat(index.search(home, "", "mine", 10).complete()).isFalse();
+    assertThatThrownBy(() -> index.search(home, "", "mine", 10))
+        .isInstanceOf(ServiceUnavailableException.class);
+    assertThat(index.problem()).hasValueSatisfying(p -> assertThat(p).contains("didn't make"));
     assertThat(send("GET", "/" + alias + "/_doc/1", null)).contains("else's");
   }
 
@@ -119,7 +122,7 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
 
   // An older server during a rolling upgrade must not undo what a newer one made.
   @Test
-  @DisplayName("an index a newer version made is left alone, and search is off")
+  @DisplayName("an index a newer version made is left alone, and searches are refused")
   void newerFormatIsLeftAlone() throws Exception {
     String newer = alias + "-" + (ElasticsearchSearchIndex.FORMAT + 1);
     send("PUT", "/" + newer, "{}");
@@ -131,24 +134,95 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
     SearchIndex index = open();
     reconcile(index);
 
-    assertThat(index.search(home, "", "anything", 10).complete()).isFalse();
+    assertThatThrownBy(() -> index.search(home, "", "anything", 10))
+        .isInstanceOf(ServiceUnavailableException.class);
     assertThat(send("GET", "/" + newer, null)).doesNotContain("index_not_found_exception");
   }
 
-  // Changes never fail because the index can't take them; they wait.
+  // Changes never fail because the index can't take them; they wait. A search can't be answered.
   @Test
-  @DisplayName("while the service can't be reached, changes are kept to try again, without failing")
+  @DisplayName(
+      "while the service can't be reached, changes are kept to try again, and searches are refused")
   void unreachableServiceKeepsChanges() throws Exception {
     SearchIndex index =
         new ElasticsearchSearchIndex(items(), "http://127.0.0.1:1", "someone", "secret", alias);
     try {
+      assertThat(index.problem()).isEmpty();
       index.changed(home, "a.txt");
       // Still waiting to try again, rather than given up.
       assertThatThrownBy(() -> index.awaitIdle(Duration.ofSeconds(2)))
           .isInstanceOf(IllegalStateException.class);
-      assertThat(index.search(home, "", "a", 10).complete()).isFalse();
+      assertThatThrownBy(() -> index.search(home, "", "a", 10))
+          .isInstanceOf(ServiceUnavailableException.class)
+          .hasMessage(ElasticsearchSearchIndex.UNAVAILABLE);
+      assertThat(index.problem())
+          .hasValueSatisfying(
+              problem ->
+                  assertThat(problem)
+                      .contains("http://127.0.0.1:1", "can't be reached")
+                      .doesNotContain("secret"));
     } finally {
       close(index);
+    }
+  }
+
+  // Each server reconciles when it starts. One finding the index filled by another needn't say it
+  // is still being built meanwhile; one finding it not yet filled does, until it has filled it.
+  @Test
+  @DisplayName("a server finding the index filled by another counts it as complete at once")
+  void filledByAnotherServer() throws Exception {
+    Files.writeString(files.resolve("a.txt"), "filled");
+    reconcile(open());
+    // As an index made before servers marked it, or one whose filling was cut short.
+    send(
+        "PUT", "/" + alias + "-" + ElasticsearchSearchIndex.FORMAT + "/_mapping", "{\"_meta\":{}}");
+
+    SearchIndex second = open();
+    second.changed(home, "a.txt");
+    second.awaitIdle(INDEXING);
+    assertThat(second.search(home, "", "filled", 10).complete()).isFalse();
+    reconcile(second);
+    assertThat(second.search(home, "", "filled", 10).complete()).isTrue();
+
+    SearchIndex third = open();
+    third.changed(home, "a.txt");
+    third.awaitIdle(INDEXING);
+    SearchIndex.Hits hits = third.search(home, "", "filled", 10);
+    assertThat(hits.complete()).isTrue();
+    assertThat(hits.hits()).extracting(SearchIndex.Hit::path).containsExactly("a.txt");
+  }
+
+  @Test
+  @DisplayName("a search the service refuses is answered as unavailable, and logged")
+  void refusedSearch() throws Exception {
+    SearchIndex index = open();
+    reconcile(index);
+    // Closed, an index refuses searches with 400.
+    send("POST", "/" + alias + "-" + ElasticsearchSearchIndex.FORMAT + "/_close", null);
+    try {
+      assertThatThrownBy(() -> index.search(home, "", "anything", 10))
+          .isInstanceOf(ServiceUnavailableException.class);
+      assertThat(index.problem()).hasValueSatisfying(p -> assertThat(p).contains("refused"));
+    } finally {
+      send("POST", "/" + alias + "-" + ElasticsearchSearchIndex.FORMAT + "/_open", null);
+    }
+    awaitSearchable(index);
+    assertThat(index.problem()).isEmpty();
+  }
+
+  // An index just opened again takes a moment to be searchable.
+  private void awaitSearchable(SearchIndex index) throws Exception {
+    long deadline = System.nanoTime() + INDEXING.toNanos();
+    while (true) {
+      try {
+        index.search(home, "", "anything", 10);
+        return;
+      } catch (ServiceUnavailableException e) {
+        if (System.nanoTime() > deadline) {
+          throw e;
+        }
+        Thread.sleep(100);
+      }
     }
   }
 

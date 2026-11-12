@@ -39,6 +39,7 @@ abstract class BackgroundSearchIndex implements SearchIndex {
   }
 
   private final Duration retryDelay;
+  private final Duration maxRetryDelay;
   private final ScheduledThreadPoolExecutor worker;
 
   // What the worker has yet to do, and whether it is at it. Guarded by lock.
@@ -46,15 +47,22 @@ abstract class BackgroundSearchIndex implements SearchIndex {
   private boolean reconcilePending;
   private final Set<String> changedPending = new LinkedHashSet<>();
   private boolean busy;
+  // How long until the next retry: doubled after each, up to maxRetryDelay, and back to retryDelay
+  // once a batch gets through. Guarded by lock.
+  private Duration nextRetry;
 
   private volatile boolean caughtUp;
   private volatile boolean closing;
 
   /**
    * @param retryDelay how long to wait before trying a batch again that the index couldn't take
+   * @param maxRetryDelay how long the wait may grow to, doubling with each retry in a row, so that
+   *     a long outage isn't asked about every few seconds
    */
-  BackgroundSearchIndex(Duration retryDelay) {
+  BackgroundSearchIndex(Duration retryDelay, Duration maxRetryDelay) {
     this.retryDelay = retryDelay;
+    this.maxRetryDelay = maxRetryDelay;
+    this.nextRetry = retryDelay;
     this.worker =
         new ScheduledThreadPoolExecutor(
             1,
@@ -73,9 +81,10 @@ abstract class BackgroundSearchIndex implements SearchIndex {
    *
    * <p>Returns {@link Outcome#RETRY} for a failure that will pass, such as a lock another writer
    * holds or a backend that can't be reached for now: the whole batch is tried again after the
-   * retry delay, with whatever has been reported since. Throws for one that won't: the batch is
-   * given up, logged, and what it did not get to, the next reconcile will. Nothing is logged for a
-   * retry: the backend says why it is retrying.
+   * retry delay, with whatever has been reported since. The delay doubles with each retry in a row,
+   * up to the most it may be. Throws for one that won't: the batch is given up, logged, and what it
+   * did not get to, the next reconcile will. Nothing is logged for a retry: the backend says why it
+   * is retrying.
    *
    * <p>A batch checks {@link #closing()} as it goes and stops early, returning {@link
    * Outcome#DONE}, once the app is shutting down. After writing everything there is, not cut short,
@@ -200,12 +209,16 @@ abstract class BackgroundSearchIndex implements SearchIndex {
         if (retry) {
           reconcilePending |= reconcileAll;
           changedPending.addAll(changed);
+        } else {
+          nextRetry = retryDelay;
         }
         if (closing || (!retry && !reconcilePending && changedPending.isEmpty())) {
           busy = false;
           lock.notifyAll();
         } else if (retry) {
-          worker.schedule(this::drain, retryDelay.toMillis(), TimeUnit.MILLISECONDS);
+          worker.schedule(this::drain, nextRetry.toMillis(), TimeUnit.MILLISECONDS);
+          Duration doubled = nextRetry.multipliedBy(2);
+          nextRetry = doubled.compareTo(maxRetryDelay) < 0 ? doubled : maxRetryDelay;
         } else {
           worker.execute(this::drain);
         }

@@ -29,7 +29,9 @@ public class SearchController {
               + " passage of text that matched."
               + " Case and accents are ignored, and the last word also matches the start of a"
               + " longer one. The text of text and source files, PDFs and Word documents is"
-              + " searched. indexing is true until the index has caught up after a restart.")
+              + " searched. indexing is true while the index is still being built, so some items"
+              + " may be missing. 503 when the search service can't be reached, while everything"
+              + " else still works.")
   public SearchResults search(
       @RequestParam String q,
       @RequestParam(defaultValue = "") String path,

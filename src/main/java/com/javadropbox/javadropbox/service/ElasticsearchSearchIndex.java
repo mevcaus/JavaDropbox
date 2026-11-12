@@ -22,6 +22,7 @@ import co.elastic.clients.transport.rest_client.RestClientTransport;
 import co.elastic.clients.util.ObjectBuilder;
 import com.javadropbox.javadropbox.config.SearchConfig;
 import com.javadropbox.javadropbox.dto.Snippet;
+import com.javadropbox.javadropbox.exception.ServiceUnavailableException;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.IndexableItems.Stamp;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
@@ -36,6 +37,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -72,6 +74,11 @@ import org.springframework.stereotype.Service;
  * but by the app in its. When a newer version of the app changes the format, it makes its own
  * index, moves the alias to it and deletes the old one. An older version that finds the alias moved
  * stops writing.
+ *
+ * <p>When Elasticsearch is down, only search is: a search answers 503, and changes wait to be tried
+ * again, further apart the longer it lasts. What went wrong is logged once, and shown by the health
+ * check, until a change or a search gets through. Once a server has filled the index, it says so in
+ * the index's mapping, so that a server starting later doesn't call it incomplete.
  */
 @Service
 @ConditionalOnProperty(name = SearchConfig.BACKEND, havingValue = "elasticsearch")
@@ -83,6 +90,11 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
 
   private static final String SETTING = "javadropbox.search.elasticsearch.";
   private static final Duration RETRY_DELAY = Duration.ofSeconds(5);
+  private static final Duration MAX_RETRY_DELAY = Duration.ofMinutes(1);
+
+  // What a search answers, with 503, while Elasticsearch can't; the log says why.
+  static final String UNAVAILABLE =
+      "Search can't be reached right now. Your files are fine. Please try again in a moment.";
 
   // A bulk request is sent once it holds this many items, or this much text.
   private static final int BULK_ITEMS = 500;
@@ -108,6 +120,8 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   private static final String SIZE = "size";
   private static final String MODIFIED = "modified";
   private static final String ANALYZER = "javadropbox_text";
+  // Set in the index's mapping once a server has filled it with everything in the store.
+  private static final String FILLED = "javadropbox_filled";
 
   private static final Logger log = LoggerFactory.getLogger(ElasticsearchSearchIndex.class);
 
@@ -129,10 +143,14 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   // Whether the index was made, and has yet to be filled with everything there is. Only the
   // worker touches it: it lasts until a batch that fills it has finished, retries and all.
   private boolean fill;
-  // What has gone wrong and been logged, so that it isn't logged again every batch until it is
-  // over: Elasticsearch out of reach, refusing the app's requests, or holding an index or alias
+  // Whether the index is known to say it has been filled. Only the worker touches it.
+  private boolean filled;
+  // What has kept changes from being written, or a search from being answered, and been logged,
+  // so that it isn't logged again every batch, or every search, until one gets through:
+  // Elasticsearch out of reach, too busy, refusing the app's requests, or holding an index or alias
   // under the app's name that the app won't write to.
-  private volatile String failing;
+  private volatile String writeProblem;
+  private volatile String searchProblem;
 
   /**
    * @param url the service, such as {@code http://localhost:9200}; a path after it is a prefix of
@@ -146,7 +164,7 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       @Value("${" + SETTING + "username:}") String username,
       @Value("${" + SETTING + "password:}") String password,
       @Value("${" + SETTING + "index:javadropbox}") String alias) {
-    super(RETRY_DELAY);
+    super(RETRY_DELAY, MAX_RETRY_DELAY);
     if (!NAME_PATTERN.matcher(alias).matches() || alias.equals(".") || alias.equals("..")) {
       throw new IllegalStateException(
           SETTING
@@ -207,17 +225,17 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   Outcome write(boolean reconcileAll, List<String> changed) throws IOException {
     try {
       writeBatch(reconcileAll, changed);
-      if (failing != null) {
-        failing = null;
+      if (writeProblem != null) {
+        writeProblem = null;
         log.info("Elasticsearch at {} takes the search index's changes again", location);
       }
       return Outcome.DONE;
     } catch (Unreachable e) {
-      fail("can't be reached (" + e.getCause() + "); trying again every " + RETRY_DELAY);
+      writeFailed("can't be reached (" + e.getCause() + "); changes wait and are tried again");
       return Outcome.RETRY;
     } catch (NotOurs e) {
       // Nothing to write to until someone renames or removes it.
-      fail("won't be written to: " + e.getMessage());
+      writeFailed("won't be written to: " + e.getMessage());
       return Outcome.DONE;
     } catch (IndexGone e) {
       log.warn("The search index {} has gone; making it again", index);
@@ -227,24 +245,34 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       return Outcome.RETRY;
     } catch (ElasticsearchException e) {
       if (TRANSIENT.contains(e.status())) {
-        fail("is too busy (" + e.getMessage() + "); trying again every " + RETRY_DELAY);
+        writeFailed("is too busy (" + e.getMessage() + "); changes wait and are tried again");
         return Outcome.RETRY;
       }
       // Such as a refusal for want of a permission: the batch is given up, and the next reconcile
       // tries again.
-      fail("refused the search index's changes: " + e.getMessage());
+      writeFailed("refused the search index's changes: " + e.getMessage());
       return Outcome.DONE;
     }
   }
 
-  private void fail(String what) {
-    String message = "Elasticsearch at " + location + " " + what;
-    if (!message.equals(failing)) {
-      failing = message;
+  private void writeFailed(String what) {
+    writeProblem = logOnce("Elasticsearch at " + location + " " + what, writeProblem);
+  }
+
+  // Logs the message as a warning, unless it is the one logged last time.
+  private static String logOnce(String message, String last) {
+    if (!message.equals(last)) {
       log.warn(message);
     } else {
       log.debug(message);
     }
+    return message;
+  }
+
+  @Override
+  public Optional<String> problem() {
+    String problem = writeProblem;
+    return Optional.ofNullable(problem != null ? problem : searchProblem);
   }
 
   private void writeBatch(boolean reconcileAll, List<String> changed) throws IOException {
@@ -276,6 +304,13 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     }
     if (full && !closing()) {
       fill = false;
+      if (!filled) {
+        // So that a server starting later, finding the index already filled, doesn't say it is
+        // still being built while its own first reconcile runs.
+        gone(
+            () -> client.indices().putMapping(m -> m.index(index).meta(FILLED, JsonData.of(true))));
+        filled = true;
+      }
       markCaughtUp();
     }
 
@@ -301,6 +336,10 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     if (current.contains(index)) {
       if (!ready) {
         deleteOlder(current);
+        filled = saysFilled();
+        if (filled) {
+          markCaughtUp();
+        }
         ready = true;
       }
       return false;
@@ -352,8 +391,17 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       }
       made = true;
     }
+    filled = false;
     ready = true;
     return made;
+  }
+
+  // Whether a server has filled the index with everything in the store.
+  private boolean saysFilled() throws IOException {
+    var mapping = gone(() -> client.indices().getMapping(g -> g.index(index))).get(index);
+    Map<String, JsonData> meta = mapping == null ? null : mapping.mappings().meta();
+    JsonData value = meta == null ? null : meta.get(FILLED);
+    return value != null && Boolean.TRUE.equals(value.to(Boolean.class));
   }
 
   // Older versions' indexes the alias no longer points at: what a change of format left, should
@@ -522,36 +570,60 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
 
   private <T> SearchResponse<T> search(
       Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>> request, Class<T> type)
-      throws IOException {
+      throws Unreachable {
     return gone(() -> client.search(request, type));
   }
 
   @Override
   public Hits search(Home home, String folderKey, String text, int limit) throws IOException {
     if (!ready) {
+      if (writeProblem != null) {
+        // Logged when it happened.
+        throw new ServiceUnavailableException(UNAVAILABLE);
+      }
+      // The index is still being made.
       return new Hits(List.of(), 0, false);
     }
-    String homeKey = home.indexKey("");
-    SearchResponse<Void> response;
     try {
-      response =
-          search(
-              s ->
-                  s.index(alias)
-                      .size(limit)
-                      .trackTotalHits(t -> t.enabled(true))
-                      .query(query(home.indexKey(folderKey), text))
-                      .source(src -> src.fetch(false))
-                      .docvalueFields(f -> f.field(PATH)),
-              Void.class);
+      Hits hits = find(home, folderKey, text, limit);
+      if (searchProblem != null) {
+        searchProblem = null;
+        log.info("Elasticsearch at {} answers searches again", location);
+      }
+      return hits;
     } catch (IndexGone e) {
       ready = false;
       markBehind();
       reconcile();
       return new Hits(List.of(), 0, false);
+    } catch (Unreachable e) {
+      throw searchFailed("can't be reached (" + e.getCause() + ")");
     } catch (ElasticsearchException e) {
-      throw new IOException(e.getMessage(), e);
+      throw searchFailed(
+          TRANSIENT.contains(e.status())
+              ? "is too busy (" + e.getMessage() + ")"
+              : "refused a search: " + e.getMessage());
     }
+  }
+
+  private ServiceUnavailableException searchFailed(String what) {
+    searchProblem =
+        logOnce("Elasticsearch at " + location + " " + what + "; searches fail", searchProblem);
+    return new ServiceUnavailableException(UNAVAILABLE);
+  }
+
+  private Hits find(Home home, String folderKey, String text, int limit) throws IOException {
+    String homeKey = home.indexKey("");
+    SearchResponse<Void> response =
+        search(
+            s ->
+                s.index(alias)
+                    .size(limit)
+                    .trackTotalHits(t -> t.enabled(true))
+                    .query(query(home.indexKey(folderKey), text))
+                    .source(src -> src.fetch(false))
+                    .docvalueFields(f -> f.field(PATH)),
+            Void.class);
     List<String> paths = new ArrayList<>();
     for (var hit : response.hits().hits()) {
       paths.add(first(hit.fields(), PATH, String.class));
@@ -576,17 +648,11 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
           paths.subList(from, Math.min(paths.size(), from + TEXTS_PER_FETCH)).stream()
               .map(ElasticsearchSearchIndex::id)
               .toList();
-      MgetResponse<Document> response;
-      try {
-        response =
-            call(
-                () ->
-                    client.mget(
-                        m -> m.index(alias).ids(ids).sourceIncludes(PATH, CONTENT),
-                        Document.class));
-      } catch (ElasticsearchException e) {
-        throw new IOException(e.getMessage(), e);
-      }
+      MgetResponse<Document> response =
+          gone(
+              () ->
+                  client.mget(
+                      m -> m.index(alias).ids(ids).sourceIncludes(PATH, CONTENT), Document.class));
       for (MultiGetResponseItem<Document> item : response.docs()) {
         if (item.isResult() && item.result().found() && item.result().source() != null) {
           Document document = item.result().source();

@@ -6,6 +6,7 @@ import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * An index of every file's and folder's name, and of the text in files' contents (see {@link
@@ -40,8 +41,10 @@ public interface SearchIndex {
   record Hit(String path, Snippet snippet) {}
 
   /**
-   * The best hits, how many items matched in all, and whether the index had caught up with the
-   * store since the server started.
+   * The best hits, how many items matched in all, and whether the index is complete: false while it
+   * is still being filled, when some items may be missing. Lucene's index, in the server, counts as
+   * complete once it has caught up with the store since the server started; a shared index, once
+   * any server has filled it.
    */
   record Hits(List<Hit> hits, long total, boolean complete) {}
 
@@ -91,8 +94,18 @@ public interface SearchIndex {
    * returned, while {@link Hits#total} counts every match.
    *
    * @throws IOException if the index can't be read
+   * @throws com.javadropbox.javadropbox.exception.ServiceUnavailableException if a search service
+   *     the index is kept in can't answer for now, having logged why
    */
   Hits search(Home home, String folderKey, String text, int limit) throws IOException;
+
+  /**
+   * What last kept the index from taking changes or answering searches, until one gets through
+   * again; empty when nothing has. For the health endpoint.
+   */
+  default Optional<String> problem() {
+    return Optional.empty();
+  }
 
   /** Waits until everything reported so far is indexed and searchable. For tests. */
   void awaitIdle(Duration timeout) throws InterruptedException;

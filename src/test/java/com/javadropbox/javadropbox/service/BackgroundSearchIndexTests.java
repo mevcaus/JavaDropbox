@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -32,6 +33,7 @@ class BackgroundSearchIndexTests {
 
   private static final Duration WAIT = Duration.ofSeconds(10);
   private static final Duration RETRY = Duration.ofMillis(200);
+  private static final Duration MAX_RETRY = Duration.ofMillis(800);
 
   @TempDir Path servingDir;
 
@@ -90,6 +92,52 @@ class BackgroundSearchIndexTests {
         .containsExactly(new Batch(true, List.of()), new Batch(true, List.of("1/a")));
     assertThat(Duration.between(index.started.get(0), index.started.get(1)))
         .isGreaterThanOrEqualTo(RETRY);
+  }
+
+  @Test
+  @DisplayName("retries in a row wait twice as long each time, up to the most they may")
+  void retriesBackOff() throws Exception {
+    for (int i = 0; i < 4; i++) {
+      index.outcomes.add(BackgroundSearchIndex.Outcome.RETRY);
+    }
+    index.changed(home, "a");
+    index.awaitIdle(WAIT);
+
+    List<Duration> waits = waits();
+    assertThat(waits).hasSize(4);
+    assertThat(waits.get(0)).isGreaterThanOrEqualTo(RETRY);
+    assertThat(waits.get(1)).isGreaterThanOrEqualTo(RETRY.multipliedBy(2));
+    assertThat(waits.get(2)).isGreaterThanOrEqualTo(MAX_RETRY);
+    // Not doubled again: 1600 ms.
+    assertThat(waits.get(3))
+        .isGreaterThanOrEqualTo(MAX_RETRY)
+        .isLessThan(MAX_RETRY.multipliedBy(2));
+  }
+
+  @Test
+  @DisplayName("once a batch gets through, the next retry waits only the first delay again")
+  void retriesStartOverOnceThrough() throws Exception {
+    for (int i = 0; i < 3; i++) {
+      index.outcomes.add(BackgroundSearchIndex.Outcome.RETRY);
+    }
+    index.changed(home, "a");
+    index.awaitIdle(WAIT);
+    index.outcomes.add(BackgroundSearchIndex.Outcome.RETRY);
+    index.changed(home, "b");
+    index.awaitIdle(WAIT);
+
+    List<Duration> waits = waits();
+    assertThat(waits).hasSize(5);
+    // b's retry, after a's three: 200 ms again, not 800.
+    assertThat(waits.get(4)).isGreaterThanOrEqualTo(RETRY).isLessThan(MAX_RETRY);
+  }
+
+  private List<Duration> waits() {
+    List<Duration> waits = new ArrayList<>();
+    for (int i = 1; i < index.started.size(); i++) {
+      waits.add(Duration.between(index.started.get(i - 1), index.started.get(i)));
+    }
+    return waits;
   }
 
   @Test
@@ -166,7 +214,7 @@ class BackgroundSearchIndexTests {
     volatile boolean closed;
 
     Recorder() {
-      super(RETRY);
+      super(RETRY, MAX_RETRY);
     }
 
     void block() {
