@@ -9,8 +9,7 @@ import { baseQuery } from './baseQuery';
 export const baseApi = createApi({
     reducerPath: 'api',
     baseQuery,
-    // One tag for the whole file tree, which comes back as one answer. Once it's listed per folder
-    // (#228), each folder can have its own, so a change refetches only the folders it touched.
-    tagTypes: ['Files'],
+    // The tag types are added with the tags themselves, in apiSlice.ts.
+    tagTypes: [],
     endpoints: () => ({}),
 });

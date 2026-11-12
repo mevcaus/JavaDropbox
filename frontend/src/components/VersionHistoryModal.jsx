@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { History, Loader2 } from 'lucide-react';
-import api from '../services/api';
+import { useListFileVersionsQuery, useRestoreVersionMutation } from '../services/apiSlice';
 import { useToast } from '../hooks/useToast';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
@@ -8,64 +8,43 @@ import { formatSize } from '../utils/format';
 import Modal, { ModalActions } from './Modal';
 import { secondaryButton } from './modalStyles';
 
-const versionsUrl = (fileId) => `/api/files/${fileId}/versions`;
-
 /**
  * Previous versions of a file, kept each time it is replaced. Restoring puts a version back in
  * place (the current content is kept as a new version first) or next to it as a copy.
  */
-const VersionHistoryModal = ({ isOpen, onClose, file, onRestored }) =>
-    // Mounted while open and keyed by file, so each opening starts loading from scratch.
-    isOpen && file ? <VersionHistoryDialog key={file.id} onClose={onClose} file={file} onRestored={onRestored} /> : null;
+const VersionHistoryModal = ({ isOpen, onClose, file }) =>
+    // Mounted while open and keyed by file, so each file's dialog has its own restore.
+    isOpen && file ? <VersionHistoryDialog key={file.id} onClose={onClose} file={file} /> : null;
 
-const VersionHistoryDialog = ({ onClose, file, onRestored }) => {
-    const [versions, setVersions] = useState(null);
-    const [error, setError] = useState(null);
-    const [busy, setBusy] = useState(null);
-    // Set once the dialog is closed or shows another file, so a restore that finishes later does not
-    // close the dialog that has taken its place.
-    const goneRef = useRef(false);
+const VersionHistoryDialog = ({ onClose, file }) => {
+    // Listed again each time the dialog opens, so a version added since (by uploading over the file,
+    // here or in another tab) shows. currentData is only ever this file's.
+    const { currentData: versions, error: loadError } = useListFileVersionsQuery(
+        { fileId: file.id },
+        { refetchOnMountOrArgChange: true },
+    );
+    const [restoreVersion, restoring] = useRestoreVersionMutation();
     const { addToast } = useToast();
 
+    // Closes from the restore's own state, so a restore that finishes after this dialog has given way
+    // to another file's never closes that one: an unmounted dialog runs no effects.
     useEffect(() => {
-        const gone = goneRef;
-        return () => {
-            gone.current = true;
-        };
-    }, []);
+        if (restoring.isSuccess) onClose();
+    }, [restoring.isSuccess, onClose]);
 
-    useEffect(() => {
-        let cancelled = false;
-        api.get(versionsUrl(file.id))
-            .then((response) => !cancelled && setVersions(response.data))
-            .catch((err) => !cancelled && setError(readableError(err, 'Could not load the versions.')));
-        return () => {
-            cancelled = true;
-        };
-    }, [file.id]);
-
+    // A restore changes the file whichever dialog is on screen by the time it finishes, so its
+    // outcome is a toast, and the file list refreshes through its cache tag either way.
     const restore = async (version, mode) => {
-        const isCurrent = () => !goneRef.current;
-        setBusy(`${version}:${mode}`);
-        setError(null);
         try {
-            await api.post(`${versionsUrl(file.id)}/${version}/restore`, null, { params: { mode } });
-            // The restore happened whichever file is on screen now, so report it and refresh.
-            addToast(
-                mode === 'COPY' ? `Version ${version} restored as a copy.` : `Version ${version} restored.`,
-                'success',
-            );
-            onRestored?.();
-            if (isCurrent()) onClose();
+            await restoreVersion({ fileId: file.id, version, mode }).unwrap();
+            addToast(mode === 'COPY' ? `Version ${version} restored as a copy.` : `Version ${version} restored.`, 'success');
         } catch (err) {
-            const message = readableError(err, 'Could not restore that version.');
-            // Once the dialog has moved on, a toast is the only place left to say so.
-            if (isCurrent()) setError(message);
-            else addToast(message, 'error');
-        } finally {
-            if (isCurrent()) setBusy(null);
+            addToast(readableError(err, 'Could not restore that version.'), 'error');
         }
     };
+
+    const busy = restoring.isLoading ? `${restoring.originalArgs.version}:${restoring.originalArgs.mode}` : null;
+    const error = loadError ? readableError(loadError, 'Could not load the versions.') : null;
 
     return (
         <Modal
@@ -80,7 +59,7 @@ const VersionHistoryDialog = ({ onClose, file, onRestored }) => {
             iconClassName="bg-indigo-100"
         >
             <div className="mt-4">
-                {versions === null && !error && (
+                {versions === undefined && !error && (
                     <div className="flex justify-center py-6">
                         <Loader2 className="h-6 w-6 animate-spin text-gray-400" aria-label="Loading versions" />
                     </div>

@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
 import { DOWNLOAD_ENDPOINT, filesIn, relativePathOf } from '../features/files';
 import {
-    apiSlice,
     useCreateFolderMutation,
     useDeleteItemMutation,
     useGetFileTreeQuery,
@@ -49,7 +47,6 @@ const UploadButton = ({ icon: Icon, label, busy, disabled, ...inputProps }) => (
 );
 
 const Dashboard = () => {
-    const dispatch = useDispatch();
     // The folder being viewed lives in the URL, so a reload keeps it and Back/Forward move
     // between folders.
     const [searchParams, setSearchParams] = useSearchParams();
@@ -398,7 +395,6 @@ const Dashboard = () => {
                 isOpen={versionsFile !== null}
                 onClose={() => setVersionsFile(null)}
                 file={versionsFile}
-                onRestored={() => dispatch(apiSlice.util.invalidateTags(['Files']))}
             />
         </div>
     );

@@ -16,12 +16,47 @@ export type PickedFile = { file: File; relativePath: string };
  */
 export const apiSlice = generatedApi
     .enhanceEndpoints({
+        // Files: one tag for the whole tree, which comes back as one answer. Once it's listed per
+        // folder (#228), each folder can have its own. Versions: a file's, by its id. ShareLinks:
+        // an item's active links, by its path.
+        addTagTypes: ['Files', 'Versions', 'ShareLinks'],
         endpoints: {
             getFileTree: { providesTags: ['Files'] },
-            uploadFiles: { invalidatesTags: ['Files'] },
-            deleteItem: { invalidatesTags: ['Files'] },
+            // Uploading over a file keeps its old content as a version, and a delete takes the item's
+            // versions and links with it, so those lists are asked again too. Only an open dialog's
+            // list is subscribed; the rest are just dropped.
+            uploadFiles: { invalidatesTags: ['Files', 'Versions'] },
+            deleteItem: { invalidatesTags: ['Files', 'Versions', 'ShareLinks'] },
             createFolder: { invalidatesTags: ['Files'] },
-            restoreVersion: { invalidatesTags: ['Files'] },
+            listFileVersions: { providesTags: (_result, _error, { fileId }) => [{ type: 'Versions', id: fileId }] },
+            // A restore changes the file, and in place it also keeps the current content as a version.
+            restoreVersion: {
+                invalidatesTags: (_result, _error, { fileId }) => ['Files', { type: 'Versions', id: fileId }],
+            },
+            listShareLinks: { providesTags: (_result, _error, { path }) => [{ type: 'ShareLinks', id: path }] },
+            createShareLink: {
+                invalidatesTags: (_result, _error, { body }) => [{ type: 'ShareLinks', id: body.path }],
+            },
+            // A link's id doesn't say whose item it shares, so every list of links is asked again. Until
+            // that answers, the revoked link is taken out of each list already. (A listing already in
+            // flight can still bring it back for a moment; the dialog disables Revoke while it loads.)
+            revokeShareLink: {
+                invalidatesTags: ['ShareLinks'],
+                async onQueryStarted({ id }, { dispatch, getState, queryFulfilled }) {
+                    try {
+                        await queryFulfilled;
+                    } catch {
+                        return;
+                    }
+                    for (const args of generatedApi.util.selectCachedArgsForQuery(getState(), 'listShareLinks')) {
+                        dispatch(
+                            generatedApi.util.updateQueryData('listShareLinks', args, (links) =>
+                                links.filter((link) => link.id !== id),
+                            ),
+                        );
+                    }
+                },
+            },
         },
     })
     .injectEndpoints({
@@ -52,7 +87,8 @@ export const apiSlice = generatedApi
                     }
                     return { data: last };
                 },
-                invalidatesTags: ['Files'],
+                // As uploadFiles: an upload over a file keeps its old content as a version.
+                invalidatesTags: ['Files', 'Versions'],
             }),
         }),
     });
@@ -63,4 +99,9 @@ export const {
     useUploadFolderMutation,
     useDeleteItemMutation,
     useCreateFolderMutation,
+    useListFileVersionsQuery,
+    useRestoreVersionMutation,
+    useListShareLinksQuery,
+    useCreateShareLinkMutation,
+    useRevokeShareLinkMutation,
 } = apiSlice;
