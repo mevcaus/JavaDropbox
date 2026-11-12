@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { filesByFolder, filesIn, totalSize } from './files';
+import type { FileTreeNode } from '../services/apiSlice';
+
+// An item of the tree as getFileTree answers it, with only what these tests read chosen.
+const node = (name: string, size: number, children?: FileTreeNode[]): FileTreeNode => ({
+    name,
+    isDirectory: children !== undefined,
+    size,
+    children: children ?? [],
+    createdDate: null,
+    id: null,
+    lastModified: null,
+    ownerName: 'ada',
+    previewType: null,
+    relativePath: name,
+});
 
 describe('filesIn', () => {
-    const tree = [
-        { name: 'docs', isDirectory: true, size: 0, children: [{ name: 'a.txt', isDirectory: false, size: 3 }] },
-        { name: 'b.txt', isDirectory: false, size: 4 },
-    ];
+    const tree = [node('docs', 0, [node('a.txt', 3)]), node('b.txt', 4)];
 
     it('finds the items in a nested folder', () => {
         expect(filesIn(tree, 'docs')).toBe(tree[0].children);
@@ -25,7 +37,10 @@ describe('filesIn', () => {
 });
 
 describe('filesByFolder', () => {
-    const picked = (relativePath) => ({ file: new File(['x'], relativePath.split('/').at(-1)), relativePath });
+    const picked = (relativePath: string) => ({
+        file: new File(['x'], relativePath.slice(relativePath.lastIndexOf('/') + 1)),
+        relativePath,
+    });
 
     it('groups files by the folder each goes into below the open one, parents first', () => {
         const groups = filesByFolder(

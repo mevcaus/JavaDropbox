@@ -3,6 +3,9 @@ import type { DemoInfo, Message } from './generatedApi';
 import { filesByFolder } from '../features/files';
 import { REQUEST_BODIES } from './requestBodies';
 
+// The generated types the rest of the app reads, re-exported so they're imported from here.
+export type { CurrentUser, FileTreeNode } from './generatedApi';
+
 /** A file with its place inside a folder being uploaded, e.g. "Trip/Day 1/a.jpg". */
 export type PickedFile = { file: File; relativePath: string };
 
@@ -123,7 +126,7 @@ export const apiSlice = generatedApi
             uploadFolder: build.mutation<Message, { files: PickedFile[]; path: string }>({
                 async queryFn({ files, path }, _api, _extra, baseQuery) {
                     let last: Message = { message: '' };
-                    for (const [folder, batch] of filesByFolder(files, path) as [string, File[]][]) {
+                    for (const [folder, batch] of filesByFolder(files, path)) {
                         const result = await baseQuery({
                             url: '/api/files',
                             method: 'POST',
