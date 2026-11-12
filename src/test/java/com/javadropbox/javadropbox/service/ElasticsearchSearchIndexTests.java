@@ -12,6 +12,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -195,6 +200,19 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
             .isGreaterThan(Duration.ofSeconds(2))
             .isLessThan(Duration.ofSeconds(15));
 
+        // More at once than the client has connections: those left waiting for one are refused
+        // the same way, not failed with an error of the server's.
+        Thread.sleep(ElasticsearchSearchIndex.SEARCH_PAUSE.toMillis());
+        List<Future<Throwable>> searches = new ArrayList<>();
+        try (ExecutorService threads = Executors.newVirtualThreadPerTaskExecutor()) {
+          for (int i = 0; i < 15; i++) {
+            searches.add(threads.submit(() -> failure(index)));
+          }
+        }
+        for (Future<Throwable> search : searches) {
+          assertThat(search.get()).isInstanceOf(ServiceUnavailableException.class);
+        }
+
         proxy.start();
         Thread.sleep(ElasticsearchSearchIndex.SEARCH_PAUSE.toMillis());
         assertThat(paths(index, "patience")).containsExactly("a.txt");
@@ -203,32 +221,6 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
         close(index);
       }
     }
-  }
-
-  // Each server reconciles when it starts. One finding the index filled by another needn't say it
-  // is still being built meanwhile; one finding it not yet filled does, until it has filled it.
-  @Test
-  @DisplayName("a server finding the index filled by another counts it as complete at once")
-  void filledByAnotherServer() throws Exception {
-    Files.writeString(files.resolve("a.txt"), "filled");
-    reconcile(open());
-    // As an index made before servers marked it, or one whose filling was cut short.
-    send(
-        "PUT", "/" + alias + "-" + ElasticsearchSearchIndex.FORMAT + "/_mapping", "{\"_meta\":{}}");
-
-    SearchIndex second = open();
-    second.changed(home, "a.txt");
-    second.awaitIdle(INDEXING);
-    assertThat(second.search(home, "", "filled", 10).complete()).isFalse();
-    reconcile(second);
-    assertThat(second.search(home, "", "filled", 10).complete()).isTrue();
-
-    SearchIndex third = open();
-    third.changed(home, "a.txt");
-    third.awaitIdle(INDEXING);
-    SearchIndex.Hits hits = third.search(home, "", "filled", 10);
-    assertThat(hits.complete()).isTrue();
-    assertThat(hits.hits()).extracting(SearchIndex.Hit::path).containsExactly("a.txt");
   }
 
   @Test
@@ -319,6 +311,15 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
       assertThat(paths(index, "slash")).containsExactly("a.txt");
     } finally {
       close(index);
+    }
+  }
+
+  private Throwable failure(SearchIndex index) {
+    try {
+      index.search(home, "", "patience", 10);
+      return null;
+    } catch (Exception e) {
+      return e;
     }
   }
 

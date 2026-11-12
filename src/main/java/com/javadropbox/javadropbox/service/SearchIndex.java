@@ -41,10 +41,8 @@ public interface SearchIndex {
   record Hit(String path, Snippet snippet) {}
 
   /**
-   * The best hits, how many items matched in all, and whether the index is complete: false while it
-   * is still being filled, when some items may be missing. Lucene's index, in the server, counts as
-   * complete once it has caught up with the store since the server started; a shared index, once
-   * any server has filled it.
+   * The best hits, how many items matched in all, and whether the index had caught up with the
+   * store since the server started.
    */
   record Hits(List<Hit> hits, long total, boolean complete) {}
 

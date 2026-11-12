@@ -28,6 +28,7 @@ import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.IndexableItems.Stamp;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.apache.http.HttpHost;
@@ -80,8 +82,7 @@ import org.springframework.stereotype.Service;
  *
  * <p>When Elasticsearch is down, only search is: a search answers 503, and changes wait to be tried
  * again, further apart the longer it lasts. What went wrong is logged once, and shown by the health
- * check, until a change or a search gets through. Once a server has filled the index, it says so in
- * the index's mapping, so that a server starting later doesn't call it incomplete.
+ * check, until a change or a search gets through.
  */
 @Service
 @ConditionalOnProperty(name = SearchConfig.BACKEND, havingValue = "elasticsearch")
@@ -103,6 +104,11 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   private static final int SEARCH_TIMEOUT_MILLIS = 5000;
   private static final int SEARCH_CONNECT_MILLIS = 1000;
   static final Duration SEARCH_PAUSE = Duration.ofSeconds(5);
+  // A search's requests, one after another, given up once they have taken this long in all: a
+  // service slow to answer each, rather than silent, would otherwise hold the thread for minutes.
+  private static final Duration SEARCH_DEADLINE = Duration.ofSeconds(10);
+  // How long a failed search keeps the health check degraded, if nothing has searched since.
+  private static final Duration SEARCH_PROBLEM_LASTS = Duration.ofMinutes(1);
 
   // What a search answers, with 503, while Elasticsearch can't; the log says why.
   static final String UNAVAILABLE =
@@ -132,8 +138,6 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   private static final String SIZE = "size";
   private static final String MODIFIED = "modified";
   private static final String ANALYZER = "javadropbox_text";
-  // Set in the index's mapping once a server has filled it with everything in the store.
-  private static final String FILLED = "javadropbox_filled";
 
   private static final Logger log = LoggerFactory.getLogger(ElasticsearchSearchIndex.class);
 
@@ -157,8 +161,6 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   // Whether the index was made, and has yet to be filled with everything there is. Only the
   // worker touches it: it lasts until a batch that fills it has finished, retries and all.
   private boolean fill;
-  // Whether the index is known to say it has been filled. Only the worker touches it.
-  private boolean filled;
   // What has kept changes from being written, or a search from being answered, and been logged,
   // so that it isn't logged again every batch, or every search, until one gets through:
   // Elasticsearch out of reach, too busy, refusing the app's requests, or holding an index or alias
@@ -169,6 +171,8 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   // through.
   private volatile boolean searchPaused;
   private volatile long searchFailedAt;
+  // When a search last failed, for how long searchProblem stands.
+  private volatile long searchProblemAt;
 
   /**
    * @param url the service, such as {@code http://localhost:9200}; a path after it is a prefix of
@@ -304,7 +308,10 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   @Override
   public Optional<String> problem() {
     String problem = writeProblem;
-    return Optional.ofNullable(problem != null ? problem : searchProblem);
+    if (problem == null && System.nanoTime() - searchProblemAt < SEARCH_PROBLEM_LASTS.toNanos()) {
+      problem = searchProblem;
+    }
+    return Optional.ofNullable(problem);
   }
 
   private void writeBatch(boolean reconcileAll, List<String> changed) throws IOException {
@@ -337,9 +344,6 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     if (full && !closing()) {
       fill = false;
       markCaughtUp();
-      if (!filled) {
-        markFilled();
-      }
     }
 
     long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
@@ -364,10 +368,6 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     if (current.contains(index)) {
       if (!ready) {
         deleteOlder(current);
-        filled = saysFilled();
-        if (filled) {
-          markCaughtUp();
-        }
         ready = true;
       }
       return false;
@@ -419,29 +419,8 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       }
       made = true;
     }
-    filled = false;
     ready = true;
     return made;
-  }
-
-  // So that a server starting later, finding the index already filled, doesn't say it is still
-  // being built while its own first reconcile runs. Only that is lost if it fails, until the next
-  // full pass tries again.
-  private void markFilled() {
-    try {
-      gone(() -> client.indices().putMapping(m -> m.index(index).meta(FILLED, JsonData.of(true))));
-      filled = true;
-    } catch (IOException | RuntimeException e) {
-      log.debug("Could not mark the search index {} as filled: {}", index, e.toString());
-    }
-  }
-
-  // Whether a server has filled the index with everything in the store.
-  private boolean saysFilled() throws IOException {
-    var mapping = gone(() -> client.indices().getMapping(g -> g.index(index))).get(index);
-    Map<String, JsonData> meta = mapping == null ? null : mapping.mappings().meta();
-    JsonData value = meta == null ? null : meta.get(FILLED);
-    return value != null && Boolean.TRUE.equals(value.to(Boolean.class));
   }
 
   // Older versions' indexes the alias no longer points at: what a change of format left, should
@@ -663,10 +642,12 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   private ServiceUnavailableException searchFailed(String what) {
     searchProblem =
         logOnce("Elasticsearch at " + location + " " + what + "; searches fail", searchProblem);
+    searchProblemAt = System.nanoTime();
     return new ServiceUnavailableException(UNAVAILABLE);
   }
 
   private Hits find(Home home, String folderKey, String text, int limit) throws IOException {
+    long deadline = System.nanoTime() + SEARCH_DEADLINE.toNanos();
     String homeKey = home.indexKey("");
     SearchResponse<Void> response =
         search(
@@ -683,7 +664,7 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     for (var hit : response.hits().hits()) {
       paths.add(first(hit.fields(), PATH, String.class));
     }
-    Map<String, Snippet> snippets = snippets(paths, text);
+    Map<String, Snippet> snippets = snippets(paths, text, deadline);
     List<SearchIndex.Hit> hits = new ArrayList<>();
     for (String path : paths) {
       hits.add(new SearchIndex.Hit(path.substring(homeKey.length() + 1), snippets.get(path)));
@@ -695,10 +676,15 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
   // Each hit's snippet, cut from its text a few hits at a time, so that no more than a few texts
   // are held at once. The query is Lucene's, without the folder: the highlighter, given only the
   // text, would find nothing that matches a filter on the path.
-  private Map<String, Snippet> snippets(List<String> paths, String text) throws IOException {
+  private Map<String, Snippet> snippets(List<String> paths, String text, long deadline)
+      throws IOException {
     org.apache.lucene.search.Query highlight = LuceneSearchIndex.query("", text);
     Map<String, Snippet> snippets = new HashMap<>();
     for (int from = 0; from < paths.size(); from += TEXTS_PER_FETCH) {
+      if (System.nanoTime() - deadline > 0) {
+        throw new Unreachable(
+            new SocketTimeoutException("no answer to a search within " + SEARCH_DEADLINE));
+      }
       List<String> ids =
           paths.subList(from, Math.min(paths.size(), from + TEXTS_PER_FETCH)).stream()
               .map(ElasticsearchSearchIndex::id)
@@ -797,6 +783,15 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
       return request.run();
     } catch (IOException e) {
       throw new Unreachable(e);
+    } catch (ElasticsearchException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      // The low-level client wraps a wait for a free connection that timed out, among others, in
+      // a plain RuntimeException.
+      if (e.getCause() instanceof IOException || e.getCause() instanceof TimeoutException) {
+        throw new Unreachable(new IOException(e.getCause().toString(), e.getCause()));
+      }
+      throw e;
     }
   }
 

@@ -38,7 +38,7 @@ An account's sessions end at once when it is disabled, or its role or password c
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/search?q=<words>&path=<folder>&limit=<n>` | Items below the folder at `path` (the root when left out; not the folder itself) with every word of `q` in their name or their text, best first: `{results, total, indexing}`. Each result is `{name, relativePath, isDirectory, size, lastModified, previewType, snippet}`, where `snippet` is the passage of text that matched, `{text, highlights: [{start, end}]}`, or `null` when only the name did. `limit` is 1 to 200 (default 50) and `total` counts every match. `indexing` is `true` while the index is still being built, when some files may be missing. `400` for an empty `q` or one over 200 characters, `404` for a folder that does not exist, `503` when the search service can't be reached (everything else still works) |
+| `GET` | `/api/search?q=<words>&path=<folder>&limit=<n>` | Items below the folder at `path` (the root when left out; not the folder itself) with every word of `q` in their name or their text, best first: `{results, total, indexing}`. Each result is `{name, relativePath, isDirectory, size, lastModified, previewType, snippet}`, where `snippet` is the passage of text that matched, `{text, highlights: [{start, end}]}`, or `null` when only the name did. `limit` is 1 to 200 (default 50) and `total` counts every match. `indexing` is `true` until the index has caught up after a restart, when some files may be missing. `400` for an empty `q` or one over 200 characters, `404` for a folder that does not exist, `503` when the search service can't be reached (everything else still works) |
 
 ### Admin
 
