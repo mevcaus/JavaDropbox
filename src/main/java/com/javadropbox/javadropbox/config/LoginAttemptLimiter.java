@@ -9,6 +9,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -89,6 +92,8 @@ public class LoginAttemptLimiter {
   private final TransactionTemplate transaction;
   private final Clock clock;
   private final String kind;
+
+  private static final Logger log = LoggerFactory.getLogger(LoginAttemptLimiter.class);
   // When this server last deleted the rows that no longer matter.
   private final AtomicReference<Instant> lastForgotten = new AtomicReference<>();
 
@@ -163,6 +168,9 @@ public class LoginAttemptLimiter {
         status -> {
           Attempts attempts = lockCreating(client, now).at(now);
           int failures = attempts.failures() + 1;
+          if (failures == MAX_FAILURES) {
+            log.info("Locked out {} for {} after {} failed {}s", client, LOCKOUT, failures, kind);
+          }
           store(
               client,
               new Attempts(
@@ -256,7 +264,12 @@ public class LoginAttemptLimiter {
       return;
     }
     if (lastForgotten.compareAndSet(last, now)) {
-      jdbc.update("DELETE FROM login_attempts WHERE updated_at <= ?", time(now.minus(RETENTION)));
+      try {
+        jdbc.update("DELETE FROM login_attempts WHERE updated_at <= ?", time(now.minus(RETENTION)));
+      } catch (DataAccessException e) {
+        // Housekeeping: the attempt it came with goes on, and the next minute tries again.
+        log.warn("Could not delete old login attempts: {}", e.toString());
+      }
     }
   }
 

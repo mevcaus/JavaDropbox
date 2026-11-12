@@ -201,6 +201,12 @@ class LoginAttemptLimiterTests {
       clearing.get();
       failing.get();
     }
+
+    // Every attempt was ended, so whatever row is left has none in progress.
+    assertThat(
+            jdbc.queryForList(
+                "SELECT in_progress FROM login_attempts WHERE client = ?", Integer.class, CLIENT))
+        .allMatch(inProgress -> inProgress == 0);
   }
 
   @Test
