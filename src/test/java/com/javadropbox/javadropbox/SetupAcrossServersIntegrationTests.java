@@ -9,6 +9,7 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AuthService;
 import com.javadropbox.javadropbox.service.FirstAccountImport;
 import com.javadropbox.javadropbox.service.SetupService;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -122,8 +123,62 @@ class SetupAcrossServersIntegrationTests {
     }
   }
 
-  // The code is package-private to the service, as the tests there read it.
-  private static String code(SetupService server) {
-    return (String) org.springframework.test.util.ReflectionTestUtils.invokeMethod(server, "code");
+  // The code the server printed, as every server prints the same one.
+  private String code(SetupService server) {
+    server.announceCodeIfNeeded();
+    return jdbc.queryForObject("SELECT code FROM setup_code", String.class);
+  }
+
+  // More submissions at once than the connection pool has connections (10), each with the right
+  // code, as a crowd could send. Waiting for the lock must not take every connection while the
+  // one holding it needs another.
+  @Test
+  @DisplayName("a crowd of setups at once, on both servers, creates one account without stalling")
+  void crowdDoesNotStall() throws Exception {
+    String code = code(setup);
+    CountDownLatch go = new CountDownLatch(1);
+    List<Callable<String>> submissions = new ArrayList<>();
+    for (int i = 0; i < 15; i++) {
+      SetupService server = i % 2 == 0 ? setup : otherServer;
+      String client = "192.0.2." + (i + 10);
+      String name = "crowd" + i;
+      submissions.add(
+          () -> {
+            go.await(10, TimeUnit.SECONDS);
+            try {
+              server.createFirstUser(client, code, name, "long enough");
+              return "created";
+            } catch (ConflictException e) {
+              return "refused";
+            }
+          });
+    }
+    long started = System.nanoTime();
+    List<String> outcomes = new ArrayList<>();
+    try (ExecutorService threads = Executors.newFixedThreadPool(15)) {
+      List<Future<String>> futures = new ArrayList<>();
+      for (Callable<String> submission : submissions) {
+        futures.add(threads.submit(submission));
+      }
+      go.countDown();
+      for (Future<String> future : futures) {
+        outcomes.add(future.get());
+      }
+    }
+
+    assertThat(outcomes).containsOnlyOnce("created").hasSize(15);
+    assertThat(users.count()).isEqualTo(1);
+    // Hikari gives up waiting for a connection after 30 seconds.
+    assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(20));
+  }
+
+  @Test
+  @DisplayName("a server starting once setup is done neither prints a code nor stores one")
+  void noCodeAfterSetup() {
+    setup.createFirstUser(CLIENT, code(setup), "ada", "long enough");
+
+    otherServer.announceCodeIfNeeded();
+
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
   }
 }

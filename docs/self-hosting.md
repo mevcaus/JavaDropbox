@@ -20,7 +20,7 @@ The container runs as uid and gid `10001`. To keep the files in a host directory
 
 ## First-run setup
 
-While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. The code stays the same until setup is done, and every server sharing the database prints the same one. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
+While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. The code stays the same until setup is done, and every server sharing the database prints the same one. To replace one that has leaked, delete it from the database (`docker compose exec postgres psql -U postgres -d javadropbox -c "DELETE FROM setup_code"`) and restart the app, which prints a new one. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
 
 The first account is an **admin**, and anything already in the serving directory becomes its files.
 

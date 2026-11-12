@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -91,6 +92,10 @@ public class SetupService {
     if (!configuredCode.isEmpty()) {
       return configuredCode;
     }
+    List<String> stored = jdbc.queryForList("SELECT code FROM setup_code", String.class);
+    if (!stored.isEmpty()) {
+      return stored.getFirst();
+    }
     // Two servers asking at once both get the one that was stored first.
     return jdbc.queryForObject(
         "INSERT INTO setup_code (id, code, created_at) VALUES (1, ?, now())"
@@ -99,11 +104,17 @@ public class SetupService {
         generateCode());
   }
 
+  // Under the setup lock, so that a server starting while another finishes setup waits for it,
+  // and then neither prints a code nor stores one that nothing would ever use up.
   @EventListener(ApplicationReadyEvent.class)
-  public synchronized void announceCodeIfNeeded() {
-    if (authService.isSetupRequired()) {
-      announce();
-    }
+  public void announceCodeIfNeeded() {
+    transaction.executeWithoutResult(
+        status -> {
+          DatabaseLocks.holdUntilCommit(jdbc, DatabaseLocks.SETUP);
+          if (authService.isSetupRequired()) {
+            announce();
+          }
+        });
   }
 
   /**
@@ -115,6 +126,17 @@ public class SetupService {
    * @param client the caller's address, which wrong setup codes are throttled by
    */
   public void createFirstUser(String client, String setupCode, String username, String password) {
+    // Everything that can be done before taking the lock is: checking the code counts the attempt
+    // on a connection of its own, and requests waiting for the lock each hold one, so taking a
+    // second while holding the lock could wait for one that never comes free.
+    if (!authService.isSetupRequired()) {
+      throw new ConflictException("Setup has already been completed");
+    }
+    checkCode(client, setupCode);
+    String name = Credentials.username(username);
+    Credentials.checkPassword(password);
+    String hash = passwordEncoder.encode(password);
+
     User user =
         transaction.execute(
             status -> {
@@ -122,18 +144,11 @@ public class SetupService {
               if (!authService.isSetupRequired()) {
                 throw new ConflictException("Setup has already been completed");
               }
-              checkCode(client, setupCode);
-
-              String name = Credentials.username(username);
-              Credentials.checkPassword(password);
-
-              User saved =
-                  users.save(new User(name, passwordEncoder.encode(password), User.ROLE_ADMIN));
+              User saved = users.save(new User(name, hash, User.ROLE_ADMIN));
               // Used up: a later install on this database would need a new one.
               jdbc.update("DELETE FROM setup_code");
               return saved;
             });
-    String name = user.getUsername();
     log.info("Setup complete: created the account \"{}\"", name);
     firstAccountImport.forNewFirstAccount(user);
   }
