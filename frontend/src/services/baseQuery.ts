@@ -67,7 +67,7 @@ const send = (request: Request, endpoint: string, type: BodyType | undefined, si
 
 /**
  * Sends the API slice's requests through the app's axios client, so they keep its CSRF priming and
- * its sign-out on a 401 (see api.js), and sends each body the way its endpoint takes it.
+ * its sign-out on a 401 (see api.ts), and sends each body the way its endpoint takes it.
  */
 export const baseQuery: BaseQueryFn<Request, unknown, RequestError> = async (request, { endpoint, signal }) => {
     const type = request.bodyType ?? REQUEST_BODIES[endpoint];

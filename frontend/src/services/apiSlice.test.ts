@@ -3,15 +3,27 @@ import { makeStore } from '../redux/store';
 import { apiSlice } from './apiSlice';
 import { clearUser, loginUser, logoutUser } from '../features/authSlice';
 import { AxiosError } from 'axios';
-import api from './api';
+import mockedApi from './api';
 import { baseQuery } from './baseQuery';
+import type { BaseQueryApi } from '@reduxjs/toolkit/query';
 
 vi.mock('./api');
+const api = vi.mocked(mockedApi);
 
-const deferred = () => {
-    let resolve;
-    let reject;
-    const promise = new Promise((res, rej) => {
+type Store = ReturnType<typeof makeStore>;
+// Each change is dispatched by the test, which keeps each one's own thunk type.
+type Dispatch = Store['dispatch'];
+
+// What the slice handed axios as a body, checked to be the kind expected.
+const sentAs = <T>(kind: new (...args: never[]) => T, body: unknown): T => {
+    expect(body).toBeInstanceOf(kind);
+    return body as T;
+};
+
+const deferred = <T = unknown>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
         resolve = res;
         reject = rej;
     });
@@ -21,10 +33,10 @@ const deferred = () => {
 const OLD_TREE = [{ name: 'deleted.txt', isDirectory: false, size: 1 }];
 const NEW_TREE = [{ name: 'kept.txt', isDirectory: false, size: 1 }];
 
-const tree = (store) => apiSlice.endpoints.getFileTree.select()(store.getState()).data;
+const tree = (store: Store) => apiSlice.endpoints.getFileTree.select()(store.getState()).data;
 
 // The dashboard keeps the tree subscribed while it's open; tags only refetch what's subscribed.
-const subscribe = async (store) => {
+const subscribe = async (store: Store) => {
     const subscription = store.dispatch(apiSlice.endpoints.getFileTree.initiate());
     await subscription;
     return subscription;
@@ -33,7 +45,7 @@ const subscribe = async (store) => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('the file tree at the end of a session', () => {
-    let store;
+    let store: Store;
 
     beforeEach(async () => {
         vi.resetAllMocks();
@@ -74,7 +86,7 @@ describe('the file tree at the end of a session', () => {
 
 // Every change refetches the tree, so listings can arrive out of order.
 describe('overlapping listings', () => {
-    let store;
+    let store: Store;
 
     beforeEach(() => {
         vi.resetAllMocks();
@@ -102,7 +114,7 @@ describe('overlapping listings', () => {
         ['logout', () => logoutUser()],
         ['session expiry', () => clearUser()],
     ])('does not refill the tree from a request that was in flight at %s', async (_label, reset) => {
-        store.dispatch(loginUser.fulfilled({ username: 'ada' }, 'seed'));
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'USER' }, 'seed'));
         const inflight = deferred();
         api.get.mockReturnValueOnce(inflight.promise);
         api.post.mockResolvedValueOnce({});
@@ -119,7 +131,7 @@ describe('overlapping listings', () => {
 // A failure doesn't mean nothing changed: an upload stores its files one at a time, and a failed
 // delete may be about an item that's already gone.
 describe('refreshing after a change', () => {
-    let store;
+    let store: Store;
 
     beforeEach(async () => {
         vi.resetAllMocks();
@@ -158,8 +170,8 @@ describe('refreshing after a change', () => {
 
 // Which lists a change asks again, by the tags it invalidates.
 describe('refreshing versions and share links', () => {
-    let store;
-    const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
+    let store: Store;
+    const gets = (url: string) => api.get.mock.calls.filter(([called]) => called === url).length;
 
     beforeEach(() => {
         vi.resetAllMocks();
@@ -189,8 +201,8 @@ describe('refreshing versions and share links', () => {
         await store.dispatch(apiSlice.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
         await settle();
 
-        const paths = api.get.mock.calls.filter(([url]) => url === '/api/share').map(([, config]) => config.params.path);
-        expect(paths).toEqual(['a.txt', 'b.txt', 'a.txt']);
+        const paths = api.get.mock.calls.filter(([url]) => url === '/api/share').map(([, config]) => config?.params);
+        expect(paths).toEqual([{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'a.txt' }]);
     });
 
     // Uploading over a file keeps its old content as a version; a delete takes versions and links.
@@ -224,7 +236,7 @@ describe('refreshing versions and share links', () => {
 
 // Which of the admin page's lists each change asks again.
 describe('refreshing the accounts and invitations', () => {
-    let store;
+    let store: Store;
     const asked = () => [
         api.get.mock.calls.filter(([url]) => url === '/api/admin/users').length,
         api.get.mock.calls.filter(([url]) => url === '/api/admin/invites').length,
@@ -243,16 +255,16 @@ describe('refreshing the accounts and invitations', () => {
     });
 
     it.each([
-        ['a role change', () => apiSlice.endpoints.setAccountRole.initiate({ id: 2, body: { role: 'ADMIN' } }), [2, 1, 1]],
-        ['a quota change', () => apiSlice.endpoints.setAccountQuota.initiate({ id: 2, body: { quota: '5GB' } }), [2, 1, 1]],
+        ['a role change', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountRole.initiate({ id: 2, body: { role: 'ADMIN' } })), [2, 1, 1]],
+        ['a quota change', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 2, body: { quota: '5GB' } })), [2, 1, 1]],
         // Disabling an account also withdraws the invitations it made.
-        ['disabling an account', () => apiSlice.endpoints.setAccountEnabled.initiate({ id: 2, body: { enabled: false } }), [2, 2, 1]],
+        ['disabling an account', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountEnabled.initiate({ id: 2, body: { enabled: false } })), [2, 2, 1]],
         // An import may be into the admin's own account.
-        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 2 }), [2, 1, 2]],
-        ['an invitation', () => apiSlice.endpoints.createInvite.initiate({ body: { username: 'carol' } }), [1, 2, 1]],
-        ['a password reset link', () => apiSlice.endpoints.createPasswordResetLink.initiate({ id: 2 }), [1, 1, 1]],
+        ['an import', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.importFiles.initiate({ id: 2 })), [2, 1, 2]],
+        ['an invitation', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.createInvite.initiate({ body: { username: 'carol' } })), [1, 2, 1]],
+        ['a password reset link', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.createPasswordResetLink.initiate({ id: 2 })), [1, 1, 1]],
     ])('asks again for what %s changes', async (_label, change, expected) => {
-        await store.dispatch(change());
+        await change(store.dispatch);
         await settle();
 
         expect(asked()).toEqual(expected);
@@ -271,8 +283,8 @@ describe('refreshing the accounts and invitations', () => {
 
 // The storage meter follows the tree: each listing asks for storage use again, once.
 describe('refreshing storage use', () => {
-    let store;
-    const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
+    let store: Store;
+    const gets = (url: string) => api.get.mock.calls.filter(([called]) => called === url).length;
 
     beforeEach(async () => {
         vi.resetAllMocks();
@@ -297,12 +309,12 @@ describe('refreshing storage use', () => {
     });
 
     it.each([
-        ['an upload', () => apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } })],
-        ['a folder upload', () => apiSlice.endpoints.uploadFolder.initiate({ files: [{ file: new File(['a'], 'a.txt'), relativePath: 'T/a.txt' }], path: '' })],
-        ['a delete', () => apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' })],
-        ['a restore', () => apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' })],
+        ['an upload', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } }))],
+        ['a folder upload', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.uploadFolder.initiate({ files: [{ file: new File(['a'], 'a.txt'), relativePath: 'T/a.txt' }], path: '' }))],
+        ['a delete', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }))],
+        ['a restore', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' }))],
     ])('asks once after %s, through the listing it causes', async (_label, change) => {
-        await store.dispatch(change());
+        await change(store.dispatch);
         await settle();
         await settle();
 
@@ -311,15 +323,15 @@ describe('refreshing storage use', () => {
 
     // The admin page lists no files, so these ask for storage use themselves.
     it.each([
-        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 1 })],
-        ['a quota change', () => apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } })],
+        ['an import', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.importFiles.initiate({ id: 1 }))],
+        ['a quota change', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } }))],
     ])('asks again after %s', async (_label, change) => {
         // As on the admin page: storage use shown, no tree listed.
         const admin = makeStore();
         await admin.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
         api.get.mockClear();
 
-        await admin.dispatch(change());
+        await change(admin.dispatch);
         await settle();
 
         expect(gets('/api/storage')).toBe(1);
@@ -379,13 +391,16 @@ describe('the demo\'s limits', () => {
 });
 
 // A file with its place inside the uploaded folder, as uploadFolder takes it.
-const pickedFile = (relativePath) => ({ file: new File(['x'], relativePath.split('/').at(-1)), relativePath });
+const pickedFile = (relativePath: string) => ({ file: new File(['x'], relativePath.slice(relativePath.lastIndexOf('/') + 1)), relativePath });
 
 const postedFolders = () =>
-    api.post.mock.calls.map(([, form]) => [form.get('path'), form.getAll('files').map((file) => file.name)]);
+    api.post.mock.calls.map(([, body]) => {
+        const form = sentAs(FormData, body);
+        return [form.get('path'), form.getAll('files').map((file) => (file as File).name)];
+    });
 
 describe('uploadFolder', () => {
-    let store;
+    let store: Store;
 
     beforeEach(async () => {
         vi.resetAllMocks();
@@ -454,7 +469,7 @@ describe('uploadFolder', () => {
 
 // The server takes forms and uploads, not JSON, and answers JSON to a form endpoint with a 415.
 describe('request bodies', () => {
-    let store;
+    let store: Store;
 
     beforeEach(() => {
         vi.resetAllMocks();
@@ -469,8 +484,7 @@ describe('request bodies', () => {
 
         const [url, body] = api.post.mock.calls[0];
         expect(url).toBe('/api/share');
-        expect(body).toBeInstanceOf(URLSearchParams);
-        expect(body.toString()).toBe('path=a.txt&expirationMinutes=60');
+        expect(sentAs(URLSearchParams, body).toString()).toBe('path=a.txt&expirationMinutes=60');
     });
 
     it('sends an upload as multipart, one part per file', async () => {
@@ -480,10 +494,9 @@ describe('request bodies', () => {
             apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: 'docs' } }),
         );
 
-        const [, body] = api.post.mock.calls[0];
-        expect(body).toBeInstanceOf(FormData);
-        expect(body.getAll('files').map((file) => file.name)).toEqual(['a.txt', 'b.txt']);
-        expect(body.get('path')).toBe('docs');
+        const form = sentAs(FormData, api.post.mock.calls[0][1]);
+        expect(form.getAll('files').map((file) => (file as File).name)).toEqual(['a.txt', 'b.txt']);
+        expect(form.get('path')).toBe('docs');
     });
 
     it('reports a request that got no answer at all', async () => {
@@ -501,7 +514,7 @@ describe('request bodies', () => {
 
         const [url, body] = api.put.mock.calls[0];
         expect(url).toBe('/api/admin/users/3/quota');
-        expect(body.toString()).toBe('quota=5GB');
+        expect(sentAs(URLSearchParams, body).toString()).toBe('quota=5GB');
     });
 
     it('sends a new folder as multipart, as the app always has', async () => {
@@ -511,8 +524,8 @@ describe('request bodies', () => {
 
         const [url, body] = api.post.mock.calls[0];
         expect(url).toBe('/api/folders');
-        expect(body).toBeInstanceOf(FormData);
-        expect([body.get('path'), body.get('name')]).toEqual(['Holidays', 'Trip']);
+        const form = sentAs(FormData, body);
+        expect([form.get('path'), form.get('name')]).toEqual(['Holidays', 'Trip']);
     });
 
     it('sends a part that is a Blob rather than a File', async () => {
@@ -520,32 +533,40 @@ describe('request bodies', () => {
 
         await store.dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new Blob(['x'])], path: '' } }));
 
-        const [, body] = api.post.mock.calls[0];
-        expect(body.getAll('files')).toHaveLength(1);
+        expect(sentAs(FormData, api.post.mock.calls[0][1]).getAll('files')).toHaveLength(1);
     });
 });
 
 // Mistakes in the slice, not failures of a request, so they aren't reported as one.
 describe('baseQuery', () => {
-    const context = { endpoint: 'test', signal: new AbortController().signal };
+    // What RTK hands a base query; these tests read only the endpoint's name and the signal.
+    const context: BaseQueryApi = {
+        endpoint: 'test',
+        signal: new AbortController().signal,
+        abort: () => {},
+        dispatch: vi.fn(),
+        getState: () => ({}),
+        extra: undefined,
+        type: 'query',
+    };
 
     beforeEach(() => vi.resetAllMocks());
 
     it('refuses a method the API takes nowhere, rather than sending it as another', async () => {
-        await expect(baseQuery({ url: '/api/files', method: 'PATCH' }, context)).rejects.toThrow('test uses PATCH');
+        await expect(baseQuery({ url: '/api/files', method: 'PATCH' }, context, {})).rejects.toThrow('test uses PATCH');
         expect(api.post).not.toHaveBeenCalled();
     });
 
     it('lets an error that is not about the request through', async () => {
         api.get.mockRejectedValueOnce(new TypeError('a bug in an interceptor'));
 
-        await expect(baseQuery({ url: '/api/files' }, context)).rejects.toThrow(TypeError);
+        await expect(baseQuery({ url: '/api/files' }, context, {})).rejects.toThrow(TypeError);
     });
 
     it('passes the request\'s abort signal on, so a superseded request can be cancelled', async () => {
         api.get.mockResolvedValueOnce({ data: [] });
 
-        await baseQuery({ url: '/api/files' }, context);
+        await baseQuery({ url: '/api/files' }, context, {});
 
         expect(api.get).toHaveBeenCalledWith('/api/files', expect.objectContaining({ signal: context.signal }));
     });

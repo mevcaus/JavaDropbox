@@ -1,5 +1,5 @@
-import axios, { AxiosError } from 'axios';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import axios, { AxiosError, type AxiosAdapter } from 'axios';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import api, { setUnauthorizedHandler } from './api';
 
 const clearCookies = () => {
@@ -19,12 +19,12 @@ afterEach(() => {
 });
 
 describe('api csrf priming', () => {
-    let adapter;
+    let adapter: Mock<AxiosAdapter>;
 
     beforeEach(() => {
         vi.restoreAllMocks();
         clearCookies();
-        adapter = vi.fn(async (config) => ({
+        adapter = vi.fn<AxiosAdapter>(async (config) => ({
             data: '',
             status: 200,
             statusText: 'OK',
@@ -75,7 +75,7 @@ describe('api csrf priming', () => {
 
 describe('api session expiry', () => {
     // Answers every request with the given status, failing the way axios's own adapters do.
-    const answerWith = (status) => {
+    const answerWith = (status: number) => {
         api.defaults.adapter = async (config) => {
             const response = { status, statusText: '', data: '', headers: {}, config };
             throw new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_REQUEST', config, null, response);
@@ -89,6 +89,18 @@ describe('api session expiry', () => {
 
         await expect(api.get('/api/files')).rejects.toMatchObject({ response: { status: 401 } });
         expect(onUnauthorized).toHaveBeenCalledOnce();
+    });
+
+    // Such as what a request interceptor or a body transform throws: it isn't an answer.
+    it('lets a failure that is not an axios error through unchanged', async () => {
+        const onUnauthorized = vi.fn();
+        setUnauthorizedHandler(onUnauthorized);
+        api.defaults.adapter = async () => {
+            throw undefined;
+        };
+
+        await expect(api.get('/api/files')).rejects.toBeUndefined();
+        expect(onUnauthorized).not.toHaveBeenCalled();
     });
 
     it('does not treat a 403 as a lost session', async () => {
