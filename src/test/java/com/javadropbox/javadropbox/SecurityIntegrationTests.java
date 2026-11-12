@@ -6,9 +6,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.javadropbox.javadropbox.config.SecurityConfig;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.AuthService;
@@ -98,6 +100,16 @@ class SecurityIntegrationTests {
         .perform(get("/index.html"))
         .andExpect(status().isOk())
         .andExpect(content().string(Matchers.containsString("<div id=\"root\">")));
+  }
+
+  @Test
+  @DisplayName("Every response turns off the browser features the app has no use for")
+  void responsesSendThePermissionsPolicy() throws Exception {
+    for (String path : new String[] {"/", "/index.html", "/api/me"}) {
+      mockMvc
+          .perform(get(path))
+          .andExpect(header().string("Permissions-Policy", SecurityConfig.PERMISSIONS_POLICY));
+    }
   }
 
   // What a browser sends when it opens a page; axios sends application/json, text/plain, */*.

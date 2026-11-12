@@ -77,6 +77,7 @@ jobs:
       contents: read
     outputs:
       trivy-sarif: ${{ steps.sarif.outcome == 'success' }}
+      zap-sarif: ${{ steps.zap-sarif.outcome == 'success' }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,6 +134,41 @@ jobs:
       if: failure()
       run: docker compose --profile app logs
 
+    # ZAP's baseline scan of the running app, even if an end-to-end test failed: it crawls the app
+    # from inside the stack's network, requests the routes open without a session, and checks the
+    # responses with its passive rules, without attacking anything. The plan, and the alerts it
+    # accepts with why, is .github/zap/baseline.yaml. ZAP is the image pinned in
+    # .github/zap/Dockerfile, with the add-ons pinned in .github/zap/addons.txt.
+    - name: Scan the running app with ZAP
+      id: zap
+      if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
+      timeout-minutes: 10
+      run: |
+        rc=0
+        .github/scripts/zap-scan.sh "$RUNNER_TEMP/zap" || rc=$?
+        if [ -f "$RUNNER_TEMP/zap/code-scanning.sarif" ]; then
+          echo "sarif=true" >> "$GITHUB_OUTPUT"
+        fi
+        if [ "$rc" = 2 ]; then
+          echo "::error::ZAP raised an alert that .github/zap/baseline.yaml doesn't accept. See the ALERT lines above and docs/testing.md#running-app-scan."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::ZAP couldn't scan the app as .github/zap/baseline.yaml says (exit $rc). See its log above."
+        fi
+        exit "$rc"
+
+    # Reporting only, like the Trivy results below.
+    - name: Keep the ZAP results
+      id: zap-sarif
+      if: ${{ !cancelled() && steps.zap.outputs.sarif == 'true' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: zap-results
+        path: |
+          ${{ runner.temp }}/zap/code-scanning.sarif
+          ${{ runner.temp }}/zap/zap.html
+        retention-days: 14
+
     - name: Stop the app
       if: always()
       run: docker compose --profile app down --volumes
@@ -150,7 +186,7 @@ jobs:
         image="$(docker compose --profile app config --format json | jq -r .name)-app"
         docker save "$image" -o "$RUNNER_TEMP/trivy/image.tar"
 
-    # Every finding as SARIF for the Security tab (the trivy job uploads it), the accepted ones
+    # Every finding as SARIF for the Security tab (the security-results job uploads it), the accepted ones
     # included so they stay in sight. Then the gate: a fixable high or critical vulnerability not in
     # .trivyignore fails the build, scanned offline against the database the first pass fetched.
     # Trivy exits 1 when it fails itself, so the gate uses 2 to tell a finding from an error.
@@ -178,8 +214,8 @@ jobs:
         fi
         exit "$rc"
 
-    # Reporting only, like the trivy job: a blip in the artifact service shouldn't fail this check.
-    # The trivy job then skips, since this step's outcome is the job's trivy-sarif output.
+    # Reporting only, like the security-results job: a blip in the artifact service shouldn't fail
+    # this check. That job then skips Trivy's results, since this step's outcome is the trivy-sarif output.
     - name: Keep the Trivy results
       id: sarif
       if: ${{ !cancelled() && steps.trivy.outputs.sarif == 'true' }}
@@ -190,14 +226,14 @@ jobs:
         path: ${{ runner.temp }}/trivy/trivy.sarif
         retention-days: 1
 
-  # Puts Trivy's results under the Security tab. A job of its own, so the token that can write
-  # them never reaches the job that builds the image and runs its tests. Reporting only: if it
-  # fails, the workflow still passes, since the demo's deploy and the coverage badges wait on it.
-  trivy:
+  # Puts Trivy's and ZAP's results under the Security tab. A job of its own, so the token that can
+  # write them never reaches the job that builds the image and runs its tests. Reporting only: if
+  # it fails, the workflow still passes, since the demo's deploy and the coverage badges wait on it.
+  security-results:
 
     needs: docker
-    # Also when the scan failed the build, as long as it got as far as writing its results.
-    if: ${{ !cancelled() && needs.docker.outputs.trivy-sarif == 'true' }}
+    # Also when a scan failed the build, as long as it got as far as writing its results.
+    if: ${{ !cancelled() && (needs.docker.outputs.trivy-sarif == 'true' || needs.docker.outputs.zap-sarif == 'true') }}
     continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
@@ -205,20 +241,41 @@ jobs:
       security-events: write
 
     steps:
-    # The upload reads the commit and ref from the checkout.
+    # The uploads read the commit and ref from the checkout.
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
 
-    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+    # Each tool's results are uploaded even when the other's failed.
+    - name: Download Trivy's results
+      id: trivy-download
+      if: ${{ needs.docker.outputs.trivy-sarif == 'true' }}
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: trivy-sarif
         path: ${{ runner.temp }}/trivy
 
-    - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+    - name: Upload Trivy's results
+      if: ${{ steps.trivy-download.outcome == 'success' }}
+      uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
       with:
         sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
         category: trivy
+
+    - name: Download ZAP's results
+      id: zap-download
+      if: ${{ !cancelled() && needs.docker.outputs.zap-sarif == 'true' }}
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: zap-results
+        path: ${{ runner.temp }}/zap
+
+    - name: Upload ZAP's results
+      if: ${{ !cancelled() && steps.zap-download.outcome == 'success' }}
+      uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      with:
+        sarif_file: ${{ runner.temp }}/zap/code-scanning.sarif
+        category: zap
 
   dependency-submission:
 

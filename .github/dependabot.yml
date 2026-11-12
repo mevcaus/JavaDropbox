@@ -10,11 +10,13 @@ updates:
       github-actions:
         patterns: ["*"]
 
-  # The Trivy image the docker job scans with (.github/trivy/Dockerfile). A
-  # release waits a week before it's proposed, time for a tampered one to be
-  # caught and pulled.
+  # The Trivy and ZAP images the docker job scans with (their Dockerfiles in
+  # .github). A release waits a week before it's proposed, time for a tampered
+  # one to be caught and pulled.
   - package-ecosystem: "docker"
-    directory: "/.github/trivy"
+    directories:
+      - "/.github/trivy"
+      - "/.github/zap"
     schedule:
       interval: "weekly"
     cooldown:
