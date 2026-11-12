@@ -343,7 +343,7 @@ What the app reads from the server is moving onto RTK Query, which ships with Re
 **Security**
 - Spring Security form login with sessions kept in PostgreSQL, so restarts don't sign anyone out, BCrypt passwords and cookie-based CSRF protection
 - `ADMIN` and `USER` roles; metrics and account management for admins only
-- Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy
+- Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy. The count is kept in PostgreSQL, so several servers share it
 - Path safety, as above; paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one record
 - Optional caps on upload size and share-link lifetime, and a quota per account (versions included)
 
@@ -441,7 +441,7 @@ What a sync client needs from the server comes first, so that each step is usefu
 
 ### Scale and operations
 
-- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared, with the end-to-end tests run against two instances
+- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared (done, through PostgreSQL), with the end-to-end tests run against two instances
 - [ ] **The database as the list of what exists** ([#228]), with folders listed a page at a time rather than the whole tree in one response
 - [ ] **Each content stored once**, as a blob named by its SHA-256, so identical files and versions take no extra space and replacing, moving or renaming a file copies nothing in the store ([#198])
 - [ ] **Load tests with published numbers** ([#195]): uploads a second, and how long a folder of 10,000 files takes to list, on disk and in S3

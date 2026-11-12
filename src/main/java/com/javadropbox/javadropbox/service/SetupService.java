@@ -9,10 +9,10 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.time.Clock;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -42,9 +42,10 @@ public class SetupService {
   private final String configuredCode;
   private final SecureRandom random = new SecureRandom();
 
-  // Wrong codes are throttled per client, like sign-ins. The code itself never changes before a
-  // restart: replacing it after wrong guesses would let anyone make the logged code stale.
-  private final LoginAttemptLimiter codeAttempts = new LoginAttemptLimiter(Clock.systemUTC());
+  // Wrong codes are throttled per client, like sign-ins, and counted apart from them. The code
+  // itself never changes before a restart: replacing it after wrong guesses would let anyone make
+  // the logged code stale.
+  private final LoginAttemptLimiter codeAttempts;
   private final String code;
 
   public SetupService(
@@ -52,8 +53,10 @@ public class SetupService {
       PasswordEncoder passwordEncoder,
       AuthService authService,
       FirstAccountImport firstAccountImport,
+      @Qualifier(LoginAttemptLimiter.SETUP_CODE) LoginAttemptLimiter codeAttempts,
       @Value("${app.setup.code:}") String configuredCode) {
     this.users = users;
+    this.codeAttempts = codeAttempts;
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
     this.firstAccountImport = firstAccountImport;

@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -37,6 +39,7 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -68,9 +71,19 @@ public class SecurityConfig {
     this.allowedOrigins = allowedOrigins.stream().filter(o -> !o.isBlank()).toList();
   }
 
-  @Bean
-  public LoginAttemptLimiter loginAttemptLimiter() {
-    return new LoginAttemptLimiter(Clock.systemUTC());
+  // Sign-ins and setup codes are counted apart, each in the database, so every server shares them.
+  @Bean(LoginAttemptLimiter.SIGN_IN)
+  public LoginAttemptLimiter signInAttempts(
+      JdbcTemplate jdbc, PlatformTransactionManager transactions) {
+    return new LoginAttemptLimiter(
+        jdbc, transactions, Clock.systemUTC(), LoginAttemptLimiter.SIGN_IN);
+  }
+
+  @Bean(LoginAttemptLimiter.SETUP_CODE)
+  public LoginAttemptLimiter setupCodeAttempts(
+      JdbcTemplate jdbc, PlatformTransactionManager transactions) {
+    return new LoginAttemptLimiter(
+        jdbc, transactions, Clock.systemUTC(), LoginAttemptLimiter.SETUP_CODE);
   }
 
   // A disabled account is refused like a wrong password: the sign-in page cannot tell the two
@@ -96,7 +109,7 @@ public class SecurityConfig {
   @Bean
   public SecurityFilterChain securityFilterChain(
       HttpSecurity http,
-      LoginAttemptLimiter limiter,
+      @Qualifier(LoginAttemptLimiter.SIGN_IN) LoginAttemptLimiter limiter,
       AccountSessions accountSessions,
       ObjectMapper json)
       throws Exception {

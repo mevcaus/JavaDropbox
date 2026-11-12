@@ -182,7 +182,6 @@ Elasticsearch is for several app servers behind a load balancer. Each server's L
 
 Search is only one of the things several servers need, though, and the app doesn't support running more than one yet. Until [#336](https://github.com/mevcaus/JavaDropbox/issues/336) is done:
 - the setup code only works on one of them;
-- each counts wrong passwords on its own;
 - with the files in [S3](#storing-files-in-s3), which several servers need anyway, a folder one server deleted and another made again can vanish once its last file is deleted.
 
 So for now Lucene is the right pick. Elasticsearch is here to try, and to build on.
