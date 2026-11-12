@@ -44,8 +44,8 @@ The backend uses **JUnit 5** with **Spring Boot Test** and **MockMvc** for integ
 | `HashingInputStreamTests` | A stream passed on unchanged while counted and hashed with SHA-256 (checked against known digests), and skipping and rewinding refused |
 | `ClientAbortIntegrationTests` / `IoExceptionHandlingTests` | Cancelled file and zip downloads are logged at debug only (on real Tomcat); nothing is written into a response already under way |
 | `DownloadConnectionIntegrationTests` | A paused download holds no database connection, with a one-connection pool (on real Tomcat) |
-| `SecurityIntegrationTests` | 401 for unauthenticated users and for a session whose account is gone, the file API open to any signed-in account whatever its role while the admin API is not, storage use without server paths, logout, JSON errors, the SPA shell served for client-side routes and for any other page a browser opens, but not for API calls, share links, missing files or non-HTML requests |
-| `AuthIntegrationTests` | CSRF cookie round trip, any account can sign in, sign-in throttling |
+| `SecurityIntegrationTests` | 401 for unauthenticated users and for a session whose account is gone, the file API open to any signed-in account whatever its role while the admin API is not, storage use without server paths, logout, JSON errors, the SPA shell served for client-side routes and for any other page a browser opens, but not for API calls, share links, missing files or non-HTML requests, and the `Permissions-Policy` header on every response |
+| `AuthIntegrationTests` | CSRF cookie round trip, the cookie sent `SameSite=Lax`, any account can sign in, sign-in throttling |
 | `LoginThrottleIntegrationTests` | Percent-encoded login URLs are throttled, a parallel burst gets no more than five password checks (on real Tomcat) |
 | `TrustedProxyIntegrationTests` / `UntrustedForwardedHeadersIntegrationTests` | `X-Forwarded-*` headers only count from a trusted proxy: the throttled address, share-link URLs, the `Secure` session cookie (on real Tomcat) |
 | `MultipartCsrfIntegrationTests` | Uploads that fail the CSRF check, or come from an anonymous client, write nothing to disk |
@@ -147,16 +147,17 @@ The Trivy image is pinned by digest in `.github/trivy/Dockerfile`, which Dependa
 
 ### Running app scan
 
-After the end-to-end tests, the `docker` job runs **[ZAP](https://www.zaproxy.org)**'s baseline scan against the app it started, from inside the Compose network. ZAP crawls what the app shell links to, which is little for a single-page app, so it also requests every route open without a session directly: sign-in, the share-link and account-link routes with made-up tokens, the API's 401s, health. It checks every response with its passive rules: security headers, cookie flags, information leaks, caching. It doesn't attack anything or sign in, so it sees what a visitor who isn't signed in sees. The whole scan takes well under a minute.
+After the end-to-end tests, the `docker` job runs **[ZAP](https://www.zaproxy.org)**'s baseline scan against the app it started, from inside the Compose network. ZAP crawls what the app shell links to, which is little for a single-page app, so it also requests the routes open without a session that serve a page or answer a GET: sign-in, the share-link and account-link routes with made-up tokens, the API's 401s, health, the API docs. It checks every response with its passive rules: security headers, cookie flags, information leaks, caching. It doesn't attack anything or sign in, so it sees what a visitor who isn't signed in sees. The whole scan takes well under a minute.
 
 The scan is an automation plan, `.github/zap/baseline.yaml`, run by `.github/scripts/zap-scan.sh`. Any alert fails the build, listed as `ALERT` lines with an error pointing here, unless the plan's alert filters accept it. Each accepted one says why, is scoped to where that reason holds (one cookie, one kind of URL), and the ones waiting on a fix link to its issue. Fix what it finds where you can. Accept an alert only when it's expected for this app, with the reason. The `zap-results` artifact holds the HTML report for 14 days, and every alert goes under the Security tab with the category `zap`, the accepted ones at the lowest level.
 
-ZAP runs from the image pinned by digest in `.github/zap/Dockerfile`, which Dependabot updates, with `-silent`, so it makes no update checks of its own. The image only has ZAP's release passive rules. Its beta ones check the Permissions-Policy, cross-origin and caching headers, so the script adds them, pinned by URL and hash in `.github/zap/addons.txt`. When Dependabot moves ZAP to a new version, take the add-on's newest URL and hash for that version from ZAP's add-on list, as that file says. A new version can bring new or stricter rules that fail the build; fix or accept what they find in the same pull request.
+ZAP runs from the image pinned by digest in `.github/zap/Dockerfile`, which Dependabot updates, with `-silent`, so it makes no update checks of its own. The image only has ZAP's release passive rules. Its beta ones check the Permissions-Policy, cross-origin and caching headers, so the script adds them, pinned by URL and hash in `.github/zap/addons.txt`. The plan names three of their rules, so if the add-on ever doesn't load, ZAP warns and the scan fails rather than passing without them. So does any other warning about the plan. When Dependabot moves ZAP to a new version, take the add-on's newest URL and hash for that version from ZAP's add-on list, as that file says. A new version can bring new or stricter rules that fail the build; fix or accept what they find in the same pull request.
 
-To run the same scan locally, with the stack up:
+To run the same scan locally, start the stack and finish first-run setup, as the end-to-end tests do in CI. Until then every route sends the browser to `/setup`, so the scan sees almost nothing:
 
 ```bash
 docker compose --profile app up --build --wait
+# Finish setup at http://localhost:8080 with the code from the app's log, or run npm run e2e.
 .github/scripts/zap-scan.sh /tmp/zap
 docker compose --profile app down --volumes
 ```

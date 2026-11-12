@@ -6,7 +6,7 @@
 #
 # zap.html is the report, zap.sarif.json the same alerts for code scanning and zap.json for this
 # script, which lists any alert the plan doesn't accept. Exits 0 when there are none, 2 when there
-# are, and anything else when the scan itself failed. Run from the root of the checkout, with the
+# are, and anything else when the scan itself failed or didn't run as planned. Run from the root of the checkout, with the
 # stack up.
 set -euo pipefail
 
@@ -34,10 +34,17 @@ while read -r url sha; do
   mounts+=(-v "$addons/$file:/zap/plugin/$file:ro")
 done < <(grep -v '^#' .github/zap/addons.txt)
 
-# -silent: no update checks or other requests of ZAP's own, so it runs as pinned.
+# -silent: no update checks or other requests of ZAP's own, so it runs as pinned. ZAP exits 1 when
+# the plan fails and 2 when it has warnings, such as a rule it doesn't know: both mean the scan
+# isn't the one the plan describes, so neither is reported as an alert.
+zap=0
 docker run --rm --network "$network" -v "$out:/zap/wrk" "${mounts[@]}" \
   -v "$PWD/.github/zap/baseline.yaml:/zap/baseline.yaml:ro" "$image" \
-  zap.sh -cmd -silent -autorun /zap/baseline.yaml
+  zap.sh -cmd -silent -autorun /zap/baseline.yaml || zap=$?
+if [ "$zap" != 0 ]; then
+  echo "ZAP's plan failed or had warnings (exit $zap). See its log above." >&2
+  exit 3
+fi
 
 # Every alert left once the plan's filters have marked the accepted ones as false positives.
 python3 - "$out/zap.json" <<'PY'

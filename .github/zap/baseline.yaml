@@ -17,6 +17,15 @@ jobs:
     parameters:
       maxAlertsPerRule: 10
       enableTags: false
+    # Rules from the beta add-on in .github/zap/addons.txt. Named here so ZAP warns, and the scan
+    # fails, if it ever doesn't load: Permissions-Policy, the cross-origin headers, caching.
+    rules:
+      - id: 10063
+        threshold: Medium
+      - id: 90004
+        threshold: Medium
+      - id: 10049
+        threshold: Medium
 
   # The alerts the build accepts, each with why, marked false positives so they leave the reports.
   # Scoped to where the reason holds where it doesn't hold everywhere: a new alert of the same kind

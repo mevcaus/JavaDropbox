@@ -152,7 +152,7 @@ jobs:
         if [ "$rc" = 2 ]; then
           echo "::error::ZAP raised an alert that .github/zap/baseline.yaml doesn't accept. See the ALERT lines above and docs/testing.md#running-app-scan."
         elif [ "$rc" != 0 ]; then
-          echo "::error::ZAP couldn't scan the app (exit $rc). See its log above."
+          echo "::error::ZAP couldn't scan the app as .github/zap/baseline.yaml says (exit $rc). See its log above."
         fi
         exit "$rc"
 
