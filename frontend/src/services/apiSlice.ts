@@ -18,8 +18,8 @@ export const apiSlice = generatedApi
     .enhanceEndpoints({
         // Files: one tag for the whole tree, which comes back as one answer. Once it's listed per
         // folder (#228), each folder can have its own. Versions: a file's, by its id. ShareLinks:
-        // an item's active links, by its path.
-        addTagTypes: ['Files', 'Versions', 'ShareLinks'],
+        // an item's active links, by its path. Accounts and Invites: the admin page's two lists.
+        addTagTypes: ['Files', 'Versions', 'ShareLinks', 'Accounts', 'Invites'],
         endpoints: {
             getFileTree: { providesTags: ['Files'] },
             // Uploading over a file keeps its old content as a version, and a delete takes the item's
@@ -40,6 +40,19 @@ export const apiSlice = generatedApi
             // A link's id doesn't say whose item it shares, so every list of links is asked again. Until
             // that answers, the revoked link is taken out of each list already. (A listing already in
             // flight can still bring it back for a moment; the dialog disables Revoke while it loads.)
+            listAccounts: { providesTags: ['Accounts'] },
+            listInvites: { providesTags: ['Invites'] },
+            setAccountRole: { invalidatesTags: ['Accounts'] },
+            setAccountQuota: { invalidatesTags: ['Accounts'] },
+            // Disabling an account also withdraws the invitations it made.
+            setAccountEnabled: { invalidatesTags: ['Accounts', 'Invites'] },
+            // An import gives the account's files rows, which count toward its storage, and may be into
+            // the admin's own account.
+            importFiles: { invalidatesTags: ['Accounts', 'Files'] },
+            createInvite: { invalidatesTags: ['Invites'] },
+            // Failed or not: a failure is most often an invitation used or expired meanwhile, which
+            // shouldn't stay listed.
+            revokeInvite: { invalidatesTags: ['Invites'] },
             revokeShareLink: {
                 invalidatesTags: ['ShareLinks'],
                 async onQueryStarted({ id }, { dispatch, getState, queryFulfilled }) {
@@ -104,4 +117,13 @@ export const {
     useListShareLinksQuery,
     useCreateShareLinkMutation,
     useRevokeShareLinkMutation,
+    useListAccountsQuery,
+    useListInvitesQuery,
+    useSetAccountEnabledMutation,
+    useSetAccountRoleMutation,
+    useSetAccountQuotaMutation,
+    useCreatePasswordResetLinkMutation,
+    useImportFilesMutation,
+    useCreateInviteMutation,
+    useRevokeInviteMutation,
 } = apiSlice;

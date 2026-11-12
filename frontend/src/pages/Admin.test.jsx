@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Admin from './Admin';
-import authReducer, { loginUser } from '../features/authSlice';
+import { loginUser } from '../features/authSlice';
+import { makeStore } from '../redux/store';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
@@ -43,7 +43,7 @@ const serve = ({ accounts = ACCOUNTS, invites = [INVITE] } = {}) =>
     });
 
 const renderAs = (role, username = 'ada') => {
-    const store = configureStore({ reducer: { auth: authReducer } });
+    const store = makeStore();
     store.dispatch(loginUser.fulfilled({ username, role }, 'seed'));
     return render(
         <Provider store={store}>
@@ -323,7 +323,7 @@ describe('Admin', () => {
 
         await user.click(await screen.findByRole('button', { name: 'Reset password for bob' }));
 
-        expect(api.post).toHaveBeenCalledWith('/api/admin/users/2/password-reset');
+        expect(api.post).toHaveBeenCalledWith('/api/admin/users/2/password-reset', undefined, expect.anything());
         expect(await screen.findByLabelText('Password reset link')).toHaveValue('http://localhost/reset-password/xyz');
     });
 
@@ -335,7 +335,7 @@ describe('Admin', () => {
 
         await user.click(await screen.findByRole('button', { name: 'Import files for bob' }));
 
-        expect(api.post).toHaveBeenCalledWith('/api/admin/users/2/import');
+        expect(api.post).toHaveBeenCalledWith('/api/admin/users/2/import', undefined, expect.anything());
         expect(addToast).toHaveBeenCalledWith('Imported 3 files and 1 folder for bob', 'success');
     });
 
@@ -376,7 +376,7 @@ describe('Admin', () => {
         expect(within(invitations).getByText(/as user, 2 GB quota/)).toBeInTheDocument();
         await user.click(within(invitations).getByRole('button', { name: 'Withdraw the invitation for carol' }));
 
-        expect(api.delete).toHaveBeenCalledWith('/api/admin/invites/9');
+        expect(api.delete).toHaveBeenCalledWith('/api/admin/invites/9', expect.anything());
         expect(addToast).toHaveBeenCalledWith('The invitation for carol no longer works', 'success');
     });
 
