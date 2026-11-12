@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -21,8 +22,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>The counts are kept in the database's {@code login_attempts} table, not in memory, so that
  * every server shares them: behind a load balancer, two servers allow no more guesses than one.
  * Each call reads and writes the address's row in a transaction of its own, holding its lock, so
- * that calls on different servers at the same moment don't lose each other's counts. A row is
- * deleted as soon as its failures can no longer lead to or extend a lockout.
+ * that calls on different servers at the same moment don't lose each other's counts. An address
+ * already locked out is answered from a plain read. Rows whose failures can no longer lead to or
+ * extend a lockout are deleted, at most once a minute on each server. The servers' clocks have to
+ * agree, as they do for sessions.
  *
  * <p>Each attempt is reserved with {@link #tryAcquire} before the password is checked and then
  * ended with {@link #recordFailure}, {@link #recordSuccess} or {@link #release}. Attempts still in
@@ -51,6 +54,7 @@ public class LoginAttemptLimiter {
   // Once this long has passed since a client's last update, both its window and any lockout its
   // failures started are over, so the row no longer matters.
   private static final Duration RETENTION = WINDOW.compareTo(LOCKOUT) > 0 ? WINDOW : LOCKOUT;
+  private static final Duration FORGET_EVERY = Duration.ofMinutes(1);
 
   private record Attempts(
       int failures,
@@ -85,6 +89,8 @@ public class LoginAttemptLimiter {
   private final TransactionTemplate transaction;
   private final Clock clock;
   private final String kind;
+  // When this server last deleted the rows that no longer matter.
+  private final AtomicReference<Instant> lastForgotten = new AtomicReference<>();
 
   /**
    * @param kind what is being guessed, such as {@link #SIGN_IN}: each kind is counted on its own
@@ -107,6 +113,12 @@ public class LoginAttemptLimiter {
   public Duration tryAcquire(String client) {
     Instant now = clock.instant();
     forgetExpired(now);
+    // A client locked out is answered from a plain read, without writing or waiting for its row's
+    // lock: one that keeps trying mustn't tie up the database's connections.
+    Duration locked = retryAfter(client);
+    if (!locked.isZero()) {
+      return locked;
+    }
     return transaction.execute(
         status -> {
           Attempts attempts = lockCreating(client, now).at(now);
@@ -165,7 +177,9 @@ public class LoginAttemptLimiter {
 
   /** Ends a reserved attempt as a success, which also clears the client's failures. */
   public void recordSuccess(String client) {
-    jdbc.update("DELETE FROM login_attempts WHERE kind = ? AND client = ?", kind, client);
+    transaction.executeWithoutResult(
+        status ->
+            jdbc.update("DELETE FROM login_attempts WHERE kind = ? AND client = ?", kind, client));
   }
 
   /** Ends a reserved attempt that was neither a success nor a failure, without counting it. */
@@ -206,20 +220,18 @@ public class LoginAttemptLimiter {
         "SELECT count(*) FROM login_attempts WHERE kind = ?", Integer.class, kind);
   }
 
-  // The client's row, made first if there is none, locked until the transaction ends. Two servers
-  // making it at once both go on to lock the one that was made.
+  // The client's row, made first if there is none, locked until the transaction ends. One
+  // statement, so that a row deleted meanwhile (by a success, or another server forgetting it) is
+  // made again rather than missed: two servers making it at once both get the one that was made.
   private Attempts lockCreating(String client, Instant now) {
-    jdbc.update(
+    return jdbc.queryForObject(
         "INSERT INTO login_attempts (kind, client, failures, in_progress, updated_at)"
-            + " VALUES (?, ?, 0, 0, ?) ON CONFLICT DO NOTHING",
+            + " VALUES (?, ?, 0, 0, ?)"
+            + " ON CONFLICT (kind, client) DO UPDATE SET kind = EXCLUDED.kind RETURNING *",
+        this::attempts,
         kind,
         client,
         time(now));
-    return jdbc.queryForObject(
-        "SELECT * FROM login_attempts WHERE kind = ? AND client = ? FOR UPDATE",
-        this::attempts,
-        kind,
-        client);
   }
 
   private void store(String client, Attempts attempts) {
@@ -237,8 +249,15 @@ public class LoginAttemptLimiter {
   }
 
   // Every kind's, which all last as long; an index on the time keeps it cheap.
+  // At most once a minute on each server, rather than on every attempt.
   private void forgetExpired(Instant now) {
-    jdbc.update("DELETE FROM login_attempts WHERE updated_at <= ?", time(now.minus(RETENTION)));
+    Instant last = lastForgotten.get();
+    if (last != null && last.plus(FORGET_EVERY).isAfter(now)) {
+      return;
+    }
+    if (lastForgotten.compareAndSet(last, now)) {
+      jdbc.update("DELETE FROM login_attempts WHERE updated_at <= ?", time(now.minus(RETENTION)));
+    }
   }
 
   private Attempts attempts(ResultSet row, int number) throws SQLException {

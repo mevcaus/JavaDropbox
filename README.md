@@ -441,7 +441,7 @@ What a sync client needs from the server comes first, so that each step is usefu
 
 ### Scale and operations
 
-- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared, with the end-to-end tests run against two instances
+- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared (done, through PostgreSQL), with the end-to-end tests run against two instances
 - [ ] **The database as the list of what exists** ([#228]), with folders listed a page at a time rather than the whole tree in one response
 - [ ] **Each content stored once**, as a blob named by its SHA-256, so identical files and versions take no extra space and replacing, moving or renaming a file copies nothing in the store ([#198])
 - [ ] **Load tests with published numbers** ([#195]): uploads a second, and how long a folder of 10,000 files takes to list, on disk and in S3

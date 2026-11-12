@@ -175,6 +175,54 @@ class LoginAttemptLimiterTests {
     assertThat(reserved).isEqualTo(LoginAttemptLimiter.MAX_FAILURES);
   }
 
+  // A success (another request from the same address) or another server forgetting the row can
+  // delete it between an attempt finding it and locking it.
+  @Test
+  @DisplayName("a row deleted while attempts are made on it is made again, without an error")
+  void rowDeletedMeanwhile() throws Exception {
+    LoginAttemptLimiter other = server(LoginAttemptLimiter.SIGN_IN);
+    try (ExecutorService threads = Executors.newFixedThreadPool(2)) {
+      Future<?> clearing =
+          threads.submit(
+              () -> {
+                for (int i = 0; i < 300; i++) {
+                  other.recordSuccess(CLIENT);
+                }
+              });
+      Future<?> failing =
+          threads.submit(
+              () -> {
+                for (int i = 0; i < 300; i++) {
+                  if (limiter.tryAcquire(CLIENT).isZero()) {
+                    limiter.recordFailure(CLIENT);
+                  }
+                }
+              });
+      clearing.get();
+      failing.get();
+    }
+  }
+
+  @Test
+  @DisplayName("a client locked out is answered without writing to its row")
+  void lockedOutClientIsAnsweredFromARead() {
+    fail(5);
+    String before = row();
+
+    clock.advance(Duration.ofMinutes(1));
+    assertThat(limiter.tryAcquire(CLIENT)).isEqualTo(Duration.ofMinutes(14));
+
+    assertThat(row()).isEqualTo(before);
+  }
+
+  private String row() {
+    return jdbc.queryForObject(
+        "SELECT concat_ws(',', failures, in_progress, updated_at) FROM login_attempts"
+            + " WHERE client = ?",
+        String.class,
+        CLIENT);
+  }
+
   @Test
   @DisplayName("sign-ins and setup codes are counted apart")
   void kindsAreCountedApart() {

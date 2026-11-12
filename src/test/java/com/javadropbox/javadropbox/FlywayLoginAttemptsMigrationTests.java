@@ -29,7 +29,8 @@ class FlywayLoginAttemptsMigrationTests {
   }
 
   @Test
-  @DisplayName("an address has one row per kind, and counts can't go below zero")
+  @DisplayName(
+      "an address has one row per kind, there are two kinds, and counts can't go below zero")
   void oneRowPerKind() throws SQLException {
     String row =
         "INSERT INTO login_attempts (kind, client, failures, in_progress, updated_at)"
@@ -40,7 +41,10 @@ class FlywayLoginAttemptsMigrationTests {
     assertThatThrownBy(() -> DATABASE.execute(row.formatted("sign-in", 2)))
         .isInstanceOf(SQLException.class);
     assertThatThrownBy(
-            () -> DATABASE.execute(row.formatted("other", -1).replace("203.0.113.7", "x")))
+            () -> DATABASE.execute(row.formatted("other", 1).replace("203.0.113.7", "x")))
+        .isInstanceOf(SQLException.class);
+    assertThatThrownBy(
+            () -> DATABASE.execute(row.formatted("sign-in", -1).replace("203.0.113.7", "x")))
         .isInstanceOf(SQLException.class);
     DATABASE.execute("DELETE FROM login_attempts");
   }

@@ -15,6 +15,7 @@ CREATE TABLE login_attempts (
     reserved_at timestamp with time zone,
     updated_at timestamp with time zone NOT NULL,
     CONSTRAINT login_attempts_pkey PRIMARY KEY (kind, client),
+    CONSTRAINT login_attempts_kind CHECK (kind IN ('sign-in', 'setup-code')),
     CONSTRAINT login_attempts_counts CHECK (failures >= 0 AND in_progress >= 0)
 );
 
