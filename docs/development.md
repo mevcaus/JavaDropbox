@@ -143,6 +143,7 @@ JavaDropbox/
 │   │   │   ├── SessionConfig.java       # Sessions in PostgreSQL: unreadable ones sign out, not fail
 │   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
+│   │   │   ├── EscapedValuesConverter.java # Escapes line breaks in logged values (logback-spring.xml)
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
 │   │   │   ├── StartupBanner.java       # Logs the bound port and where files are stored
 │   │   │   ├── StorageConfig.java       # The file store: the serving directory, or an S3 bucket
@@ -208,6 +209,7 @@ JavaDropbox/
 │   ├── db/migration/               # Flyway SQL migrations (V1 to V9)
 │   ├── demo/                       # The live demo's sample files
 │   ├── application.properties      # Production defaults
+│   ├── logback-spring.xml          # Spring Boot's console logging, logged values escaped
 │   ├── application-dev.properties  # Local development (bootRun)
 │   └── application-demo.properties # The live demo: shared account, small limits
 ├── src/test/                       # See testing.md

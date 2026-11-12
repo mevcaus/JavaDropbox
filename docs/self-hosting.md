@@ -230,6 +230,10 @@ With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearc
 - Changes that couldn't be written wait and are tried again, five seconds later, then ten, and so on up to a minute apart, until they get through. Each failure is logged once, and its end is logged when changes, or searches, get through again. The same goes for a service that is too busy (`429`, `503`). A refusal, such as for want of a permission, is logged once and the changes wait for the next reconcile.
 - A cluster with `search.allow_expensive_queries: false` refuses every search, and every change: finding a word anywhere in a name or as the start of one, and dropping a folder's items, need those queries.
 
+## Logs
+
+The app logs to the console, in Spring Boot's usual format, which `docker compose logs app` shows. A line break or other control character in a value it logs, such as a username or a file name, is written as an escape (`\n`), so nobody can start a line that looks like one of the app's own. An exception's stack trace is written as it comes. Levels are set as usual, such as `LOGGING_LEVEL_COM_JAVADROPBOX=DEBUG`. Logging is configured in `src/main/resources/logback-spring.xml`, so Spring Boot's `logging.file.*` and `logging.structured.*` settings have no effect: collect the console output instead.
+
 ## Observability
 
 [Spring Boot Actuator](https://docs.spring.io/spring-boot/reference/actuator/) exposes two endpoints and nothing else (no `env`, `beans`, `heapdump` and the like, which describe the server rather than its health):

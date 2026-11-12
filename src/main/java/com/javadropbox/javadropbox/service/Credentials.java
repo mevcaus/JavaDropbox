@@ -17,7 +17,8 @@ public final class Credentials {
   /**
    * The username to store: the one given, without surrounding spaces.
    *
-   * @throws BadRequestException if it is empty or too long
+   * @throws BadRequestException if it is empty, too long, or holds a line break or another control
+   *     character
    */
   public static String username(String username) {
     String name = username == null ? "" : username.trim();
@@ -27,7 +28,15 @@ public final class Credentials {
     if (name.length() > MAX_USERNAME_LENGTH) {
       throw new BadRequestException("Username is too long");
     }
+    if (name.chars().anyMatch(Credentials::isControl)) {
+      throw new BadRequestException(
+          "Usernames can't contain line breaks or other control characters");
+    }
     return name;
+  }
+
+  private static boolean isControl(int c) {
+    return Character.isISOControl(c) || c == '\u2028' || c == '\u2029';
   }
 
   /**
