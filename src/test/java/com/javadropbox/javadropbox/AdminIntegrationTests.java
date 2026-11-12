@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,7 +62,11 @@ class AdminIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private AccountService accountService;
-  @Autowired private LoginAttemptLimiter limiter;
+
+  @Autowired
+  @Qualifier(LoginAttemptLimiter.SIGN_IN)
+  private LoginAttemptLimiter limiter;
+
   @Autowired private SearchIndex searchIndex;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;

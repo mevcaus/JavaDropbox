@@ -343,7 +343,7 @@ What the app reads from the server is moving onto RTK Query, which ships with Re
 **Security**
 - Spring Security form login with sessions kept in PostgreSQL, so restarts don't sign anyone out, BCrypt passwords and cookie-based CSRF protection
 - `ADMIN` and `USER` roles; metrics and account management for admins only
-- Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy
+- Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy. The count is kept in PostgreSQL, so several servers share it
 - Path safety, as above; paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one record
 - Optional caps on upload size and share-link lifetime, and a quota per account (versions included)
 

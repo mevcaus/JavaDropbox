@@ -1,67 +1,102 @@
 package com.javadropbox.javadropbox.config;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Slows down guessing: after {@link #MAX_FAILURES} failed attempts from one address within {@link
  * #WINDOW}, that address is refused for {@link #LOCKOUT}. Used for sign-ins and, separately, for
- * setup codes. Kept in memory, which is enough for a single instance.
+ * setup codes, each a {@code kind} of its own.
+ *
+ * <p>The counts are kept in the database's {@code login_attempts} table, not in memory, so that
+ * every server shares them: behind a load balancer, two servers allow no more guesses than one.
+ * Each call reads and writes the address's row in a transaction of its own, holding its lock, so
+ * that calls on different servers at the same moment don't lose each other's counts. A row is
+ * deleted as soon as its failures can no longer lead to or extend a lockout.
  *
  * <p>Each attempt is reserved with {@link #tryAcquire} before the password is checked and then
  * ended with {@link #recordFailure}, {@link #recordSuccess} or {@link #release}. Attempts still in
  * progress count towards the limit, so a burst of parallel requests gets no more password checks
- * than sequential ones would.
- *
- * <p>At most {@link #MAX_CLIENTS} addresses are tracked at once, and each is forgotten as soon as
- * its failures can no longer lead to or extend a lockout, so neither memory nor the work per call
- * grows with the number of clients that ever failed. If more addresses than that fail within the
- * window, the one whose last failure is oldest is forgotten first.
+ * than sequential ones would. A server that stops in the middle of a check never ends its
+ * reservation, so reservations stop counting {@link #RESERVATION} after the last one was made.
  */
 public class LoginAttemptLimiter {
+
+  /** What sign-ins are counted as. */
+  public static final String SIGN_IN = "sign-in";
+
+  /** What setup codes are counted as. */
+  public static final String SETUP_CODE = "setup-code";
 
   static final int MAX_FAILURES = 5;
   static final Duration WINDOW = Duration.ofMinutes(15);
   static final Duration LOCKOUT = Duration.ofMinutes(15);
-  static final int MAX_CLIENTS = 10_000;
+  // Far longer than checking a password takes.
+  static final Duration RESERVATION = Duration.ofMinutes(1);
 
   // What a client is told to wait when its remaining attempts are all in progress: they finish
   // within a second or so, after which it is either locked out or may try again.
   private static final Duration BUSY_RETRY = Duration.ofSeconds(1);
 
   // Once this long has passed since a client's last update, both its window and any lockout its
-  // failures started are over, so the entry no longer matters.
+  // failures started are over, so the row no longer matters.
   private static final Duration RETENTION = WINDOW.compareTo(LOCKOUT) > 0 ? WINDOW : LOCKOUT;
 
   private record Attempts(
-      int failures, Instant firstFailure, Instant lockedUntil, int inProgress, Instant updated) {
-
-    static final Attempts NONE = new Attempts(0, null, null, 0, null);
+      int failures,
+      Instant firstFailure,
+      Instant lockedUntil,
+      int inProgress,
+      Instant reservedAt,
+      Instant updated) {
 
     boolean lockedAt(Instant now) {
       return lockedUntil != null && lockedUntil.isAfter(now);
     }
 
-    /** These attempts as they stand at {@code now}: failures from an ended window don't count. */
+    /**
+     * These attempts as they stand at {@code now}: failures from an ended window don't count, nor
+     * do reservations nobody has ended in a long while.
+     */
     Attempts at(Instant now) {
       boolean over =
           lockedUntil != null
               ? !lockedUntil.isAfter(now)
               : firstFailure != null && firstFailure.plus(WINDOW).isBefore(now);
-      return over ? new Attempts(0, null, null, inProgress, updated) : this;
+      boolean abandoned = reservedAt != null && reservedAt.plus(RESERVATION).isBefore(now);
+      int pending = abandoned ? 0 : inProgress;
+      return over
+          ? new Attempts(0, null, null, pending, reservedAt, updated)
+          : new Attempts(failures, firstFailure, lockedUntil, pending, reservedAt, updated);
     }
   }
 
-  // Kept in order of last update, oldest first (an entry is re-inserted whenever it changes), so
-  // expired entries and the next one to evict are always at the head. Guarded by this.
-  private final LinkedHashMap<String, Attempts> byClient = new LinkedHashMap<>();
+  private final JdbcTemplate jdbc;
+  private final TransactionTemplate transaction;
   private final Clock clock;
+  private final String kind;
 
-  public LoginAttemptLimiter(Clock clock) {
+  /**
+   * @param kind what is being guessed, such as {@link #SIGN_IN}: each kind is counted on its own
+   */
+  public LoginAttemptLimiter(
+      JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock, String kind) {
+    this.jdbc = jdbc;
+    this.transaction = new TransactionTemplate(transactions);
+    // Its own, committed at once: a failure counts even if a caller's transaction rolls back.
+    this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     this.clock = clock;
+    this.kind = kind;
   }
 
   /**
@@ -69,68 +104,94 @@ public class LoginAttemptLimiter {
    * the attempt is reserved, which the caller must then end with {@link #recordFailure}, {@link
    * #recordSuccess} or {@link #release}; otherwise how long the client should wait.
    */
-  public synchronized Duration tryAcquire(String client) {
+  public Duration tryAcquire(String client) {
     Instant now = clock.instant();
     forgetExpired(now);
-
-    Attempts attempts = byClient.getOrDefault(client, Attempts.NONE).at(now);
-    if (attempts.lockedAt(now)) {
-      return Duration.between(now, attempts.lockedUntil());
-    }
-    if (attempts.failures() + attempts.inProgress() >= MAX_FAILURES) {
-      return BUSY_RETRY;
-    }
-    store(
-        client,
-        new Attempts(
-            attempts.failures(), attempts.firstFailure(), null, attempts.inProgress() + 1, now));
-    return Duration.ZERO;
+    return transaction.execute(
+        status -> {
+          Attempts attempts = lockCreating(client, now).at(now);
+          if (attempts.lockedAt(now)) {
+            return Duration.between(now, attempts.lockedUntil());
+          }
+          if (attempts.failures() + attempts.inProgress() >= MAX_FAILURES) {
+            return BUSY_RETRY;
+          }
+          store(
+              client,
+              new Attempts(
+                  attempts.failures(),
+                  attempts.firstFailure(),
+                  null,
+                  attempts.inProgress() + 1,
+                  now,
+                  now));
+          return Duration.ZERO;
+        });
   }
 
   /** How long the client must still wait, or {@link Duration#ZERO} if it is not locked out. */
-  public synchronized Duration retryAfter(String client) {
+  public Duration retryAfter(String client) {
     Instant now = clock.instant();
-    Attempts attempts = byClient.getOrDefault(client, Attempts.NONE);
-    return attempts.lockedAt(now) ? Duration.between(now, attempts.lockedUntil()) : Duration.ZERO;
+    List<Attempts> found =
+        jdbc.query(
+            "SELECT * FROM login_attempts WHERE kind = ? AND client = ?",
+            this::attempts,
+            kind,
+            client);
+    return !found.isEmpty() && found.getFirst().lockedAt(now)
+        ? Duration.between(now, found.getFirst().lockedUntil())
+        : Duration.ZERO;
   }
 
   /** Ends a reserved attempt as a failure; the {@link #MAX_FAILURES}th locks the client out. */
-  public synchronized void recordFailure(String client) {
+  public void recordFailure(String client) {
     Instant now = clock.instant();
     forgetExpired(now);
-
-    Attempts attempts = byClient.getOrDefault(client, Attempts.NONE).at(now);
-    int failures = attempts.failures() + 1;
-    store(
-        client,
-        new Attempts(
-            failures,
-            attempts.failures() == 0 ? now : attempts.firstFailure(),
-            failures >= MAX_FAILURES ? now.plus(LOCKOUT) : null,
-            Math.max(0, attempts.inProgress() - 1),
-            now));
+    transaction.executeWithoutResult(
+        status -> {
+          Attempts attempts = lockCreating(client, now).at(now);
+          int failures = attempts.failures() + 1;
+          store(
+              client,
+              new Attempts(
+                  failures,
+                  attempts.failures() == 0 ? now : attempts.firstFailure(),
+                  failures >= MAX_FAILURES ? now.plus(LOCKOUT) : null,
+                  Math.max(0, attempts.inProgress() - 1),
+                  attempts.reservedAt(),
+                  now));
+        });
   }
 
   /** Ends a reserved attempt as a success, which also clears the client's failures. */
-  public synchronized void recordSuccess(String client) {
-    byClient.remove(client);
+  public void recordSuccess(String client) {
+    jdbc.update("DELETE FROM login_attempts WHERE kind = ? AND client = ?", kind, client);
   }
 
   /** Ends a reserved attempt that was neither a success nor a failure, without counting it. */
-  public synchronized void release(String client) {
-    Attempts attempts = byClient.get(client);
-    if (attempts != null && attempts.inProgress() > 0) {
-      // Replacing the value of an existing key keeps its place in the order, as it should: the
-      // entry's last-update time does not change either.
-      byClient.put(
-          client,
-          new Attempts(
-              attempts.failures(),
-              attempts.firstFailure(),
-              attempts.lockedUntil(),
-              attempts.inProgress() - 1,
-              attempts.updated()));
-    }
+  public void release(String client) {
+    transaction.executeWithoutResult(
+        status -> {
+          List<Attempts> found =
+              jdbc.query(
+                  "SELECT * FROM login_attempts WHERE kind = ? AND client = ? FOR UPDATE",
+                  this::attempts,
+                  kind,
+                  client);
+          if (!found.isEmpty() && found.getFirst().inProgress() > 0) {
+            Attempts attempts = found.getFirst();
+            // The row's last update stays as it was: nothing was counted.
+            store(
+                client,
+                new Attempts(
+                    attempts.failures(),
+                    attempts.firstFailure(),
+                    attempts.lockedUntil(),
+                    attempts.inProgress() - 1,
+                    attempts.reservedAt(),
+                    attempts.updated()));
+          }
+        });
   }
 
   /** A wait for a message to the user, in whole minutes rounded up: "1 minute", "15 minutes". */
@@ -139,29 +200,63 @@ public class LoginAttemptLimiter {
     return minutes + (minutes == 1 ? " minute" : " minutes");
   }
 
-  /** How many clients are currently tracked. */
-  synchronized int trackedClients() {
-    return byClient.size();
+  /** How many clients are tracked for this kind. */
+  int trackedClients() {
+    return jdbc.queryForObject(
+        "SELECT count(*) FROM login_attempts WHERE kind = ?", Integer.class, kind);
   }
 
-  // Moves the client to the tail, as the most recently updated, and evicts the oldest if full.
+  // The client's row, made first if there is none, locked until the transaction ends. Two servers
+  // making it at once both go on to lock the one that was made.
+  private Attempts lockCreating(String client, Instant now) {
+    jdbc.update(
+        "INSERT INTO login_attempts (kind, client, failures, in_progress, updated_at)"
+            + " VALUES (?, ?, 0, 0, ?) ON CONFLICT DO NOTHING",
+        kind,
+        client,
+        time(now));
+    return jdbc.queryForObject(
+        "SELECT * FROM login_attempts WHERE kind = ? AND client = ? FOR UPDATE",
+        this::attempts,
+        kind,
+        client);
+  }
+
   private void store(String client, Attempts attempts) {
-    byClient.remove(client);
-    byClient.put(client, attempts);
-    if (byClient.size() > MAX_CLIENTS) {
-      Iterator<String> oldest = byClient.keySet().iterator();
-      oldest.next();
-      oldest.remove();
-    }
+    jdbc.update(
+        "UPDATE login_attempts SET failures = ?, first_failure = ?, locked_until = ?,"
+            + " in_progress = ?, reserved_at = ?, updated_at = ? WHERE kind = ? AND client = ?",
+        attempts.failures(),
+        time(attempts.firstFailure()),
+        time(attempts.lockedUntil()),
+        attempts.inProgress(),
+        time(attempts.reservedAt()),
+        time(attempts.updated()),
+        kind,
+        client);
   }
 
-  // Each entry is removed at most once, so this costs O(1) per call on average.
+  // Every kind's, which all last as long; an index on the time keeps it cheap.
   private void forgetExpired(Instant now) {
-    for (Iterator<Attempts> it = byClient.values().iterator(); it.hasNext(); ) {
-      if (it.next().updated().plus(RETENTION).isAfter(now)) {
-        return;
-      }
-      it.remove();
-    }
+    jdbc.update("DELETE FROM login_attempts WHERE updated_at <= ?", time(now.minus(RETENTION)));
+  }
+
+  private Attempts attempts(ResultSet row, int number) throws SQLException {
+    return new Attempts(
+        row.getInt("failures"),
+        instant(row, "first_failure"),
+        instant(row, "locked_until"),
+        row.getInt("in_progress"),
+        instant(row, "reserved_at"),
+        instant(row, "updated_at"));
+  }
+
+  private static Instant instant(ResultSet row, String column) throws SQLException {
+    OffsetDateTime value = row.getObject(column, OffsetDateTime.class);
+    return value == null ? null : value.toInstant();
+  }
+
+  private static OffsetDateTime time(Instant instant) {
+    return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
   }
 }

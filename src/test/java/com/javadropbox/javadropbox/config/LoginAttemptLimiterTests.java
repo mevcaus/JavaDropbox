@@ -2,21 +2,51 @@ package com.javadropbox.javadropbox.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.javadropbox.javadropbox.MigratedDatabase;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @DisplayName("Login attempt limiter")
+@Timeout(60)
 class LoginAttemptLimiterTests {
 
   private static final String CLIENT = "203.0.113.7";
 
+  // One database for the class, emptied after each test.
+  private static final DataSource DATABASE = MigratedDatabase.create();
+
+  private final JdbcTemplate jdbc = new JdbcTemplate(DATABASE);
+  private final PlatformTransactionManager transactions =
+      new DataSourceTransactionManager(DATABASE);
   private final MutableClock clock = new MutableClock();
-  private final LoginAttemptLimiter limiter = new LoginAttemptLimiter(clock);
+  private final LoginAttemptLimiter limiter = server(LoginAttemptLimiter.SIGN_IN);
+
+  @AfterEach
+  void empty() {
+    jdbc.update("DELETE FROM login_attempts");
+  }
+
+  // Another server's limiter, or another kind's, on the same database.
+  private LoginAttemptLimiter server(String kind) {
+    return new LoginAttemptLimiter(jdbc, transactions, clock, kind);
+  }
 
   @Test
   @DisplayName("locks an address out after five failures, for fifteen minutes")
@@ -113,26 +143,57 @@ class LoginAttemptLimiterTests {
   }
 
   @Test
-  @DisplayName("memory stays bounded however many addresses fail")
-  void trackedClientsAreBounded() {
-    for (int i = 0; i < LoginAttemptLimiter.MAX_CLIENTS * 2; i++) {
-      limiter.recordFailure("client-" + i);
-    }
+  @DisplayName("servers share the count: failures on one lock the address out on the other")
+  void serversShareTheCount() {
+    LoginAttemptLimiter other = server(LoginAttemptLimiter.SIGN_IN);
+    fail(3);
+    other.recordFailure(CLIENT);
+    other.recordFailure(CLIENT);
 
-    assertThat(limiter.trackedClients()).isLessThanOrEqualTo(LoginAttemptLimiter.MAX_CLIENTS);
-    assertThat(limiter.retryAfter("client-" + (LoginAttemptLimiter.MAX_CLIENTS * 2 - 1))).isZero();
+    assertThat(limiter.retryAfter(CLIENT)).isEqualTo(Duration.ofMinutes(15));
+    assertThat(other.tryAcquire(CLIENT)).isEqualTo(Duration.ofMinutes(15));
   }
 
   @Test
-  @DisplayName("when full, the address that failed longest ago is forgotten first")
-  void oldestClientIsEvictedFirst() {
-    fail(5);
-    for (int i = 0; i < LoginAttemptLimiter.MAX_CLIENTS; i++) {
-      limiter.recordFailure("client-" + i);
+  @DisplayName("a burst across two servers at once gets no more attempts than one server would")
+  void burstAcrossServers() throws Exception {
+    LoginAttemptLimiter other = server(LoginAttemptLimiter.SIGN_IN);
+    List<Callable<Duration>> attempts = new ArrayList<>();
+    for (int i = 0; i < 40; i++) {
+      LoginAttemptLimiter on = i % 2 == 0 ? limiter : other;
+      attempts.add(() -> on.tryAcquire(CLIENT));
+    }
+    List<Future<Duration>> results;
+    try (ExecutorService threads = Executors.newFixedThreadPool(16)) {
+      results = threads.invokeAll(attempts);
     }
 
-    assertThat(limiter.trackedClients()).isEqualTo(LoginAttemptLimiter.MAX_CLIENTS);
-    assertThat(limiter.retryAfter(CLIENT)).as("the oldest entry was dropped").isZero();
+    int reserved = 0;
+    for (Future<Duration> result : results) {
+      reserved += result.get().isZero() ? 1 : 0;
+    }
+    assertThat(reserved).isEqualTo(LoginAttemptLimiter.MAX_FAILURES);
+  }
+
+  @Test
+  @DisplayName("sign-ins and setup codes are counted apart")
+  void kindsAreCountedApart() {
+    fail(5);
+
+    assertThat(server(LoginAttemptLimiter.SETUP_CODE).retryAfter(CLIENT)).isZero();
+  }
+
+  @Test
+  @DisplayName("a reservation a server never ended stops counting after a while")
+  void abandonedReservationsExpire() {
+    for (int i = 0; i < 5; i++) {
+      assertThat(limiter.tryAcquire(CLIENT)).isZero();
+    }
+    assertThat(limiter.tryAcquire(CLIENT)).isPositive();
+
+    clock.advance(LoginAttemptLimiter.RESERVATION.plusSeconds(1));
+
+    assertThat(limiter.tryAcquire(CLIENT)).isZero();
   }
 
   @Test
