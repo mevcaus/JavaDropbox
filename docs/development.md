@@ -134,6 +134,7 @@ JavaDropbox/
 │   │   │   ├── StartupBanner.java       # Logs the bound port and where files are stored
 │   │   │   ├── StorageConfig.java       # The file store: the serving directory, or an S3 bucket
 │   │   │   ├── SearchConfig.java        # Which search index: Lucene inside the app, or Elasticsearch
+│   │   │   ├── SearchHealthIndicator.java # search in /actuator/health: DEGRADED, never DOWN
 │   │   │   ├── UploadSpoolConfig.java   # Uploads arrive in .javadropbox/uploads, not java.io.tmpdir
 │   │   │   ├── DemoResetFilter.java     # Live demo: runs the daily reset when it falls due
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
@@ -153,7 +154,7 @@ JavaDropbox/
 │   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
 │   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet, AccountDto, InviteDto, AccountLinkInfo, ImportResult
-│   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
+│   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409), ServiceUnavailable (503)
 │   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink, AccountLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
 │   │   └── service/

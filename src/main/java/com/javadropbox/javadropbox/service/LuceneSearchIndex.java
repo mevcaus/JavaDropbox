@@ -179,7 +179,9 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
       IndexableItems items,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
-    super(RETRY_DELAY);
+    // Lucene retries only for another writer's lock or a damaged index it starts over, both soon
+    // over: no backing off.
+    super(RETRY_DELAY, RETRY_DELAY);
     this.items = items;
     this.location =
         indexDirectory.isBlank()

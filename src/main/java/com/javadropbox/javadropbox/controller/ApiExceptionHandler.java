@@ -5,6 +5,7 @@ import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.InsufficientStorageException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
+import com.javadropbox.javadropbox.exception.ServiceUnavailableException;
 import com.javadropbox.javadropbox.exception.TooManyRequestsException;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.EOFException;
@@ -63,6 +64,12 @@ public class ApiExceptionHandler {
   public ResponseEntity<Map<String, String>> handleInsufficientStorage(
       InsufficientStorageException ex) {
     return message(HttpStatus.INSUFFICIENT_STORAGE, ex.getMessage());
+  }
+
+  // Whoever threw it has logged why.
+  @ExceptionHandler(ServiceUnavailableException.class)
+  public ResponseEntity<Map<String, String>> handleUnavailable(ServiceUnavailableException ex) {
+    return message(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
   }
 
   @ExceptionHandler(TooManyRequestsException.class)

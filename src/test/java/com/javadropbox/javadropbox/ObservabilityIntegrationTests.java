@@ -108,7 +108,8 @@ class ObservabilityIntegrationTests {
 
   @Test
   @WithMockUser(username = "testadmin", roles = "ADMIN")
-  @DisplayName("to an admin, the health check shows the database and the storage disk")
+  @DisplayName(
+      "to an admin, the health check shows the database, the storage disk and the search index")
   void adminHealthShowsComponents() throws Exception {
     completeSetup();
 
@@ -119,7 +120,12 @@ class ObservabilityIntegrationTests {
         .andExpect(jsonPath("$.components.diskSpace.status").value("UP"))
         .andExpect(
             jsonPath("$.components.diskSpace.details.path")
-                .value(servingDir.toFile().getAbsolutePath()));
+                .value(servingDir.toFile().getAbsolutePath()))
+        .andExpect(jsonPath("$.components.search.status").value("UP"))
+        .andExpect(jsonPath("$.components.search.details.backend").value("lucene"));
+    mockMvc
+        .perform(get("/actuator/metrics/javadropbox.search.available"))
+        .andExpect(jsonPath("$.measurements[0].value").value(1.0));
   }
 
   @Test

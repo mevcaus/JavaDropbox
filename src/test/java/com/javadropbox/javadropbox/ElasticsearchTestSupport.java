@@ -2,6 +2,7 @@ package com.javadropbox.javadropbox;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 
@@ -42,9 +43,14 @@ public final class ElasticsearchTestSupport {
 
   /** Points a context at the shared service, with an index of its own. */
   static void register(DynamicPropertyRegistry registry) {
+    register(registry, ElasticsearchTestSupport::url);
+  }
+
+  /** Points a context at the service at {@code url}, with an index of its own. */
+  static void register(DynamicPropertyRegistry registry, Supplier<Object> url) {
     String index = newIndex();
     registry.add("javadropbox.search.backend", () -> "elasticsearch");
-    registry.add("javadropbox.search.elasticsearch.url", ElasticsearchTestSupport::url);
+    registry.add("javadropbox.search.elasticsearch.url", url);
     registry.add("javadropbox.search.elasticsearch.index", () -> index);
   }
 }
