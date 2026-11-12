@@ -16,7 +16,7 @@ export default defineConfig([
   ]),
   // The build's own config files and scripts, which run in Node; the app itself is TypeScript.
   {
-    files: ['**/*.js'],
+    files: ['**/*.{js,cjs,mjs}'],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 'latest',

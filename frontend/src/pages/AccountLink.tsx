@@ -48,15 +48,15 @@ const PURPOSES = {
 const inputClass =
     'appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm';
 
+/** Which kind of link a page is for. */
+type LinkPurpose = keyof typeof PURPOSES;
+
 /**
  * The page an invitation or a password reset link opens: it says which account the link is for and
  * takes the password. A link works once; afterwards, or once it has expired, the page says so.
  * Someone signed in on this browser is signed out once the link is used, so that they can sign in
  * as the new account or with the new password.
  */
-/** Which kind of link a page is for. */
-export type LinkPurpose = keyof typeof PURPOSES;
-
 const AccountLink = ({ purpose }: { purpose: LinkPurpose }) => {
     // Always there: the routes are /invite/:token and /reset-password/:token.
     const { token = '' } = useParams();

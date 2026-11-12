@@ -8,6 +8,7 @@ import ShareModal, { type ShareItem } from './ShareModal';
 import mockedApi from '../services/api';
 import { formatDate } from '../utils/date';
 import { fieldsOf } from '../utils/errors';
+import { postedFormBody } from '../test/forms';
 
 // The dialogs get their data through the API slice, so they need a store. rerender keeps it, as the
 // app keeps one store while dialogs open and close.
@@ -59,12 +60,8 @@ const renderModal = (props = {}) => {
 
 const expirationSelect = () => screen.getByLabelText(/Link expires in/i);
 const generateButton = () => screen.getByRole('button', { name: /Generate link/i });
-// The form the first request posted, checked to be one.
-const postedParams = () => {
-    const body = api.post.mock.calls[0]?.[1];
-    if (!(body instanceof URLSearchParams)) throw new Error('The first request posted no form');
-    return body;
-};
+// The form the first request posted.
+const postedParams = () => postedFormBody(api.post.mock.calls[0]?.[1]);
 const sharesAsked = () => api.get.mock.calls.filter(([url]) => url === '/api/share').length;
 
 // userEvent.setup() installs its own clipboard stub, so override it afterwards.

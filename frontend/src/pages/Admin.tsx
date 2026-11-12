@@ -447,8 +447,8 @@ const AccountsPage = () => {
             <QuotaModal
                 account={quotaFor}
                 onClose={() => setQuotaFor(null)}
-                onSaved={() => {
-                    if (quotaFor) addToast(`Changed the quota of ${quotaFor.username}`, 'success');
+                onSaved={(account) => {
+                    addToast(`Changed the quota of ${account.username}`, 'success');
                     // The list refreshes through its tag.
                     setQuotaFor(null);
                 }}

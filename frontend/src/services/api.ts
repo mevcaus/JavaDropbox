@@ -39,7 +39,7 @@ api.interceptors.request.use(async (config) => {
 });
 
 // What to do when the backend says the session is gone. The app registers this at startup
-// (see main.jsx) rather than this module importing the store: the store's slices import this
+// (see main.tsx) rather than this module importing the store: the store's slices import this
 // module, so importing the store here made the modules depend on each other's load order.
 let handleUnauthorized: () => void = () => {};
 

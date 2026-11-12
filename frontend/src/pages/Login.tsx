@@ -5,6 +5,7 @@ import { loginUser } from '../features/authSlice';
 import { Loader2 } from 'lucide-react';
 import AnimatedLogo from '../components/AnimatedLogo';
 import { useDemoInfo } from '../hooks/useDemoInfo';
+import { fieldsOf } from '../utils/errors';
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -15,9 +16,12 @@ const Login = () => {
     const { isAuthenticated, loading, error, setupRequired } = useAppSelector((state) => state.auth);
     const demo = useDemoInfo();
 
-    const from = location.state?.from?.pathname || '/dashboard';
-    // Set by the page that sent the user here, such as one that has just created their account.
-    const notice = location.state?.notice;
+    // What the page that sent the user here left in the history entry: where they were going, and
+    // something to tell them, such as that their account has just been created.
+    const state = fieldsOf(location.state);
+    const { pathname } = fieldsOf(state.from);
+    const from = typeof pathname === 'string' && pathname ? pathname : '/dashboard';
+    const notice = typeof state.notice === 'string' ? state.notice : undefined;
 
     useEffect(() => {
         if (isAuthenticated) {

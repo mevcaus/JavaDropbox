@@ -348,7 +348,7 @@ What the app reads from the server goes through RTK Query, which ships with Redu
 - Optional caps on upload size and share-link lifetime, and a quota per account (versions included)
 
 **Frontend**
-- React 19 single-page app with Redux Toolkit, Tailwind CSS and responsive layout
+- React 19 single-page app in TypeScript, with Redux Toolkit, Tailwind CSS and responsive layout
 - Accessible dialogs (focus trap and restore, Escape to close), keyboard-operable sorting with `aria-sort`, errors announced to screen readers
 
 **Operations**
@@ -364,7 +364,7 @@ What the app reads from the server goes through RTK Query, which ships with Redu
 | **Database** | PostgreSQL, Flyway migrations |
 | **Storage** | The local filesystem, or S3 and compatible services through the AWS SDK for Java 2 |
 | **Search** | Apache Lucene (embedded), or Elasticsearch through its Java client; Apache PDFBox for the text of PDFs |
-| **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
+| **Frontend** | React 19, TypeScript, Vite, Redux Toolkit with RTK Query, Axios, Tailwind CSS, Lucide icons |
 | **Testing** | JUnit 5, MockMvc, Testcontainers (PostgreSQL, S3Mock), Jimfs; Vitest, Testing Library |
 | **Build and style** | Gradle, JaCoCo, Spotless with google-java-format, ESLint, the TypeScript compiler (`strict`) |
 | **Delivery** | Docker (multi-stage build), Docker Compose, GitHub Actions, Fly.io |

@@ -10,6 +10,8 @@
     "jsx": "react-jsx",
     "types": ["vite/client"],
     "allowJs": false,
+    // An error rather than a warning: ESLint's no-unreachable is left to the compiler in TypeScript.
+    "allowUnreachableCode": false,
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,

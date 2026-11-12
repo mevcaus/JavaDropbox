@@ -11,7 +11,8 @@ interface QuotaModalProps {
     /** The account whose quota to change; nothing is shown without one. */
     account: AccountDto | null;
     onClose: () => void;
-    onSaved: () => void;
+    /** Runs with the account once its new quota is stored. */
+    onSaved: (account: AccountDto) => void;
 }
 
 /**
@@ -42,7 +43,7 @@ const QuotaDialog = ({ account, onClose, onSaved }: QuotaModalProps & { account:
         setError(null);
         try {
             await setAccountQuota({ id: account.id, body: { quota } }).unwrap();
-            onSaved();
+            onSaved(account);
         } catch (err) {
             setError(readableError(err, 'Could not change the quota.'));
         } finally {

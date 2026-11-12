@@ -273,7 +273,7 @@ Every Java file under `src/` is checked. The codebase was reformatted in one com
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-ESLint checks every frontend file, JavaScript and TypeScript, with the same hooks rules. The TypeScript compiler, with `strict` on, checks the TypeScript files. CI runs both:
+ESLint checks the app with typescript-eslint's rules and the React hooks rules, and the build's config files and scripts with its core rules. The TypeScript compiler, with `strict` on, checks the app, unreachable code included. CI runs both:
 
 ```bash
 cd frontend && npm run lint && npm run typecheck

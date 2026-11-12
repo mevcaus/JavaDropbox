@@ -176,4 +176,21 @@ describe('Shared', () => {
 
         expect(await screen.findByText('Could not open this link.')).toBeInTheDocument();
     });
+
+    // The spec allows a folder's contents, and a folder's children, to be null; neither is a crash.
+    it('lists a folder whose contents or a folder\'s children are missing as empty', async () => {
+        const user = userEvent.setup();
+        serve({ ...folder, contents: [{ name: 'Day 1', isDirectory: true, size: 0, children: null }] });
+        renderAt();
+
+        expect(await screen.findByText('0 items')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Day 1' }));
+        expect(screen.getByText('This folder is empty.')).toBeInTheDocument();
+        cleanup();
+
+        serve({ ...folder, contents: null });
+        renderAt();
+        expect(await screen.findByText(/^Folder · 0 items/)).toBeInTheDocument();
+        expect(screen.getByText('This folder is empty.')).toBeInTheDocument();
+    });
 });

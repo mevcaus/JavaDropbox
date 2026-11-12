@@ -10,6 +10,7 @@ import {
 } from './authSlice';
 import mockedApi from '../services/api';
 import { makeStore, type AppStore } from '../redux/store';
+import { postedFormBody } from '../test/forms';
 
 vi.mock('../services/api');
 const api = vi.mocked(mockedApi);
@@ -47,8 +48,7 @@ describe('authSlice', () => {
 
             const [url, body, config] = api.post.mock.calls[0];
             expect(url).toBe('/login');
-            expect(body).toBeInstanceOf(URLSearchParams);
-            const form = body as URLSearchParams;
+            const form = postedFormBody(body);
             expect(form.get('username')).toBe('ada');
             expect(form.get('password')).toBe('hunter2');
             expect(config?.headers?.['Content-Type']).toBe('application/x-www-form-urlencoded');
