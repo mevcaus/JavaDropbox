@@ -1,7 +1,7 @@
 // The Clipboard API only exists in secure contexts, and a self-hosted install is often opened over
 // plain http on a LAN address, where navigator.clipboard is undefined. Fall back to selecting the
 // text in its input and the legacy copy command, and report whether anything worked.
-export const copyToClipboard = async (text, input) => {
+export const copyToClipboard = async (text: string, input?: HTMLInputElement | null): Promise<boolean> => {
     if (navigator.clipboard?.writeText) {
         try {
             await navigator.clipboard.writeText(text);

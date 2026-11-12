@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react';
 import { skipToken } from '@reduxjs/toolkit/query';
-import { useSearchFilesQuery } from '../services/apiSlice';
+import { useSearchFilesQuery, type SearchResults } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 
 // How long typing has to pause before the server is asked, so a word typed quickly is one request
 // rather than one for every letter.
 export const SEARCH_DELAY_MS = 250;
+
+// What a failed search shows beside its error.
+const NO_RESULTS: SearchResults = { results: [], total: 0, indexing: false };
+
+/** An answer for a folder: the search's results, or no results and the error that stopped it. */
+export interface SearchAnswer extends SearchResults {
+    query: string;
+    error: string | null;
+}
+
+// What's shown, with what it was for.
+interface Shown extends SearchAnswer {
+    key: string;
+    folder: string;
+}
 
 /**
  * Searches names and file contents on the server, everywhere below `folder`, as `query` is typed,
@@ -19,10 +34,10 @@ export const SEARCH_DELAY_MS = 250;
  * keystrokes. Each search is a cache entry of its own, so an answer for an older one never shows
  * as the current one's.
  */
-export const useFileSearch = (query, folder) => {
+export const useFileSearch = (query: string, folder: string): { answer: SearchAnswer | null; pending: boolean } => {
     // What to ask, once typing has paused: set from the timer, and cleared with the box, so typing
     // the same words again waits and asks again rather than finding the last search still asked.
-    const [asked, setAsked] = useState(null);
+    const [asked, setAsked] = useState<{ q: string; path: string } | null>(null);
     if (!query && asked !== null) setAsked(null);
 
     useEffect(() => {
@@ -39,23 +54,18 @@ export const useFileSearch = (query, folder) => {
 
     // The last answer shown, kept while the next search is on its way. Updated while rendering, as
     // React recommends for state that follows other state, whenever the current search answers.
-    const [shown, setShown] = useState(null);
+    const [shown, setShown] = useState<Shown | null>(null);
     const answeredAt = search.isError ? `error:${search.startedTimeStamp}` : search.fulfilledTimeStamp;
-    if (current && !search.isFetching && (search.currentData || search.isError)) {
+    const answered = search.isError ? NO_RESULTS : (search.currentData ?? null);
+    if (current && !search.isFetching && answered) {
         const key = `${current.q}\u0000${current.path}\u0000${answeredAt}`;
         if (shown?.key !== key) {
             setShown({
                 key,
                 query: current.q,
                 folder: current.path,
-                ...(search.isError
-                    ? {
-                          results: [],
-                          total: 0,
-                          indexing: false,
-                          error: readableError(search.error, 'Search failed. Please try again.'),
-                      }
-                    : { ...search.currentData, error: null }),
+                ...answered,
+                error: search.isError ? readableError(search.error, 'Search failed. Please try again.') : null,
             });
         }
     }

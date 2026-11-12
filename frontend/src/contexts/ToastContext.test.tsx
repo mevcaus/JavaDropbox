@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ToastProvider } from './ToastContext';
-import { useToast } from '../hooks/useToast';
+import { useToast, type ToastType } from '../hooks/useToast';
 
-const Raise = ({ type, message = 'Upload failed' }) => {
+const Raise = ({ type, message = 'Upload failed' }: { type: ToastType; message?: string }) => {
     const { addToast } = useToast();
     return <button onClick={() => addToast(message, type)}>raise {type}</button>;
 };
@@ -17,7 +17,7 @@ const renderToasts = () =>
     );
 
 // Advance in steps so React can commit and start the next timer between them.
-const advance = (ms) => {
+const advance = (ms: number) => {
     for (let elapsed = 0; elapsed < ms; elapsed += 250) {
         act(() => vi.advanceTimersByTime(250));
     }
