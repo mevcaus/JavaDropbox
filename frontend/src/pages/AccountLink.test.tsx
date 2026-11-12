@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
+import { postedForm } from '../test/forms';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import AccountLink from './AccountLink';
 import { fetchCurrentUser } from '../features/authSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
 import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const INFO = { username: 'carol', expiresAt: '2026-10-15T09:00:00Z' };
 
@@ -16,7 +18,7 @@ const INFO = { username: 'carol', expiresAt: '2026-10-15T09:00:00Z' };
 const SignIn = () => <p>Sign-in page: {useLocation().state?.notice}</p>;
 
 // Opens the page as App would, after its session check: signed out, or signed in as signedInAs.
-const renderAt = (path, { signedInAs } = {}) => {
+const renderAt = (path: string, { signedInAs }: { signedInAs?: string } = {}) => {
     const store = makeStore();
     store.dispatch(
         signedInAs
@@ -37,7 +39,7 @@ const renderAt = (path, { signedInAs } = {}) => {
     return store;
 };
 
-const choose = async (user, password, confirmation = password) => {
+const choose = async (user: UserEvent, password: string, confirmation = password) => {
     await user.type(await screen.findByPlaceholderText('Password'), password);
     await user.type(screen.getByPlaceholderText('Confirm password'), confirmation);
 };
@@ -60,7 +62,7 @@ describe('AccountLink', () => {
         await user.click(screen.getByRole('button', { name: 'Create account' }));
 
         expect(api.post.mock.calls[0][0]).toBe('/api/invite/tok-1');
-        expect(Object.fromEntries(api.post.mock.calls[0][1])).toEqual({ password: 'long enough' });
+        expect(postedForm(api.post.mock.calls[0][1])).toEqual({ password: 'long enough' });
         expect(await screen.findByText(/Sign-in page: Your account is ready/)).toBeInTheDocument();
     });
 

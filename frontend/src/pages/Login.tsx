@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useState, useEffect, type FormEvent } from 'react';
+import { useAppDispatch, useAppSelector } from '../redux/withTypes';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { loginUser } from '../features/authSlice';
 import { Loader2 } from 'lucide-react';
@@ -9,10 +9,10 @@ import { useDemoInfo } from '../hooks/useDemoInfo';
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const dispatch = useDispatch();
+    const dispatch = useAppDispatch();
     const navigate = useNavigate();
     const location = useLocation();
-    const { isAuthenticated, loading, error, setupRequired } = useSelector((state) => state.auth);
+    const { isAuthenticated, loading, error, setupRequired } = useAppSelector((state) => state.auth);
     const demo = useDemoInfo();
 
     const from = location.state?.from?.pathname || '/dashboard';
@@ -25,7 +25,7 @@ const Login = () => {
         }
     }, [isAuthenticated, navigate, from]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         dispatch(loginUser({ username, password }));
     };

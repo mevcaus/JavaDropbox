@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useAppSelector } from '../redux/withTypes';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import DemoBanner from '../components/DemoBanner';
 
 const MainLayout = () => {
-    const { isAuthenticated } = useSelector((state) => state.auth);
+    const { isAuthenticated } = useAppSelector((state) => state.auth);
 
     const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);

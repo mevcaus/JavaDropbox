@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Admin from './Admin';
 import { loginUser } from '../features/authSlice';
 import { makeStore } from '../redux/store';
 import { apiSlice } from '../services/apiSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
+import { postedForm } from '../test/forms';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const addToast = vi.fn();
 vi.mock('../hooks/useToast', () => ({
@@ -37,14 +39,16 @@ const INVITE = {
 
 // Answers the page's two lists; each call to load them again gets the same answers.
 const serve = ({ accounts = ACCOUNTS, invites = [INVITE] } = {}) =>
-    api.get.mockImplementation(async (url) => {
+    api.get.mockImplementation(async (url: string) => {
         if (url === '/api/admin/users') return { data: accounts };
         if (url === '/api/admin/invites') return { data: invites };
         throw new Error(`unexpected GET ${url}`);
     });
 
-const renderAs = (role, username = 'ada', store = makeStore()) => {
-    if (!store.getState().auth.user) store.dispatch(loginUser.fulfilled({ username, role }, 'seed'));
+const renderAs = (role: string, username = 'ada', store = makeStore()) => {
+    if (!store.getState().auth.user) {
+        store.dispatch(loginUser.fulfilled({ username, role }, 'seed', { username, password: '' }));
+    }
     const view = render(
         <Provider store={store}>
             <MemoryRouter initialEntries={['/admin']}>
@@ -58,13 +62,18 @@ const renderAs = (role, username = 'ada', store = makeStore()) => {
     return { ...view, store };
 };
 
-const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
+const gets = (url: string) => api.get.mock.calls.filter(([called]) => called === url).length;
 
-const rowOf = async (username) => (await screen.findByRole('cell', { name: new RegExp(`^${username}`) })).closest('tr');
-const params = (call) => Object.fromEntries(call[1]);
+// The table row an account is listed in.
+const rowOf = async (username: string) => {
+    const row = (await screen.findByRole('cell', { name: new RegExp(`^${username}`) })).closest('tr');
+    if (!row) throw new Error(`No row for ${username}`);
+    return row;
+};
+const params = (call: unknown[]) => postedForm(call[1]);
 
 // Says yes in the dialog that asks before a change to an account.
-const confirmIn = async (user, dialogName, button) =>
+const confirmIn = async (user: UserEvent, dialogName: string | RegExp, button: string | RegExp) =>
     user.click(within(await screen.findByRole('dialog', { name: dialogName })).getByRole('button', { name: button }));
 
 describe('Admin', () => {
@@ -134,11 +143,11 @@ describe('Admin', () => {
         renderAs('ADMIN');
         const disableBob = await screen.findByRole('button', { name: 'Disable bob' });
 
-        let finishLoading;
+        let finishLoading!: (value?: unknown) => void;
         const loaded = new Promise((resolve) => {
             finishLoading = resolve;
         });
-        api.get.mockImplementation(async (url) => {
+        api.get.mockImplementation(async (url: string) => {
             await loaded;
             if (url === '/api/admin/invites') return { data: [] };
             return { data: ACCOUNTS.map((account) => (account.id === 2 ? { ...account, enabled: false } : account)) };
@@ -186,7 +195,7 @@ describe('Admin', () => {
     it('keeps the confirmation open and waiting until the change is done', async () => {
         const user = userEvent.setup();
         serve();
-        let finish;
+        let finish!: (value?: unknown) => void;
         api.put.mockReturnValue(
             new Promise((resolve) => {
                 finish = resolve;
@@ -386,7 +395,7 @@ describe('Admin', () => {
     it('withdraws an invitation once however often it is clicked, and drops it when it was used', async () => {
         const user = userEvent.setup();
         serve();
-        let refuse;
+        let refuse!: (value?: unknown) => void;
         api.delete.mockReturnValue(
             new Promise((resolve, reject) => {
                 refuse = reject;
@@ -447,14 +456,15 @@ describe('Admin', () => {
     it('offers no Withdraw, and no account action, while a list is being asked again', async () => {
         serve();
         const { store } = renderAs('ADMIN');
-        const invitation = await screen.findByText(/carol/);
+        const invitation = (await screen.findByText(/carol/)).closest('li');
+        if (!invitation) throw new Error('The invitation is not listed');
         await rowOf('bob');
 
         api.get.mockImplementation(() => new Promise(() => {}));
         store.dispatch(apiSlice.util.invalidateTags(['Invites']));
 
         await vi.waitFor(() =>
-            expect(within(invitation.closest('li')).getByRole('button', { name: /Withdraw/ })).toBeDisabled(),
+            expect(within(invitation).getByRole('button', { name: /Withdraw/ })).toBeDisabled(),
         );
         within(await rowOf('bob'))
             .getAllByRole('button')
@@ -465,7 +475,7 @@ describe('Admin', () => {
     // the invitations load would leave the accounts out of date for a while. The buttons wait for
     // both lists, so no change can start then.
     it('keeps every account action waiting while either list is still loading', async () => {
-        let releaseInvites;
+        let releaseInvites!: (value?: unknown) => void;
         api.get.mockImplementation((url) =>
             url === '/api/admin/users'
                 ? Promise.resolve({ data: ACCOUNTS })
@@ -483,7 +493,7 @@ describe('Admin', () => {
     });
 
     it('says when the invitations alone cannot be loaded, and not that none are waiting', async () => {
-        api.get.mockImplementation(async (url) => {
+        api.get.mockImplementation(async (url: string) => {
             if (url === '/api/admin/users') return { data: ACCOUNTS };
             throw { response: { status: 500, data: '' } };
         });

@@ -7,9 +7,13 @@ import Dashboard from './Dashboard';
 import { makeStore } from '../redux/store';
 import { apiSlice } from '../services/apiSlice';
 import { AxiosError } from 'axios';
-import api from '../services/api';
+import mockedApi from '../services/api';
+
+import { postedFileNames, postedMultipart } from '../test/forms';
+import type { DroppedEntry } from '../utils/droppedFiles';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const addToast = vi.fn();
 vi.mock('../hooks/useToast', () => ({
@@ -18,13 +22,16 @@ vi.mock('../hooks/useToast', () => ({
 
 const TREE = [{ name: 'report.pdf', isDirectory: false, size: 10, lastModified: '2026-01-01T00:00:00Z', relativePath: 'report.pdf' }];
 
-const PHOTOS_TREE = [
-    {
-        name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos',
-        children: [{ name: 'beach.jpg', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos/beach.jpg' }],
-    },
-    ...TREE,
-];
+const BEACH = { name: 'beach.jpg', isDirectory: false, size: 5, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos/beach.jpg' };
+const PHOTOS = { name: 'Photos', isDirectory: true, size: 0, lastModified: '2026-01-01T00:00:00Z', relativePath: 'Photos', children: [BEACH] };
+const PHOTOS_TREE = [PHOTOS, ...TREE];
+
+// The upload button's file input, which the browser's picker fills.
+const fileInput = () => {
+    const input = document.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('No file input');
+    return input;
+};
 
 // Shows the router's location and offers the browser's Back button.
 const LocationProbe = () => {
@@ -62,8 +69,8 @@ describe('Dashboard', () => {
     it('downloads through a plain link instead of loading the file into memory', async () => {
         api.get.mockResolvedValue({ data: TREE });
         const user = userEvent.setup();
-        const clicked = [];
-        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function record() {
+        const clicked: (string | null)[] = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function record(this: HTMLAnchorElement) {
             clicked.push(this.getAttribute('href'));
         });
         renderDashboard();
@@ -78,13 +85,13 @@ describe('Dashboard', () => {
 
     it("previews a file in the open folder by its full path, and downloads it from there", async () => {
         const tree = [
-            { ...PHOTOS_TREE[0], children: [{ ...PHOTOS_TREE[0].children[0], previewType: 'image' }] },
+            { ...PHOTOS, children: [{ ...BEACH, previewType: 'image' }] },
             ...TREE,
         ];
         api.get.mockResolvedValue({ data: tree });
         const user = userEvent.setup();
-        const clicked = [];
-        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function record() {
+        const clicked: (string | null)[] = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function record(this: HTMLAnchorElement) {
             clicked.push(this.getAttribute('href'));
         });
         renderDashboard({ url: '/dashboard?path=Photos' });
@@ -105,7 +112,7 @@ describe('Dashboard', () => {
         const user = userEvent.setup();
         renderDashboard();
         await screen.findByRole('button', { name: 'Download report.pdf' });
-        const input = document.querySelector('input[type="file"]');
+        const input = fileInput();
 
         await user.upload(input, new File(['x'], 'again.txt'));
 
@@ -120,14 +127,14 @@ describe('Dashboard', () => {
         renderDashboard();
         await screen.findByRole('button', { name: 'Download report.pdf' });
 
-        await user.upload(document.querySelector('input[type="file"]'), [
+        await user.upload(fileInput(), [
             new File(['x'], 'notes.txt'),
             new File(['SECRET=1'], '.env'),
         ]);
 
         expect(addToast).toHaveBeenCalledWith('.env was not uploaded. Names cannot start with a dot.', 'error');
         await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-        expect(api.post.mock.calls[0][1].getAll('files').map((file) => file.name)).toEqual(['notes.txt']);
+        expect(postedFileNames(api.post.mock.calls[0]?.[1])).toEqual(['notes.txt']);
     });
 
     it('sends nothing when every file starts with a dot', async () => {
@@ -136,7 +143,7 @@ describe('Dashboard', () => {
         renderDashboard();
         await screen.findByRole('button', { name: 'Download report.pdf' });
 
-        await user.upload(document.querySelector('input[type="file"]'), [new File(['a'], '.env'), new File(['b'], '.npmrc')]);
+        await user.upload(fileInput(), [new File(['a'], '.env'), new File(['b'], '.npmrc')]);
 
         expect(addToast).toHaveBeenCalledWith('.env, .npmrc were not uploaded. Names cannot start with a dot.', 'error');
         expect(api.post).not.toHaveBeenCalled();
@@ -144,12 +151,12 @@ describe('Dashboard', () => {
 
     describe('uploading a folder', () => {
         // A file as the folder picker hands it over: jsdom has no webkitRelativePath of its own.
-        const pickedFile = (relativePath) => {
-            const file = new File(['x'], relativePath.split('/').at(-1));
+        const pickedFile = (relativePath: string) => {
+            const file = new File(['x'], relativePath.slice(relativePath.lastIndexOf('/') + 1));
             Object.defineProperty(file, 'webkitRelativePath', { value: relativePath });
             return file;
         };
-        const postedPaths = () => api.post.mock.calls.map(([, form]) => form.get('path'));
+        const postedPaths = () => api.post.mock.calls.map(([, form]) => postedMultipart(form).get('path'));
 
         it('opens a folder picker', async () => {
             api.get.mockResolvedValue({ data: TREE });
@@ -190,7 +197,7 @@ describe('Dashboard', () => {
 
             expect(addToast).toHaveBeenCalledWith('.DS_Store, .git were not uploaded. Names cannot start with a dot.', 'info');
             await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-            expect(api.post.mock.calls[0][1].getAll('files').map((file) => file.name)).toEqual(['plan.txt']);
+            expect(postedFileNames(api.post.mock.calls[0]?.[1])).toEqual(['plan.txt']);
         });
 
         it('sends nothing when the folder itself has a dot name', async () => {
@@ -222,27 +229,32 @@ describe('Dashboard', () => {
 
     describe('dropping onto the file table', () => {
         // A drop as the browser hands it over, with FileSystemEntry stand-ins for its items.
-        const fileEntry = (name) => ({ name, isFile: true, isDirectory: false, file: (resolve) => resolve(new File(['x'], name)) });
-        const folderEntry = (name, children) => {
+        const fileEntry = (name: string) => ({
+            name,
+            isFile: true,
+            isDirectory: false,
+            file: (resolve: (file: File) => void) => resolve(new File(['x'], name)),
+        });
+        const folderEntry = (name: string, children: DroppedEntry[]) => {
             let read = false;
             return {
                 name,
                 isFile: false,
                 isDirectory: true,
                 createReader: () => ({
-                    readEntries: (resolve) => {
+                    readEntries: (resolve: (entries: DroppedEntry[]) => void) => {
                         resolve(read ? [] : children);
                         read = true;
                     },
                 }),
             };
         };
-        const filesDrag = (...entries) => ({
+        const filesDrag = (...entries: DroppedEntry[]) => ({
             types: ['Files'],
             items: entries.map((entry) => ({ kind: 'file', webkitGetAsEntry: () => entry, getAsFile: () => null })),
         });
         const postedFolders = () =>
-            api.post.mock.calls.map(([, form]) => [form.get('path'), form.getAll('files').map((file) => file.name)]);
+            api.post.mock.calls.map(([, form]) => [postedMultipart(form).get('path'), postedFileNames(form)]);
         const dropHint = () => screen.queryByText(/^Drop to upload to/);
 
         it('uploads dropped files and folders below the open folder, keeping their structure', async () => {
@@ -375,7 +387,7 @@ describe('Dashboard', () => {
             api.get.mockResolvedValue({ data: TREE });
             renderDashboard();
             const row = await screen.findByRole('button', { name: 'Download report.pdf' });
-            const unreadable = { name: 'locked.txt', isFile: true, isDirectory: false, file: (_, reject) => reject(new Error('denied')) };
+            const unreadable = { name: 'locked.txt', isFile: true, isDirectory: false, file: (_: unknown, reject: (error: Error) => void) => reject(new Error('denied')) };
 
             fireEvent.drop(row, { dataTransfer: filesDrag(unreadable) });
 
@@ -425,7 +437,8 @@ describe('Dashboard', () => {
 
         await user.click(await screen.findByRole('button', { name: 'Versions of report.pdf' }));
         await screen.findByText('Version 1');
-        await user.click(screen.getAllByRole('button', { name: 'Restore' }).at(-1));
+        const restoreButtons = screen.getAllByRole('button', { name: 'Restore' });
+        await user.click(restoreButtons[restoreButtons.length - 1]);
 
         await waitFor(() => expect(api.get.mock.calls.filter(([url]) => url === '/api/files')).toHaveLength(2));
     });
@@ -539,10 +552,10 @@ describe('Dashboard', () => {
             renderDashboard({ url: '/dashboard?path=Photos' });
             await screen.findByText('beach.jpg');
 
-            await user.upload(document.querySelector('input[type="file"]'), new File(['x'], 'sunset.jpg'));
+            await user.upload(fileInput(), new File(['x'], 'sunset.jpg'));
 
             await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-            expect(api.post.mock.calls[0][1].get('path')).toBe('Photos');
+            expect(postedMultipart(api.post.mock.calls[0]?.[1]).get('path')).toBe('Photos');
         });
     });
 

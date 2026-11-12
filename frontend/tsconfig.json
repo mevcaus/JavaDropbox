@@ -1,8 +1,7 @@
 {
   // Type-checks the app (npm run typecheck); Vite and Vitest compile it on their own and only
-  // strip the types, so this is what catches type errors. allowJs lets the files still in
-  // JavaScript be imported from TypeScript ones while the frontend is converted a part at a time
-  // (#206); they are not checked themselves until they are converted.
+  // strip the types, so this is what catches type errors. Everything in src is TypeScript, so a
+  // JavaScript file there is refused rather than imported unchecked.
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
@@ -10,8 +9,7 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "types": ["vite/client"],
-    "allowJs": true,
-    "checkJs": false,
+    "allowJs": false,
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,

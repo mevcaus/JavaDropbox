@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useState, type FormEvent } from 'react';
+import { useAppDispatch } from '../redux/withTypes';
 import { useNavigate, Link } from 'react-router-dom';
 import { useCompleteSetupMutation } from '../services/apiSlice';
 import { setupCompleted } from '../features/authSlice';
@@ -14,12 +14,12 @@ const Setup = () => {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
-    const dispatch = useDispatch();
+    const dispatch = useAppDispatch();
     const [completeSetup] = useCompleteSetupMutation();
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError(null);
 

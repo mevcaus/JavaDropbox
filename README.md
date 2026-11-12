@@ -455,7 +455,7 @@ What a sync client needs from the server comes first, so that each step is usefu
 - [ ] **Thumbnails** of images and PDFs, made in the background ([#210])
 - [ ] **Two-factor sign-in** with TOTP, and single sign-on through OpenID Connect ([#207])
 - [ ] **Live updates**: a change made in one tab or device shows up in the others without a refresh ([#205])
-- [ ] **TypeScript** for the frontend ([#206])
+- [x] **TypeScript** for the frontend, with `strict` on ([#206])
 
 [#26]: https://github.com/mevcaus/JavaDropbox/issues/26
 [#30]: https://github.com/mevcaus/JavaDropbox/issues/30

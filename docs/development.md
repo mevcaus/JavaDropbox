@@ -117,7 +117,7 @@ JavaDropbox/
 │   │   │   ├── authSlice.ts        #   Login/logout/session thunks + state, the role
 │   │   │   └── files.ts            #   The file tree's helpers, and the endpoints linked to
 │   │   ├── hooks/                  # useFileSearch (search as you type), useToast, useDemoInfo
-│   │   ├── layouts/MainLayout.jsx  # Auth-guarded layout wrapper
+│   │   ├── layouts/MainLayout.tsx  # Auth-guarded layout wrapper
 │   │   ├── pages/                  # Dashboard, Login, Setup, Admin (accounts), Shared (a share
 │   │   │                           #   link's public page), AccountLink (invitation and reset pages)
 │   │   ├── redux/                  # The store (store.ts), and typed hooks and thunks (withTypes.ts)
@@ -130,11 +130,12 @@ JavaDropbox/
 │   │   ├── services/requestBodies.ts # How each endpoint takes its body, generated (npm run api:client)
 │   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard,
 │   │   │                           #   droppedFiles (reading a drop), names, passwords
-│   │   ├── App.jsx                 # Route definitions
-│   │   └── main.jsx                # Entry point; registers the 401 handler
+│   │   ├── test/                   # Test helpers: focus indicators, posted forms
+│   │   ├── App.tsx                 # Route definitions
+│   │   └── main.tsx                # Entry point; registers the 401 handler
 │   ├── vite.config.js              # Dev proxy to Spring Boot backend
 │   ├── openapi-config.cjs          # What npm run api:client generates (scripts/request-bodies.mjs too)
-│   ├── tsconfig.json               # Strict type check; allowJs while the frontend moves to TypeScript
+│   ├── tsconfig.json               # Strict type check of src, which is all TypeScript
 │   ├── openapi.json                # The API spec, written from the controllers (./gradlew openApiSpec)
 │   └── package.json
 ├── src/main/java/
@@ -278,7 +279,7 @@ ESLint checks every frontend file, JavaScript and TypeScript, with the same hook
 cd frontend && npm run lint && npm run typecheck
 ```
 
-The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones. Those aren't type-checked themselves, but TypeScript infers types from them, and those types count. A component's destructured props without a default become required, for example, so a `.tsx` page that leaves one out fails until that component is converted and says which props are optional. Converting the files that others import first, components before the pages that use them, avoids that. Once a file has been converted, keep it TypeScript.
+The frontend is TypeScript, with `strict` on and `allowJs` off ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)), so a JavaScript file in `src` can't be imported. Only the build's config files and scripts are JavaScript, and ESLint checks them with its core rules. Data whose shape isn't certain, such as what was thrown or a body the server sent, is read through a guard (`fieldsOf`, `statusOf` and `readableError` in `utils/errors.ts`) rather than cast; the types of what the API sends come from the generated spec, re-exported by `services/apiSlice.ts`. In tests, mock `services/api` with `vi.mocked`, and read a posted body through `test/forms.ts`, which checks it's a form or a multipart body before it's read.
 
 In TypeScript, read the store with `useAppSelector` and `useAppDispatch` from `redux/withTypes.ts` rather than react-redux's own hooks, and make a thunk with `createAppAsyncThunk`, so the store's state, its dispatch and a thunk's rejection message (a readable string) are typed without spelling them out. `redux/store.ts` exports `RootState`, `AppDispatch` and `AppStore`. A thunk is typed with the whole app's state, so a test dispatches it on a store from `makeStore()`, not one made with only its own slice.
 

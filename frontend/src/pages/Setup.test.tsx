@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
+import { postedForm } from '../test/forms';
 import { MemoryRouter } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import Setup from './Setup';
 import { fetchCurrentUser, SETUP_REQUIRED } from '../features/authSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
 import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async (importOriginal) => ({
@@ -30,7 +32,15 @@ const renderSetup = () => {
     return store;
 };
 
-const fillForm = async (user, { code = 'ABCDE-FGHJK', username = 'ada', password = 'correct horse', confirm = password } = {}) => {
+const fillForm = async (
+    user: UserEvent,
+    {
+        code = 'ABCDE-FGHJK',
+        username = 'ada',
+        password = 'correct horse',
+        confirm = password,
+    }: { code?: string; username?: string; password?: string; confirm?: string } = {},
+) => {
     await user.type(screen.getByLabelText('Setup code'), code);
     await user.type(screen.getByPlaceholderText('Username'), username);
     await user.type(screen.getByPlaceholderText('Password'), password);
@@ -53,7 +63,7 @@ describe('Setup', () => {
 
         const params = api.post.mock.calls[0][1];
         expect(api.post.mock.calls[0][0]).toBe('/setup');
-        expect(Object.fromEntries(params)).toEqual({
+        expect(postedForm(params)).toEqual({
             code: 'ABCDE-FGHJK',
             username: 'ada',
             password: 'correct horse',

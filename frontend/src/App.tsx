@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useAppDispatch, useAppSelector } from './redux/withTypes';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
@@ -13,8 +13,8 @@ import { fetchCurrentUser } from './features/authSlice';
 import { Loader2 } from 'lucide-react';
 
 function App() {
-  const dispatch = useDispatch();
-  const { isInitialized } = useSelector((state) => state.auth);
+  const dispatch = useAppDispatch();
+  const { isInitialized } = useAppSelector((state) => state.auth);
 
   useEffect(() => {
     dispatch(fetchCurrentUser());

@@ -3,12 +3,13 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import App from './App';
 import { makeStore } from './redux/store';
-import api from './services/api';
+import mockedApi from './services/api';
 
 vi.mock('./services/api');
+const api = vi.mocked(mockedApi);
 
 // App owns a BrowserRouter, so it is steered through the real history.
-const renderAppAt = (url) => {
+const renderAppAt = (url: string) => {
     window.history.pushState({}, '', url);
     const store = makeStore();
     render(
