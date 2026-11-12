@@ -40,19 +40,6 @@ export const apiSlice = generatedApi
             // A link's id doesn't say whose item it shares, so every list of links is asked again. Until
             // that answers, the revoked link is taken out of each list already. (A listing already in
             // flight can still bring it back for a moment; the dialog disables Revoke while it loads.)
-            listAccounts: { providesTags: ['Accounts'] },
-            listInvites: { providesTags: ['Invites'] },
-            setAccountRole: { invalidatesTags: ['Accounts'] },
-            setAccountQuota: { invalidatesTags: ['Accounts'] },
-            // Disabling an account also withdraws the invitations it made.
-            setAccountEnabled: { invalidatesTags: ['Accounts', 'Invites'] },
-            // An import gives the account's files rows, which count toward its storage, and may be into
-            // the admin's own account.
-            importFiles: { invalidatesTags: ['Accounts', 'Files'] },
-            createInvite: { invalidatesTags: ['Invites'] },
-            // Failed or not: a failure is most often an invitation used or expired meanwhile, which
-            // shouldn't stay listed.
-            revokeInvite: { invalidatesTags: ['Invites'] },
             revokeShareLink: {
                 invalidatesTags: ['ShareLinks'],
                 async onQueryStarted({ id }, { dispatch, getState, queryFulfilled }) {
@@ -70,6 +57,21 @@ export const apiSlice = generatedApi
                     }
                 },
             },
+            listAccounts: { providesTags: ['Accounts'] },
+            listInvites: { providesTags: ['Invites'] },
+            setAccountRole: { invalidatesTags: ['Accounts'] },
+            setAccountQuota: { invalidatesTags: ['Accounts'] },
+            // Disabling an account also withdraws the invitations it made; enabling one doesn't.
+            setAccountEnabled: {
+                invalidatesTags: (_result, _error, { body }) => (body.enabled ? ['Accounts'] : ['Accounts', 'Invites']),
+            },
+            // An import gives the account's files rows, which count toward its storage, and may be into
+            // the admin's own account.
+            importFiles: { invalidatesTags: ['Accounts', 'Files'] },
+            createInvite: { invalidatesTags: ['Invites'] },
+            // Failed or not: a failure is most often an invitation used or expired meanwhile, which
+            // shouldn't stay listed.
+            revokeInvite: { invalidatesTags: ['Invites'] },
         },
     })
     .injectEndpoints({

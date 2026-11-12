@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Admin from './Admin';
 import { loginUser } from '../features/authSlice';
 import { makeStore } from '../redux/store';
+import { apiSlice } from '../services/apiSlice';
 import api from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
@@ -42,10 +43,9 @@ const serve = ({ accounts = ACCOUNTS, invites = [INVITE] } = {}) =>
         throw new Error(`unexpected GET ${url}`);
     });
 
-const renderAs = (role, username = 'ada') => {
-    const store = makeStore();
-    store.dispatch(loginUser.fulfilled({ username, role }, 'seed'));
-    return render(
+const renderAs = (role, username = 'ada', store = makeStore()) => {
+    if (!store.getState().auth.user) store.dispatch(loginUser.fulfilled({ username, role }, 'seed'));
+    const view = render(
         <Provider store={store}>
             <MemoryRouter initialEntries={['/admin']}>
                 <Routes>
@@ -55,7 +55,10 @@ const renderAs = (role, username = 'ada') => {
             </MemoryRouter>
         </Provider>,
     );
+    return { ...view, store };
 };
+
+const gets = (url) => api.get.mock.calls.filter(([called]) => called === url).length;
 
 const rowOf = async (username) => (await screen.findByRole('cell', { name: new RegExp(`^${username}`) })).closest('tr');
 const params = (call) => Object.fromEntries(call[1]);
@@ -425,5 +428,69 @@ describe('Admin', () => {
         await rowOf('bob');
 
         expect(controlsWithoutFocusIndicator(container)).toEqual([]);
+    });
+
+    // A change made elsewhere (another admin, another tab) shows when the page opens again.
+    it('lists the accounts and invitations again each time it opens', async () => {
+        serve();
+        const { store } = renderAs('ADMIN');
+        await rowOf('bob');
+        cleanup();
+
+        renderAs('ADMIN', 'ada', store);
+        await rowOf('bob');
+
+        await vi.waitFor(() => expect([gets('/api/admin/users'), gets('/api/admin/invites')]).toEqual([2, 2]));
+    });
+
+    // Until the lists answer again, a row or an invitation may already be gone or changed.
+    it('offers no Withdraw, and no account action, while a list is being asked again', async () => {
+        serve();
+        const { store } = renderAs('ADMIN');
+        const invitation = await screen.findByText(/carol/);
+        await rowOf('bob');
+
+        api.get.mockImplementation(() => new Promise(() => {}));
+        store.dispatch(apiSlice.util.invalidateTags(['Invites']));
+
+        await vi.waitFor(() =>
+            expect(within(invitation.closest('li')).getByRole('button', { name: /Withdraw/ })).toBeDisabled(),
+        );
+        within(await rowOf('bob'))
+            .getAllByRole('button')
+            .forEach((button) => expect(button).toBeDisabled());
+    });
+
+    // RTK holds a change's refetch back while another request is in flight, so a change made while
+    // the invitations load would leave the accounts out of date for a while. The buttons wait for
+    // both lists, so no change can start then.
+    it('keeps every account action waiting while either list is still loading', async () => {
+        let releaseInvites;
+        api.get.mockImplementation((url) =>
+            url === '/api/admin/users'
+                ? Promise.resolve({ data: ACCOUNTS })
+                : new Promise((resolve) => {
+                      releaseInvites = () => resolve({ data: [INVITE] });
+                  }),
+        );
+        renderAs('ADMIN');
+
+        const row = await rowOf('bob');
+        expect(within(row).getByRole('button', { name: 'Make admin, bob' })).toBeDisabled();
+
+        releaseInvites();
+        await vi.waitFor(() => expect(within(row).getByRole('button', { name: 'Make admin, bob' })).toBeEnabled());
+    });
+
+    it('says when the invitations alone cannot be loaded, and not that none are waiting', async () => {
+        api.get.mockImplementation(async (url) => {
+            if (url === '/api/admin/users') return { data: ACCOUNTS };
+            throw { response: { status: 500, data: '' } };
+        });
+        renderAs('ADMIN');
+
+        await rowOf('bob');
+        expect(await screen.findByText('The server is unavailable right now. Please try again.')).toBeInTheDocument();
+        expect(screen.queryByText('No invitation is waiting to be used.')).not.toBeInTheDocument();
     });
 });

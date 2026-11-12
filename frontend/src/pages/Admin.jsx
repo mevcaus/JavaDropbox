@@ -134,16 +134,19 @@ const AccountsPage = () => {
     const open = useListInvitesQuery(undefined, { refetchOnMountOrArgChange: true });
     const accounts = listed.currentData ?? null;
     const invites = open.currentData ?? [];
-    const failure = listed.error ?? open.error;
-    const error = failure ? readableError(failure, 'Could not load the accounts.') : null;
+    const error = listed.error ? readableError(listed.error, 'Could not load the accounts.') : null;
+    const invitesError = open.error ? readableError(open.error, 'Could not load the invitations.') : null;
+    // While either list is being asked for, a change made now could act on rows that are out of date,
+    // and RTK holds a change's refetch back until a request already in flight has answered, so every
+    // button waits on both lists.
+    const listsLoading = listed.isFetching || open.isFetching;
     const [setAccountEnabled] = useSetAccountEnabledMutation();
     const [setAccountRole] = useSetAccountRoleMutation();
     const [createPasswordResetLink] = useCreatePasswordResetLinkMutation();
     const [importAccountFiles] = useImportFilesMutation();
     const [revokeInvite] = useRevokeInviteMutation();
-    // The account an action is running for. Every row's buttons wait until it is done and the list
-    // shows its outcome (they also wait while the list is asked again), so a second click never acts
-    // on what the list showed before.
+    // The account an action is running for. Every row's buttons wait until it is done and the lists
+    // have answered again, so a second click never acts on what they showed before.
     const [busy, setBusy] = useState(null);
     // Likewise for the invitation being withdrawn.
     const [withdrawing, setWithdrawing] = useState(null);
@@ -286,7 +289,7 @@ const AccountsPage = () => {
                         <tbody className="bg-white divide-y divide-gray-200">
                             {accounts.map((account) => {
                                 const isMe = account.username === me;
-                                const waiting = busy !== null || listed.isFetching;
+                                const waiting = busy !== null || listsLoading;
                                 return (
                                     <tr key={account.id}>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -379,8 +382,13 @@ const AccountsPage = () => {
                 <h2 id="invites-heading" className="text-lg font-medium text-gray-900 mb-3">
                     Invitations
                 </h2>
-                {invites.length === 0 ? (
-                    <p className="text-sm text-gray-500">No invitation is waiting to be used.</p>
+                {invitesError ? (
+                    <p role="alert" className="text-sm text-red-500">
+                        {invitesError}
+                    </p>
+                ) : invites.length === 0 ? (
+                    // Only once the list has loaded: until then, or if it failed, nobody knows.
+                    open.isSuccess && <p className="text-sm text-gray-500">No invitation is waiting to be used.</p>
                 ) : (
                     <ul className="divide-y divide-gray-200 bg-white shadow-sm sm:rounded-lg">
                         {invites.map((invite) => (
@@ -400,7 +408,7 @@ const AccountsPage = () => {
                                 </div>
                                 <button
                                     type="button"
-                                    disabled={withdrawing !== null || open.isFetching}
+                                    disabled={withdrawing !== null || listsLoading}
                                     onClick={() => withdraw(invite)}
                                     aria-label={`Withdraw the invitation for ${invite.username}`}
                                     className={dangerButton}
