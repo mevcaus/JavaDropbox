@@ -8,7 +8,7 @@ const formatter = new Intl.DateTimeFormat(undefined, {
 
 // The backend sends absolute ISO-8601 instants (e.g. "2026-09-12T16:00:00.123Z"), so the
 // viewer's own locale and timezone decide how they read.
-export const formatDate = (isoString) => {
+export const formatDate = (isoString: string | null | undefined): string => {
     if (!isoString) return '-';
     try {
         return formatter.format(new Date(isoString));
@@ -21,7 +21,7 @@ export const formatDate = (isoString) => {
 // strings: the backend omits the fractional seconds when an instant lands exactly on a
 // second, and "." sorts before "Z", so a lexical compare would place the later
 // "...:00.500Z" ahead of the earlier "...:00Z".
-export const toTimestamp = (isoString) => {
-    const parsed = Date.parse(isoString);
+export const toTimestamp = (isoString: string | null | undefined): number => {
+    const parsed = Date.parse(isoString ?? '');
     return Number.isNaN(parsed) ? 0 : parsed;
 };

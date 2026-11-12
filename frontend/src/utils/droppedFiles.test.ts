@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { carriesFiles, readDrop } from './droppedFiles';
+import { carriesFiles, readDrop, type DroppedEntry, type DroppedItem } from './droppedFiles';
 
 // FileSystemEntry stand-ins: jsdom has no drag and drop of its own.
-const fileEntry = (name) => ({ name, isFile: true, isDirectory: false, file: (resolve) => resolve(new File(['x'], name)) });
+const fileEntry = (name: string) => ({
+    name,
+    isFile: true,
+    isDirectory: false,
+    file: (resolve: (file: File) => void) => resolve(new File(['x'], name)),
+});
 
 // batchSize mimics Chrome, whose reader hands over at most 100 entries per call.
-const folderEntry = (name, children, batchSize = 100) => ({
+const folderEntry = (name: string, children: DroppedEntry[], batchSize = 100) => ({
     name,
     isFile: false,
     isDirectory: true,
     createReader: () => {
         let next = 0;
         return {
-            readEntries: (resolve) => {
+            readEntries: (resolve: (entries: DroppedEntry[]) => void) => {
                 const batch = children.slice(next, next + batchSize);
                 next += batch.length;
                 setTimeout(() => resolve(batch));
@@ -21,9 +26,9 @@ const folderEntry = (name, children, batchSize = 100) => ({
     },
 });
 
-const droppedItem = (entry) => ({ kind: 'file', webkitGetAsEntry: () => entry, getAsFile: () => null });
-const drop = (...items) => ({ types: ['Files'], items });
-const paths = ({ files }) => files.map(({ relativePath }) => relativePath);
+const droppedItem = (entry: DroppedEntry): DroppedItem => ({ kind: 'file', webkitGetAsEntry: () => entry, getAsFile: () => null });
+const drop = (...items: DroppedItem[]) => ({ types: ['Files'], items });
+const paths = ({ files }: Awaited<ReturnType<typeof readDrop>>) => files.map(({ relativePath }) => relativePath);
 
 describe('readDrop', () => {
     it('gives each file its path inside the dropped folder', async () => {

@@ -1,18 +1,25 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, type FocusEvent, type ReactNode, type TransitionEvent } from 'react';
 import { CheckCircle, XCircle, Info, X } from 'lucide-react';
-import { ToastContext } from '../hooks/useToast';
+import { ToastContext, type ToastContextValue, type ToastType } from '../hooks/useToast';
+
+interface ToastItem {
+    id: string;
+    message: string;
+    type: ToastType;
+    duration: number;
+}
 
 // Kept in sync with the duration-300 transition below.
 const TRANSITION_MS = 300;
 
-export const ToastProvider = ({ children }) => {
-    const [toasts, setToasts] = useState([]);
+export const ToastProvider = ({ children }: { children: ReactNode }) => {
+    const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-    const removeToast = useCallback((id) => {
+    const removeToast = useCallback((id: string) => {
         setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, []);
 
-    const addToast = useCallback((message, type = 'info', duration = 4000) => {
+    const addToast = useCallback<ToastContextValue['addToast']>((message, type = 'info', duration = 4000) => {
         const id = Math.random().toString(36).substring(2, 9);
         setToasts((prev) => [...prev, { id, message, type, duration }]);
     }, []);
@@ -45,7 +52,7 @@ export const ToastProvider = ({ children }) => {
     );
 };
 
-const Toast = ({ toast, onRemove }) => {
+const Toast = ({ toast, onRemove }: { toast: ToastItem; onRemove: (id: string) => void }) => {
     const { id, type, message, duration = 4000 } = toast;
     const [isVisible, setIsVisible] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
@@ -59,7 +66,7 @@ const Toast = ({ toast, onRemove }) => {
     // runs. requestAnimationFrame never fires while the tab is hidden, so a timer
     // backs it up; without it a toast raised in a background tab would never start.
     useEffect(() => {
-        let innerFrame;
+        let innerFrame: number | undefined;
         const outerFrame = requestAnimationFrame(() => {
             innerFrame = requestAnimationFrame(() => setIsVisible(true));
         });
@@ -92,12 +99,13 @@ const Toast = ({ toast, onRemove }) => {
         setIsClosing(true);
     };
 
-    const handleBlur = (event) => {
+    const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
         // Focus moving between the toast's own elements is not leaving it.
-        if (!event.currentTarget.contains(event.relatedTarget)) setIsFocused(false);
+        const next = event.relatedTarget;
+        if (!(next instanceof Node && event.currentTarget.contains(next))) setIsFocused(false);
     };
 
-    const handleTransitionEnd = (event) => {
+    const handleTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
         // transition-all reports one event per animated property, and the event
         // bubbles up from children, so only act on this element settling.
         if (isClosing && event.target === event.currentTarget) {
@@ -105,13 +113,13 @@ const Toast = ({ toast, onRemove }) => {
         }
     };
 
-    const styles = {
+    const styles: Record<ToastType, string> = {
         success: 'bg-green-50 border-green-200 text-green-800',
         error: 'bg-red-50 border-red-200 text-red-800',
         info: 'bg-blue-50 border-blue-200 text-blue-800',
     };
 
-    const icons = {
+    const icons: Record<ToastType, ReactNode> = {
         success: <CheckCircle className="h-5 w-5 text-green-500" />,
         error: <XCircle className="h-5 w-5 text-red-500" />,
         info: <Info className="h-5 w-5 text-blue-500" />,

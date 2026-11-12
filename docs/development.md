@@ -112,6 +112,7 @@ JavaDropbox/
 │   │   │   ├── Sidebar.jsx         #   Navigation, and storage used against the quota
 │   │   │   ├── DemoBanner.jsx      #   The live demo's limits and next reset
 │   │   │   └── Logo.jsx, AnimatedLogo.jsx
+│   │   ├── contexts/ToastContext.tsx # Shows toasts; screens raise them with useToast
 │   │   ├── features/               # Redux slices and helpers
 │   │   │   ├── authSlice.ts        #   Login/logout/session thunks + state, the role
 │   │   │   └── files.ts            #   The file tree's helpers, and the endpoints linked to

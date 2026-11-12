@@ -9,6 +9,9 @@ export type { CurrentUser, FileTreeNode } from './generatedApi';
 /** A file with its place inside a folder being uploaded, e.g. "Trip/Day 1/a.jpg". */
 export type PickedFile = { file: File; relativePath: string };
 
+/** A search's answer, as the search hook reads it. */
+export type { SearchResult, SearchResults } from './generatedApi';
+
 /**
  * The API slice with its cache tags, plus the requests the spec can't describe. Import the hooks
  * from here rather than from generatedApi, so the tags apply.

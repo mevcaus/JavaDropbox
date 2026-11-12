@@ -2,7 +2,10 @@ export const QUOTA_UNITS = [
     { label: 'MB', bytes: 1024 ** 2 },
     { label: 'GB', bytes: 1024 ** 3 },
     { label: 'TB', bytes: 1024 ** 4 },
-];
+] as const;
+
+/** A unit the quota forms offer. */
+export type QuotaUnit = (typeof QUOTA_UNITS)[number]['label'];
 
 const MB = QUOTA_UNITS[0].bytes;
 
@@ -13,7 +16,7 @@ export const QUOTA_ERROR = 'The quota has to be at least 1 MB, or empty for no l
  * A quota in bytes as the amount and unit to show in a form: the largest unit it is a whole number
  * of, so 5 GB reads as 5 GB rather than 5120 MB. No quota is an empty amount.
  */
-export const quotaToForm = (bytes) => {
+export const quotaToForm = (bytes: number | null | undefined): { amount: string; unit: QuotaUnit } => {
     if (!bytes) return { amount: '', unit: 'GB' };
     const unit = [...QUOTA_UNITS].reverse().find((u) => bytes % u.bytes === 0);
     if (unit) return { amount: String(bytes / unit.bytes), unit: unit.label };
@@ -29,7 +32,7 @@ export const quotaToForm = (bytes) => {
  * 102 MB, not 102.39999961853027 MB). Returns null for an amount that is not a positive number,
  * comes to less than 1 MB, or is too large to send exactly.
  */
-export const formToQuota = (amount, unit) => {
+export const formToQuota = (amount: string | number, unit: string): string | null => {
     const text = String(amount).trim();
     if (text === '') return '';
     const value = Number(text);

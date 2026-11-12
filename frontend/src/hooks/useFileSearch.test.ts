@@ -1,27 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { makeStore } from '../redux/store';
-import { SEARCH_DELAY_MS, useFileSearch } from './useFileSearch';
+import { SEARCH_DELAY_MS, useFileSearch, type SearchAnswer } from './useFileSearch';
 import { apiSlice } from '../services/apiSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
-const answer = (names, extra = {}) => ({
+const answer = (names: string[], extra = {}) => ({
     data: { results: names.map((name) => ({ name, relativePath: name })), total: names.length, indexing: false, ...extra },
 });
 const searches = () => api.get.mock.calls.filter(([url]) => url === '/api/search');
-const shown = (result) => result.current.answer?.results.map((hit) => hit.name);
+const shown = (result: { current: { answer: SearchAnswer | null } }) => result.current.answer?.results.map((hit) => hit.name);
 
 // The hook with the arguments FileTable gives it, which rerender changes; changeFiles does what
 // every change to the files made in the app does.
-const renderSearch = (props) => {
+const renderSearch = (props: { query?: string; folder?: string }) => {
     const store = makeStore();
     const hook = renderHook(({ query, folder }) => useFileSearch(query, folder), {
         initialProps: { query: '', folder: '', ...props },
-        wrapper: ({ children }) => createElement(Provider, { store }, children),
+        wrapper: ({ children }: { children: ReactNode }) => createElement(Provider, { store, children }),
     });
     return { ...hook, changeFiles: () => store.dispatch(apiSlice.util.invalidateTags(['Files'])) };
 };
@@ -82,7 +83,7 @@ describe('useFileSearch', () => {
         expect(result.current.answer).toBeNull();
         expect(result.current.pending).toBe(true);
         await waitFor(() => expect(searches()).toHaveLength(2));
-        expect(searches()[1][1].params).toEqual({ q: 'plan', path: 'photos' });
+        expect(searches()[1][1]?.params).toEqual({ q: 'plan', path: 'photos' });
     });
 
     it('shows a failure, and a success after it', async () => {
@@ -98,7 +99,7 @@ describe('useFileSearch', () => {
 
         changeFiles();
         await waitFor(() => expect(shown(result)).toEqual(['plan.txt', 'plan.md']));
-        expect(result.current.answer.error).toBeNull();
+        expect(result.current.answer?.error).toBeNull();
     });
 
     it('asks once each time the files change', async () => {
@@ -115,7 +116,7 @@ describe('useFileSearch', () => {
 
     // The answer on its way may be from before the change, so it's asked again once it arrives.
     it('asks again after a change made while a search was on its way', async () => {
-        let answerFirst;
+        let answerFirst!: (value: unknown) => void;
         api.get
             .mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)))
             .mockResolvedValueOnce(answer(['new.txt']));
