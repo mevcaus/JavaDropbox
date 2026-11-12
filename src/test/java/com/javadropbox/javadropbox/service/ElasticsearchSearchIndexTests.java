@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.javadropbox.javadropbox.ElasticsearchTestSupport;
+import com.javadropbox.javadropbox.TcpProxy;
 import com.javadropbox.javadropbox.exception.ServiceUnavailableException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -163,6 +164,44 @@ class ElasticsearchSearchIndexTests extends SearchIndexContractTests {
                       .doesNotContain("secret"));
     } finally {
       close(index);
+    }
+  }
+
+  // A service that takes connections but never answers mustn't hold a request for long, nor every
+  // one after it: each holds one of the server's threads.
+  @Test
+  @DisplayName("a service that hangs fails a search in seconds, and the searches after it at once")
+  void hangingService() throws Exception {
+    try (TcpProxy proxy = new TcpProxy(ElasticsearchTestSupport.url())) {
+      Files.writeString(files.resolve("a.txt"), "patience");
+      SearchIndex index = new ElasticsearchSearchIndex(items(), proxy.url(), "", "", alias);
+      try {
+        reconcile(index);
+        proxy.hang();
+
+        // The first may fail at once, on a connection the proxy dropped. Once the searches after
+        // it have stopped failing at once, the next opens a connection, and gets no answer.
+        assertThatThrownBy(() -> index.search(home, "", "patience", 10))
+            .isInstanceOf(ServiceUnavailableException.class);
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> index.search(home, "", "patience", 10))
+            .isInstanceOf(ServiceUnavailableException.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
+        Thread.sleep(ElasticsearchSearchIndex.SEARCH_PAUSE.toMillis());
+        started = System.nanoTime();
+        assertThatThrownBy(() -> index.search(home, "", "patience", 10))
+            .isInstanceOf(ServiceUnavailableException.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - started))
+            .isGreaterThan(Duration.ofSeconds(2))
+            .isLessThan(Duration.ofSeconds(15));
+
+        proxy.start();
+        Thread.sleep(ElasticsearchSearchIndex.SEARCH_PAUSE.toMillis());
+        assertThat(paths(index, "patience")).containsExactly("a.txt");
+        assertThat(index.problem()).isEmpty();
+      } finally {
+        close(index);
+      }
     }
   }
 

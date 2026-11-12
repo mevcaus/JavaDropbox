@@ -45,8 +45,8 @@ import org.springframework.test.web.servlet.MockMvc;
 class ElasticsearchOutageIntegrationTests {
 
   private static final Duration INDEXING = Duration.ofSeconds(30);
-  // Long enough for the first retry, five seconds after a batch couldn't be written.
-  private static final Duration CATCHING_UP = Duration.ofMinutes(1);
+  // Long enough for a few retries, the first five seconds after a batch couldn't be written.
+  private static final Duration CATCHING_UP = Duration.ofMinutes(2);
   private static final String UNAVAILABLE =
       "Search can't be reached right now. Your files are fine. Please try again in a moment.";
 
@@ -112,6 +112,9 @@ class ElasticsearchOutageIntegrationTests {
         .andExpect(
             jsonPath("$.components.search.details.problem")
                 .value(org.hamcrest.Matchers.containsString("can't be reached")));
+    mockMvc
+        .perform(get("/actuator/metrics/javadropbox.search.available"))
+        .andExpect(jsonPath("$.measurements[0].value").value(0.0));
 
     elasticsearch.start();
     searchIndex.awaitIdle(CATCHING_UP);
@@ -123,6 +126,9 @@ class ElasticsearchOutageIntegrationTests {
         .perform(get("/actuator/health"))
         .andExpect(jsonPath("$.components.search.status").value("UP"))
         .andExpect(jsonPath("$.components.search.details.problem").doesNotExist());
+    mockMvc
+        .perform(get("/actuator/metrics/javadropbox.search.available"))
+        .andExpect(jsonPath("$.measurements[0].value").value(1.0));
   }
 
   private void upload(String name, String text) throws Exception {

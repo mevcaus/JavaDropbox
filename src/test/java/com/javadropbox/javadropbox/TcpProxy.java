@@ -22,6 +22,8 @@ public final class TcpProxy implements AutoCloseable {
   private final int targetPort;
   private final Set<Socket> sockets = ConcurrentHashMap.newKeySet();
   private volatile ServerSocket server;
+  // Whether connections are taken and then left unanswered.
+  private volatile boolean hanging;
   private int port;
 
   /** A proxy to the service at {@code url}'s host and port, started. */
@@ -37,8 +39,9 @@ public final class TcpProxy implements AutoCloseable {
     return "http://127.0.0.1:" + port;
   }
 
-  /** Takes connections again, on the port it had. */
+  /** Takes connections, and passes them on, again, on the port it had. */
   public synchronized void start() {
+    hanging = false;
     if (server != null && !server.isClosed()) {
       return;
     }
@@ -52,6 +55,14 @@ public final class TcpProxy implements AutoCloseable {
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  /** Takes connections but never answers, like a service that hangs, and drops every one it has. */
+  public synchronized void hang() {
+    start();
+    hanging = true;
+    sockets.forEach(TcpProxy::close);
+    sockets.clear();
   }
 
   /** Refuses connections, and drops every one it has. */
@@ -70,8 +81,11 @@ public final class TcpProxy implements AutoCloseable {
     while (!listening.isClosed()) {
       try {
         Socket client = listening.accept();
-        Socket upstream = new Socket(host, targetPort);
         sockets.add(client);
+        if (hanging) {
+          continue;
+        }
+        Socket upstream = new Socket(host, targetPort);
         sockets.add(upstream);
         Thread.ofVirtual().start(() -> pump(client, upstream));
         Thread.ofVirtual().start(() -> pump(upstream, client));

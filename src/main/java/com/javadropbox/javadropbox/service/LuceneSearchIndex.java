@@ -104,7 +104,6 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
   // Before trying again when another writer, such as a second server on the same storage, holds
   // the index's lock.
   private static final Duration RETRY_DELAY = Duration.ofSeconds(5);
-  private static final Duration MAX_RETRY_DELAY = Duration.ofMinutes(1);
 
   // Small, for the demo's small heap: added documents go to disk sooner.
   private static final double RAM_BUFFER_MB = 8;
@@ -180,7 +179,9 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
       IndexableItems items,
       @Value("${javadropbox.search.index-directory:}") String indexDirectory)
       throws IOException {
-    super(RETRY_DELAY, MAX_RETRY_DELAY);
+    // Lucene retries only for another writer's lock or a damaged index it starts over, both soon
+    // over: no backing off.
+    super(RETRY_DELAY, RETRY_DELAY);
     this.items = items;
     this.location =
         indexDirectory.isBlank()
@@ -232,7 +233,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
       writeBatch(reconcileAll, changed);
       return Outcome.DONE;
     } catch (LockObtainFailedException e) {
-      log.debug("The search index is locked by another writer; trying again later");
+      log.debug("The search index is locked by another writer; trying again in {}", RETRY_DELAY);
       return Outcome.RETRY;
     } catch (CorruptIndexException | IndexFormatTooOldException | IndexFormatTooNewException e) {
       log.warn("Could not read the search index in {}; rebuilding it", location, e);

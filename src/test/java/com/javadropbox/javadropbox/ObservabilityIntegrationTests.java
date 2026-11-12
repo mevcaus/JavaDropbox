@@ -123,6 +123,9 @@ class ObservabilityIntegrationTests {
                 .value(servingDir.toFile().getAbsolutePath()))
         .andExpect(jsonPath("$.components.search.status").value("UP"))
         .andExpect(jsonPath("$.components.search.details.backend").value("lucene"));
+    mockMvc
+        .perform(get("/actuator/metrics/javadropbox.search.available"))
+        .andExpect(jsonPath("$.measurements[0].value").value(1.0));
   }
 
   @Test
