@@ -4,10 +4,10 @@
 #
 #     .github/scripts/zap-scan.sh /tmp/zap
 #
-# zap.html is the report, zap.sarif.json the same alerts for code scanning and zap.json for this
-# script, which lists any alert the plan doesn't accept. Exits 0 when there are none, 2 when there
-# are, and anything else when the scan itself failed or didn't run as planned. Run from the root of the checkout, with the
-# stack up.
+# zap.html is the report, code-scanning.sarif the same alerts for GitHub's code scanning, and
+# zap.json is for this script, which lists any alert the plan doesn't accept. Exits 0 when there
+# are none, 2 when there are, and anything else when the scan itself failed or didn't run as
+# planned. Run from the root of the checkout, with the stack up.
 set -euo pipefail
 
 out=$1
@@ -49,7 +49,8 @@ fi
 # Code scanning only takes locations in the repository, so each alert's URL becomes its path, as if
 # it were a file, and the full URL leads its message. A built asset's path drops its content hash,
 # so an alert on it stays the same alert from one build to the next.
-python3 - "$out/zap.sarif.json" <<'PY'
+# A file of its own: ZAP's, owned by the user it runs as, may not be writable here.
+python3 - "$out/zap.sarif.json" "$out/code-scanning.sarif" <<'PY'
 import json, re, sys
 from urllib.parse import urlsplit
 
@@ -61,7 +62,7 @@ for result in sarif["runs"][0]["results"]:
         path = re.sub(r"^(assets/.+)-[\w-]{8}(\.\w+)$", r"\1\2", url.path.lstrip("/"))
         artifact["uri"] = (path or "index.html") + (f"?{url.query}" if url.query else "")
         result["message"]["text"] = f"{url.geturl()}\n\n{result['message']['text']}"
-json.dump(sarif, open(sys.argv[1], "w"), indent=2)
+json.dump(sarif, open(sys.argv[2], "w"), indent=2)
 PY
 
 # Every alert left once the plan's filters have marked the accepted ones as false positives.
