@@ -24,7 +24,9 @@ public class EscapedValuesConverter extends MessageConverter {
       if (escaped[i] == null || escaped[i] instanceof Throwable) {
         continue;
       }
-      String text = String.valueOf(escaped[i]);
+      // As SLF4J would write the value on its own: arrays by their elements, and a toString that
+      // throws as "[FAILED toString()]" rather than losing the line.
+      String text = MessageFormatter.format("{}", escaped[i]).getMessage();
       String safe = escape(text);
       if (!safe.equals(text)) {
         escaped[i] = safe;
@@ -58,7 +60,7 @@ public class EscapedValuesConverter extends MessageConverter {
       case '\r' -> "\\r";
       case '\t' -> null;
       default ->
-          Character.isISOControl(c) || c == ' ' || c == ' '
+          Character.isISOControl(c) || c == '\u2028' || c == '\u2029'
               ? String.format("\\u%04x", (int) c)
               : null;
     };

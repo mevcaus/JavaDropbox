@@ -31,7 +31,7 @@ class EscapedValuesConverterTests {
   @Test
   @DisplayName("other control characters and Unicode line separators are escaped too")
   void otherControlCharactersAreEscaped() {
-    assertThat(line("name {}", "a\u0000b\u001b[31mc d e\u0085f"))
+    assertThat(line("name {}", "a\u0000b\u001b[31mc\u2028d\u2029e\u0085f"))
         .isEqualTo("name a\\u0000b\\u001b[31mc\\u2028d\\u2029e\\u0085f");
   }
 
@@ -49,6 +49,21 @@ class EscapedValuesConverterTests {
         .isEqualTo("ada 3 null [1, 2]");
     assertThat(line("{} and {}", List.of("a\nb"), "c")).isEqualTo("[a\\nb] and c");
     assertThat(line("no values")).isEqualTo("no values");
+  }
+
+  @Test
+  @DisplayName(
+      "an array is escaped element by element, and a value whose toString fails still logs")
+  void arraysAndFailingValues() {
+    Object failing =
+        new Object() {
+          @Override
+          public String toString() {
+            throw new IllegalStateException("no");
+          }
+        };
+    assertThat(line("{} then {}", new String[] {"a\nb", "c"}, failing))
+        .isEqualTo("[a\\nb, c] then [FAILED toString()]");
   }
 
   @Test

@@ -2,7 +2,9 @@
 <!--
   Spring Boot's own console logging, with one change: the values a log line is given have their line
   breaks and other control characters escaped (EscapedValuesConverter), so a username or file name
-  can't forge a line. Levels are still set in application.properties.
+  can't forge a line. Levels are still set in application.properties. Being a file of its own, it
+  replaces Spring Boot's setup, so logging.file.* and logging.structured.* do nothing
+  (docs/self-hosting.md#logs).
 -->
 <configuration>
   <conversionRule conversionWord="m" class="com.javadropbox.javadropbox.config.EscapedValuesConverter"/>

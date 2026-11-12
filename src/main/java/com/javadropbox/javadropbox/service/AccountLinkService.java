@@ -161,6 +161,8 @@ public class AccountLinkService {
     Credentials.checkPassword(password);
 
     if (purpose == Purpose.INVITE) {
+      // Against today's rules: the invitation may be older than one of them.
+      Credentials.username(link.getUsername());
       if (users.existsByUsername(link.getUsername())) {
         // A new invitation for the same username would be refused too.
         throw new ConflictException(

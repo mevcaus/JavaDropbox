@@ -122,6 +122,17 @@ class AdminIntegrationTests {
   // --- invitations ---------------------------------------------------------------
 
   @Test
+  @DisplayName("an invitation for a username with a line break is refused, and none is made")
+  void invitationForAUsernameWithALineBreakIsRefused() throws Exception {
+    inviting("bob\nINFO forged", "USER", "")
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message")
+                .value("Usernames can't contain line breaks or other control characters"));
+    mockMvc.perform(get("/api/admin/invites").with(ADMIN)).andExpect(jsonPath("$").isEmpty());
+  }
+
+  @Test
   @DisplayName("an invitation creates its account once, with the role and quota it was made with")
   void invitationCreatesTheAccount() throws Exception {
     String token = invite("carol", "USER", "1MB");
