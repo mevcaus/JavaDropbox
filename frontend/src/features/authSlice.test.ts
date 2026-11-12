@@ -19,7 +19,7 @@ const api = vi.mocked(mockedApi);
 const authState = (store: AppStore) => store.getState().auth;
 // Seeds a signed-in session the way a successful login leaves it.
 const signIn = (store: AppStore, username: string) =>
-    store.dispatch(loginUser.fulfilled({ username, role: 'USER' }, 'seed', { username, password: '' }));
+    store.dispatch(loginUser.fulfilled({ username, role: null }, 'seed', { username, password: '' }));
 
 // Whether a secret appears anywhere in a value, however deeply nested (cycle-safe).
 const mentions = (value: unknown, secret: string, seen = new WeakSet<object>()): boolean => {
@@ -136,6 +136,17 @@ describe('authSlice', () => {
             });
             expect(localStorage.getItem('user')).toBeNull();
         });
+
+        // Only a string is a role; anything else in the answer is no role, not a role to keep.
+        it('keeps no role that is not a string, nor one beside a username that is not one', async () => {
+            api.post.mockResolvedValueOnce({ data: { username: 'ada', role: 1 } });
+            await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
+            expect(authState(store)).toMatchObject({ user: 'ada', role: null });
+
+            api.post.mockResolvedValueOnce({ data: { username: 7, role: 'ADMIN' } });
+            await store.dispatch(loginUser({ username: 'ada', password: 'hunter2' }));
+            expect(authState(store)).toMatchObject({ user: 'ada', role: null });
+        });
     });
 
     describe('logoutUser', () => {
@@ -178,6 +189,17 @@ describe('authSlice', () => {
             expect(action.type).toBe(logoutUser.fulfilled.type);
             expect(authState(store)).toMatchObject({ user: null, isAuthenticated: false });
             expect(localStorage.getItem('user')).toBeNull();
+        });
+
+        // Something that isn't an answer at all, such as a bug in an interceptor, is a failure too.
+        it('stays signed in, with a message, when the logout fails with no answer at all', async () => {
+            signIn(store, 'ada');
+            api.post.mockRejectedValueOnce(undefined);
+
+            const result = await store.dispatch(logoutUser());
+
+            expect(result.payload).toBe('Logout failed.');
+            expect(authState(store).isAuthenticated).toBe(true);
         });
     });
 
@@ -296,6 +318,16 @@ describe('authSlice', () => {
             await store.dispatch(fetchCurrentUser());
 
             expect(authState(store).isInitialized).toBe(true);
+        });
+
+        // The session is the account's name and role, nothing else the answer carries.
+        it('takes only the account from the answer, and no role that is not a string', async () => {
+            api.get.mockResolvedValueOnce({ data: { username: 'ada', role: ['ADMIN'], password: 'hash' } });
+
+            const result = await store.dispatch(fetchCurrentUser());
+
+            expect(result.payload).toEqual({ username: 'ada', role: null });
+            expect(authState(store).role).toBeNull();
         });
     });
 

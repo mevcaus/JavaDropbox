@@ -2,17 +2,15 @@ import { createSlice } from '@reduxjs/toolkit';
 import type { AxiosResponse } from 'axios';
 import { createAppAsyncThunk } from '../redux/withTypes';
 import api from '../services/api';
+import type { CurrentUser } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 
-/** Who is signed in, as sign-in and the session check answer it. */
-export interface SignedInUser {
-    username: string;
-    role: string | null;
-}
+/** Who is signed in, as sign-in and the session check answer it; the role is null when unknown. */
+export type SignedInUser = Pick<CurrentUser, 'username'> & { role: CurrentUser['role'] | null };
 
 export interface AuthState {
-    user: string | null;
-    role: string | null;
+    user: SignedInUser['username'] | null;
+    role: SignedInUser['role'];
     isAuthenticated: boolean;
     isInitialized: boolean;
     loading: boolean;
