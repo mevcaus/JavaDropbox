@@ -119,6 +119,16 @@ class SetupServiceTests {
   }
 
   @Test
+  @DisplayName("a username with a line break or another control character is refused")
+  void usernameWithControlCharactersRefused() {
+    for (String name : new String[] {"ada\nINFO forged", "ada\rb", "a\u0000da", "ada\u2028b"}) {
+      assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), name, "long enough"))
+          .hasMessage("Usernames can't contain line breaks or other control characters");
+    }
+    verify(users, never()).save(any(User.class));
+  }
+
+  @Test
   @DisplayName("a password over BCrypt's 72-byte limit is refused rather than truncated")
   void overlongPasswordRefused() {
     assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), "ada", "ü".repeat(37)))
