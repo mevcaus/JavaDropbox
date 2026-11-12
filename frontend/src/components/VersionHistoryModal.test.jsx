@@ -96,6 +96,22 @@ describe('VersionHistoryModal', () => {
         expect(screen.getAllByRole('button', { name: 'Restore' })[1]).toBeEnabled();
     });
 
+    // Each file's versions are its own: while b.txt's load, a.txt's aren't shown in b.txt's dialog.
+    it('never shows the previous file\'s versions while the next file\'s load', async () => {
+        api.get.mockImplementation((url) =>
+            url === '/api/files/8/versions' ? new Promise(() => {}) : Promise.resolve({ data: VERSIONS }),
+        );
+        const onClose = vi.fn();
+        const { rerender } = render(<VersionHistoryModal isOpen file={FILE} onClose={onClose} />);
+        await screen.findByText('Version 2');
+
+        rerender(<VersionHistoryModal isOpen file={{ id: 8, name: 'other.txt' }} onClose={onClose} />);
+
+        expect(screen.getByRole('dialog', { name: /other\.txt/ })).toBeInTheDocument();
+        expect(screen.queryByText('Version 2')).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Loading versions')).toBeInTheDocument();
+    });
+
     // A version added since (by uploading over the file, here or in another tab) shows when the
     // dialog opens again.
     it('lists the versions again each time it opens', async () => {

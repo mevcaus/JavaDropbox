@@ -115,7 +115,11 @@ const ShareDialog = ({ isOpen, onClose, item }) => {
 const ActiveLinks = ({ path }) => {
     // Listed again each time the dialog opens, so links that expired, or went with a deleted item,
     // don't show. currentData is only ever this path's, never another item's while this one loads.
-    const { currentData: links = [], error: loadError } = useListShareLinksQuery({ path }, { refetchOnMountOrArgChange: true });
+    const {
+        currentData: links = [],
+        error: loadError,
+        isFetching,
+    } = useListShareLinksQuery({ path }, { refetchOnMountOrArgChange: true });
     const [revokeShareLink, revoking] = useRevokeShareLinkMutation();
     const headingId = useId();
     const { addToast } = useToast();
@@ -159,7 +163,9 @@ const ActiveLinks = ({ path }) => {
                                 </div>
                                 <button
                                     type="button"
-                                    disabled={revokingId !== null}
+                                    // Also while the list is being asked again: until it answers, a link
+                                    // on it may already be gone.
+                                    disabled={revokingId !== null || isFetching}
                                     onClick={() => revoke(link)}
                                     aria-label={`Revoke the link that expires ${formatDate(link.expiresAt)}`}
                                     className="text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"

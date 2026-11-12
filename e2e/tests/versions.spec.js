@@ -37,7 +37,7 @@ test.describe('a file uploaded twice', () => {
     });
 
     // The dialog lists the versions again when it reopens, rather than the list it showed before.
-    test('lists a version added since the history was last open', async ({ page }) => {
+    test('lists a version added since the history was last open', async ({ page, folder }) => {
         await action(page, 'Versions of', 'plan.txt').click();
         const dialog = page.getByRole('dialog', { name: 'Versions of plan.txt' });
         const versions = dialog.getByRole('listitem');
@@ -45,7 +45,14 @@ test.describe('a file uploaded twice', () => {
         await dialog.getByRole('button', { name: 'Done' }).click();
         await expect(dialog).toBeHidden();
 
-        await upload(page, textFile('plan.txt', 'third draft\n'));
+        // Uploaded past the app, as from another tab or a script, so nothing in the app knows the
+        // list changed: only asking again when the dialog opens shows the new version.
+        const csrf = (await page.context().cookies()).find((cookie) => cookie.name === 'XSRF-TOKEN');
+        const uploaded = await page.request.post('/api/files', {
+            multipart: { path: folder, files: textFile('plan.txt', 'third draft\n') },
+            headers: { 'X-XSRF-TOKEN': csrf?.value ?? '' },
+        });
+        expect(uploaded.ok(), await uploaded.text()).toBe(true);
         await action(page, 'Versions of', 'plan.txt').click();
 
         await expect(versions).toHaveCount(2);

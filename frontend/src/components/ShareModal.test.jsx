@@ -287,9 +287,18 @@ describe('ShareModal', () => {
         expect(within(list).queryByText(`Expires ${formatDate(LINK.expiresAt)}`)).not.toBeInTheDocument();
     });
 
-    it('keeps a link listed and reports the error when revoking fails', async () => {
+    // The list is asked again after a failed revoke too, and still has the link.
+    it.each([
+        ['the list is asked again', () => Promise.resolve({ data: [LINK] })],
+        ['asking for the list again fails too', () => Promise.reject({ response: { status: 500, data: '' } })],
+    ])('keeps a link listed and reports the error when revoking fails and %s', async (_label, relist) => {
         const user = userEvent.setup();
-        api.get.mockResolvedValueOnce({ data: [LINK] });
+        let listed = 0;
+        api.get.mockImplementation((url) => {
+            if (url !== '/api/share') return Promise.resolve({ data: null });
+            listed += 1;
+            return listed === 1 ? Promise.resolve({ data: [LINK] }) : relist();
+        });
         api.delete.mockRejectedValueOnce({ response: { data: { message: 'Share link not found' } } });
         renderModal();
 
@@ -297,7 +306,29 @@ describe('ShareModal', () => {
         await user.click(within(list).getByRole('button', { name: /Revoke/i }));
 
         expect(await screen.findByText('Share link not found')).toBeInTheDocument();
-        expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+        await vi.waitFor(() => expect(listed).toBe(2));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Asked of the page as it is now, not of the list as it was before the revoke.
+        const now = screen.getByRole('list', { name: /Active links/i });
+        expect(within(now).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    // A link on a list that's being asked again may already be gone.
+    it('offers no Revoke while the list is being asked again', async () => {
+        let listed = 0;
+        api.get.mockImplementation((url) => {
+            if (url !== '/api/share') return Promise.resolve({ data: null });
+            listed += 1;
+            return listed === 1 ? Promise.resolve({ data: [LINK] }) : new Promise(() => {});
+        });
+        const { rerender } = renderModal();
+        await screen.findByRole('list', { name: /Active links/i });
+
+        rerender(<ShareModal isOpen onClose={vi.fn()} item={null} />);
+        rerender(<ShareModal isOpen onClose={vi.fn()} item={FILE} />);
+
+        await vi.waitFor(() => expect(listed).toBe(2));
+        expect(screen.getByRole('button', { name: /Revoke/i })).toBeDisabled();
     });
 
     it('adds a newly generated link to the list', async () => {
@@ -400,7 +431,8 @@ describe('ShareModal', () => {
         });
     });
 
-    // Each item's links are its own: while B's load, A's aren't shown in B's dialog.
+    // Each item's links are its own: while B's load, A's aren't shown in B's dialog. The dialog's key
+    // does this, and currentData would even without it.
     it('never shows the previous item\'s links while the next item\'s load', async () => {
         api.get.mockImplementation((url, config) =>
             url === '/api/share' && config.params.path === 'photo.png'
