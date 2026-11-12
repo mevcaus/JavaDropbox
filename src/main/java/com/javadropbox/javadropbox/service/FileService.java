@@ -11,6 +11,7 @@ import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.RestoreMode;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.ListedRow;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.FileVersionService.StoredCopy;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
@@ -558,8 +559,10 @@ public class FileService {
 
     if (item.isDirectory()) {
       String name = target.name();
+      // Listed now, while the request is served; the zip itself is written as the response goes.
+      List<ListedItems.Item> listed = listBelow(target);
       return new Download.FolderDownload(
-          name + ".zip", out -> FolderArchive.write(store, target.storeKey(), name, out));
+          name + ".zip", out -> FolderArchive.write(contents, target, listed, name, out));
     }
     return new Download.FileDownload(
         contents.resource(item), target.name(), contentType(target.name()));
@@ -600,6 +603,17 @@ public class FileService {
                         "This kind of file cannot be previewed: " + target.key()));
     return new Preview(
         contents.resource(item), target.name(), type, PreviewType.contentType(target.name()));
+  }
+
+  // What the file list shows below a folder.
+  private List<ListedItems.Item> listBelow(StoragePath folder) {
+    long ownerId = folder.home().userId();
+    List<ListedRow> rows =
+        folder.isRoot()
+            ? files.listAllOf(ownerId)
+            : files.listAtOrBelow(
+                ownerId, folder.key(), FileMetadataRepository.below(folder.key()));
+    return ListedItems.below(folder.key(), rows);
   }
 
   private Entry find(StoragePath target) throws IOException {

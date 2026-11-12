@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.javadropbox.javadropbox.repository.ListedRow;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FilterOutputStream;
@@ -14,8 +15,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -28,27 +32,36 @@ import org.junit.jupiter.api.io.TempDir;
 @DisplayName("Folder archives")
 class FolderArchiveTests {
 
-  @TempDir Path folder;
+  @TempDir Path serving;
+
+  private LocalFileStore store;
+  private StoragePaths.Home home;
+  private Path folder;
+  // The account's rows: what the file list shows, and so what a zip has.
+  private final List<ListedRow> rows = new ArrayList<>();
 
   // The store refuses a path with a symlink along it, which a temp directory can have (/var on
   // macOS), so it is given the real one, as the app's is.
   @BeforeEach
-  void useRealPath() throws IOException {
-    folder = folder.toRealPath();
+  void setUp() throws IOException {
+    serving = serving.toRealPath();
+    store = new LocalFileStore(serving);
+    home = new StoragePaths(store, serving).home(1);
+    folder = Files.createDirectories(store.path(home.key()).resolve("project"));
+    rows.add(new ListedRow("project", true, 0L, Instant.now()));
   }
 
   @Test
   @DisplayName("hidden files and folders are left out, as in the file tree")
   void hiddenEntriesAreLeftOut() throws IOException {
-    Files.writeString(folder.resolve("README.md"), "visible");
-    Files.writeString(folder.resolve(".env"), "DB_PASSWORD=hunter2");
-    Files.writeString(folder.resolve(".DS_Store"), "x");
-    Files.writeString(folder.resolve(".upload-123.tmp"), "half an upload");
-    Files.createDirectories(folder.resolve(".git"));
-    Files.writeString(folder.resolve(".git/config"), "[remote]");
-    Files.createDirectories(folder.resolve("sub"));
-    Files.writeString(folder.resolve("sub/kept.txt"), "kept");
-    Files.writeString(folder.resolve("sub/.hidden"), "hidden");
+    file("README.md", "visible");
+    file(".env", "DB_PASSWORD=hunter2");
+    file(".upload-123.tmp", "half an upload");
+    file(".git/config", "[remote]");
+    folder(".git");
+    folder("sub");
+    file("sub/kept.txt", "kept");
+    file("sub/.hidden", "hidden");
 
     assertThat(unzip(archive()))
         .containsOnly(
@@ -59,24 +72,46 @@ class FolderArchiveTests {
   }
 
   @Test
-  @DisplayName("empty folders, and folders with nothing to archive, appear in the zip")
+  @DisplayName("empty folders, folders with nothing to archive, and folders with no row appear")
   void emptyFoldersAreKept() throws IOException {
-    Files.createDirectories(folder.resolve("empty"));
-    Files.createDirectories(folder.resolve("only-hidden"));
-    Files.writeString(folder.resolve("only-hidden/.env"), "secret");
+    folder("empty");
+    folder("only-hidden");
+    file("only-hidden/.env", "secret");
+    // No row for "implied", only for what is in it.
+    file("implied/deep.txt", "deep");
 
     assertThat(unzip(archive()))
-        .containsOnlyKeys("project/", "project/empty/", "project/only-hidden/");
+        .containsOnlyKeys(
+            "project/",
+            "project/empty/",
+            "project/implied/",
+            "project/implied/deep.txt",
+            "project/only-hidden/");
+  }
+
+  @Test
+  @DisplayName("what the file list shows is zipped, not what else is on disk")
+  void onlyListedItemsAreZipped() throws IOException {
+    file("listed.txt", "listed");
+    Files.writeString(folder.resolve("unlisted.txt"), "no row");
+    Files.createDirectories(folder.resolve("unlisted-folder"));
+    // A row whose content isn't there is left out, and the zip stays whole.
+    rows.add(new ListedRow("project/missing.txt", false, 3L, Instant.now()));
+    // Nor anything outside the folder.
+    rows.add(new ListedRow("project-other.txt", false, 3L, Instant.now()));
+    Files.writeString(folder.resolveSibling("project-other.txt"), "beside it");
+
+    assertThat(unzip(archive())).containsOnlyKeys("project/", "project/listed.txt");
   }
 
   @Test
   @DisplayName("files removed while the zip is written are left out and the zip stays whole")
   void vanishedEntriesAreSkipped() throws IOException {
     for (int i = 0; i < 5; i++) {
-      Files.writeString(folder.resolve("file" + i + ".txt"), "content " + i);
+      file("file" + i + ".txt", "content " + i);
     }
-    Files.createDirectories(folder.resolve("sub"));
-    Files.writeString(folder.resolve("sub/file5.txt"), "content 5");
+    folder("sub");
+    file("sub/file5.txt", "content 5");
     ByteArrayOutputStream zip = new ByteArrayOutputStream();
     // The listing has been read by the time the first byte is written; everything goes now.
     OutputStream deletingOnFirstWrite =
@@ -93,7 +128,7 @@ class FolderArchiveTests {
           }
         };
 
-    FolderArchive.write(new LocalFileStore(folder), "", "project", deletingOnFirstWrite);
+    write(deletingOnFirstWrite);
 
     // Whatever made it in is complete; reading the zip to its end proves it is not cut short.
     Map<String, String> files = unzip(zip.toByteArray());
@@ -106,9 +141,10 @@ class FolderArchiveTests {
   @Test
   @DisplayName("a FIFO is left out rather than read, which would block forever")
   void fifoIsSkipped() throws Exception {
-    Files.writeString(folder.resolve("a.txt"), "a");
+    file("a.txt", "a");
     Path fifo = folder.resolve("pipe");
     makeFifo(fifo);
+    rows.add(new ListedRow("project/pipe", false, 0L, Instant.now()));
 
     try {
       byte[] zip = assertTimeoutPreemptively(Duration.ofSeconds(5), this::archive);
@@ -121,10 +157,32 @@ class FolderArchiveTests {
     }
   }
 
+  // A file in the folder, on disk and with its row.
+  private void file(String path, String content) throws IOException {
+    Path file = folder.resolve(path);
+    Files.createDirectories(file.getParent());
+    Files.writeString(file, content);
+    rows.add(new ListedRow("project/" + path, false, (long) content.length(), Instant.now()));
+  }
+
+  private void folder(String path) throws IOException {
+    Files.createDirectories(folder.resolve(path));
+    rows.add(new ListedRow("project/" + path, true, 0L, Instant.now()));
+  }
+
   private byte[] archive() throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    FolderArchive.write(new LocalFileStore(folder), "", "project", out);
+    write(out);
     return out.toByteArray();
+  }
+
+  private void write(OutputStream out) throws IOException {
+    FolderArchive.write(
+        new FileContents(store),
+        home.resolveItem("project"),
+        ListedItems.below("project", rows),
+        "project",
+        out);
   }
 
   /** Skips the test where there is no mkfifo, e.g. on Windows. */

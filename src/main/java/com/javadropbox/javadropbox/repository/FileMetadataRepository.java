@@ -110,4 +110,37 @@ public interface FileMetadataRepository
   /** Every row an account owns, with the owner, in one query, for building its file tree. */
   @Query("select m from FileMetadata m join fetch m.owner o where o.id = :ownerId")
   List<FileMetadata> findAllOf(Long ownerId);
+
+  /** What listing needs of every row an account owns; see {@link ListedRow}. */
+  @Query(
+      "select new com.javadropbox.javadropbox.repository.ListedRow(m.path, m.isDirectory, m.size,"
+          + " m.updatedAt) from FileMetadata m where m.owner.id = :ownerId")
+  List<ListedRow> listAllOf(Long ownerId);
+
+  /**
+   * Like {@link #listAllOf}, for the row at {@code path} and those below it; see {@link #below}.
+   */
+  @Query(
+      "select new com.javadropbox.javadropbox.repository.ListedRow(m.path, m.isDirectory, m.size,"
+          + " m.updatedAt) from FileMetadata m where m.owner.id = :ownerId"
+          + " and (m.path = :path or m.path like :below escape '!')")
+  List<ListedRow> listAtOrBelow(Long ownerId, String path, String below);
+
+  /** Like {@link #listAllOf}, for the rows at {@code paths}. */
+  @Query(
+      "select new com.javadropbox.javadropbox.repository.ListedRow(m.path, m.isDirectory, m.size,"
+          + " m.updatedAt) from FileMetadata m where m.owner.id = :ownerId and m.path in :paths")
+  List<ListedRow> listAt(Long ownerId, List<String> paths);
+
+  /** Whether the account has any row below the folder at a path; see {@link #below}. */
+  @Query(
+      value =
+          "select exists (select 1 from file_metadata where user_id = :ownerId"
+              + " and path like :below escape '!')",
+      nativeQuery = true)
+  boolean existsBelow(Long ownerId, String below);
+
+  /** Every account's id, in order: a reconcile lists each one's rows in turn. */
+  @Query("select u.id from User u order by u.id")
+  List<Long> findOwnerIds();
 }

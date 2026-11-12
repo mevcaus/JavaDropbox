@@ -66,9 +66,15 @@ public class FileTreeService {
   // Rows the app wouldn't accept a path for today, left by older releases (a hidden name, an
   // empty segment), are left out, as walking the store left them out.
   private static List<FileTreeNode> build(String top, List<FileMetadata> rows) {
-    List<FileMetadata> listed = rows.stream().filter(row -> isListable(row.getPath())).toList();
+    List<FileMetadata> listed =
+        rows.stream().filter(row -> ListedItems.isListable(row.getPath())).toList();
     Set<String> parents = new HashSet<>();
-    listed.forEach(row -> parents.add(parentKey(row.getPath())));
+    // Every folder above a row, not only its parent: a row with rows anywhere below it is a folder.
+    for (FileMetadata row : listed) {
+      for (String parent = parentKey(row.getPath());
+          !parent.isEmpty() && parents.add(parent);
+          parent = parentKey(parent)) {}
+    }
     List<FileTreeNode> topLevel = new ArrayList<>();
     Map<String, FileTreeNode> folders = new HashMap<>();
     listed.stream()
@@ -155,18 +161,6 @@ public class FileTreeService {
         .filter(Objects::nonNull)
         .max(Comparator.naturalOrder())
         .orElse(null);
-  }
-
-  private static boolean isListable(String path) {
-    if (path == null || path.isEmpty()) {
-      return false;
-    }
-    for (String segment : path.split("/", -1)) {
-      if (segment.isEmpty() || segment.startsWith(".")) {
-        return false;
-      }
-    }
-    return true;
   }
 
   private static int depth(String path) {

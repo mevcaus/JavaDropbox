@@ -306,6 +306,28 @@ class S3StorageIntegrationTests {
   }
 
   @Test
+  @DisplayName("zips and search show what the file list shows, not other objects in the bucket")
+  void zipsAndSearchFollowTheRows() throws Exception {
+    upload("project", "README.md", "listed words");
+    put(home + "project/unlisted.txt", "unlisted words");
+    searchIndex.reconcile();
+    searchIndex.awaitIdle(INDEXING);
+
+    byte[] zip =
+        mockMvc
+            .perform(get("/api/files/download").param("path", "project"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsByteArray();
+
+    assertThat(unzip(zip)).containsOnlyKeys("project/", "project/README.md");
+    assertThat(search("words").path("results"))
+        .extracting(result -> result.path("relativePath").asText())
+        .containsExactly("project/README.md");
+  }
+
+  @Test
   @DisplayName("deleting a folder deletes its objects and their versions, and its folder stays")
   void deletingAFolderDeletesItsObjects() throws Exception {
     upload("outer/inner", "a.txt", "one");

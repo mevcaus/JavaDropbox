@@ -49,12 +49,16 @@ abstract class SearchIndexContractTests {
         }
       };
 
-  /** A new index over {@link #store}, walking it through {@link #items()}. */
+  /** A new index over {@link #store}, listing it through {@link #items()}. */
   abstract SearchIndex create() throws IOException;
 
-  /** What every implementation indexes, over {@link #store}, reading text with the extractor. */
+  /**
+   * What every implementation indexes: the rows importing {@link #store} would make, with text read
+   * through its content with the extractor.
+   */
   IndexableItems items() {
-    return new IndexableItems(store, extractor);
+    return new IndexableItems(
+        new RowsFromStore(store), storagePaths, new FileContents(store), extractor);
   }
 
   /** Closes an index {@link #create} made, as the app does at shutdown. */

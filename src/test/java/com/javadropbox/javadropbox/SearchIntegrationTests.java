@@ -13,13 +13,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
 import com.javadropbox.javadropbox.repository.UserRepository;
+import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
 import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -66,6 +67,7 @@ class SearchIntegrationTests {
 
   @Autowired private StoragePaths storagePaths;
   @Autowired private LocalFileStore localStore;
+  @Autowired private ImportService imports;
 
   private User owner;
   // The signed-in account's folder, where its files are.
@@ -235,22 +237,32 @@ class SearchIntegrationTests {
   }
 
   @Test
-  @DisplayName("picks up files added, changed or removed outside the app when it reconciles")
-  void reconcilesWithTheDisk() throws Exception {
+  @DisplayName(
+      "follows the rows when it reconciles: files copied in once imported, rows changed or gone")
+  void reconcilesWithTheRows() throws Exception {
     Files.createDirectories(home.resolve("copied"));
     Path file = home.resolve("copied/readme.md");
     Files.writeString(file, "copied in by hand");
     reconcile();
+    // On disk but not listed: not found, as the file list doesn't show it.
+    assertThat(paths(search("hand"))).isEmpty();
+
+    imports.importFiles(owner.getId(), "test");
+    reconcile();
     assertThat(paths(search("hand"))).containsExactly("copied/readme.md");
 
-    // Changed in place: a different size and a later modification time.
+    // Its row says it changed, as another server's upload would: a different size, a later time.
     Files.writeString(file, "edited in place, later on");
-    Files.setLastModifiedTime(file, FileTime.from(Instant.now().plusSeconds(60)));
+    jdbc.update(
+        "update file_metadata set size = ?, updated_at = ? where path = ?",
+        Files.size(file),
+        Timestamp.from(Instant.now().plusSeconds(60)),
+        "copied/readme.md");
     reconcile();
     assertThat(paths(search("hand"))).isEmpty();
     assertThat(paths(search("edited"))).containsExactly("copied/readme.md");
 
-    Files.delete(file);
+    forgetRow("copied/readme.md");
     reconcile();
     assertThat(paths(search("edited"))).isEmpty();
     assertThat(paths(search("copied"))).containsExactly("copied");
@@ -261,7 +273,7 @@ class SearchIntegrationTests {
   void leavesOutWhatHasGone() throws Exception {
     upload("", "gone.txt", "vanishing act");
     upload("", "kept.txt", "vanishing too");
-    Files.delete(home.resolve("gone.txt"));
+    forgetRow("gone.txt");
 
     assertThat(paths(search("vanishing"))).containsExactly("kept.txt");
     searchIndex.awaitIdle(INDEXING);
@@ -379,6 +391,14 @@ class SearchIntegrationTests {
                 .with(csrf()))
         .andExpect(status().isOk());
     searchIndex.awaitIdle(INDEXING);
+  }
+
+  // Takes an item's row away without telling the index, as another server's delete might.
+  private void forgetRow(String path) {
+    jdbc.update(
+        "delete from file_versions where file_id in (select id from file_metadata where path = ?)",
+        path);
+    jdbc.update("delete from file_metadata where path = ?", path);
   }
 
   private void reconcile() throws InterruptedException {

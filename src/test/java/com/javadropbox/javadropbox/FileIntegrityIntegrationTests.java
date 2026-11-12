@@ -21,6 +21,7 @@ import com.javadropbox.javadropbox.service.FileService;
 import com.javadropbox.javadropbox.service.FileVersionService;
 import com.javadropbox.javadropbox.service.ImportService;
 import com.javadropbox.javadropbox.service.LocalFileStore;
+import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.ShareLinkService;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
@@ -30,6 +31,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -83,6 +85,7 @@ class FileIntegrityIntegrationTests {
   private Path servingDir;
 
   @Autowired private FileService fileService;
+  @Autowired private SearchIndex searchIndex;
   @Autowired private ImportService imports;
   @Autowired private ShareLinkService shareLinks;
   @Autowired private FileMetadataRepository metadata;
@@ -707,10 +710,14 @@ class FileIntegrityIntegrationTests {
     return folder;
   }
 
-  private long statementsToDelete(String path) throws IOException {
+  // The statistics count every thread's statements, the search index's reading rows after the
+  // delete among them, so it is waited for on both sides and counted in full each time.
+  private long statementsToDelete(String path) throws Exception {
     Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    searchIndex.awaitIdle(Duration.ofSeconds(30));
     statistics.clear();
     fileService.delete(path);
+    searchIndex.awaitIdle(Duration.ofSeconds(30));
     return statistics.getPrepareStatementCount();
   }
 

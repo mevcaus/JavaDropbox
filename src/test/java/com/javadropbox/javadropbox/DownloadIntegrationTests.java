@@ -79,13 +79,17 @@ class DownloadIntegrationTests {
     Path link = home.resolve("docs/escape");
     if (!Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
       Files.createSymbolicLink(link, outsideDir);
-    }
+    } // Rows for them, as the file list has; the symlink gets none.
+    imports.importFiles(users.findByUsername("owner").orElseThrow().getId(), "test");
   }
 
   @Test
   @WithMockUser(username = "owner")
-  @DisplayName("a folder downloads as a zip of its contents, without following symlinks")
+  @DisplayName("a folder downloads as a zip of what the file list shows in it, without symlinks")
   void folderDownloadsAsZip() throws Exception {
+    // On disk but not listed: left out, as the file list leaves it out.
+    Files.writeString(home.resolve("docs/unlisted.txt"), "no row");
+
     MockHttpServletResponse response =
         mockMvc
             .perform(get("/api/files/download").param("path", "docs"))

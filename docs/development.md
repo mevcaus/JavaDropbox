@@ -165,6 +165,7 @@ JavaDropbox/
 │   │       ├── FileContents.java        # Where a file's or version's content is in the store
 │   │       ├── FileService.java         # Upload, delete, create folder, restore, download, preview
 │   │       ├── FileTreeService.java     # The browsable tree, from the account's rows
+│   │       ├── ListedItems.java        # What the file list shows, from rows, for zips and search
 │   │       ├── ImportService.java       # Gives files copied into an account's folder rows of their own
 │   │       ├── SearchIndex.java         # What a search index does: changes, reconciles, searches
 │   │       ├── BackgroundSearchIndex.java # Keeps any search index in step: a background worker, reconciles
@@ -175,7 +176,7 @@ JavaDropbox/
 │   │       ├── TextExtractor.java       # Text of text files, PDFs (PDFBox) and .docx
 │   │       ├── FileVersionService.java  # Archiving, pruning and looking up versions
 │   │       ├── FileHistoryService.java  # Audit log, including failures
-│   │       ├── FolderArchive.java       # Streams a folder as a zip
+│   │       ├── FolderArchive.java       # Streams a folder as a zip of its listed items
 │   │       ├── SetupService.java        # Setup code + first account
 │   │       ├── AccountService.java      # Admins: list, disable, roles, quotas
 │   │       ├── AccountLinkService.java  # Invitations and password resets: one-time links
