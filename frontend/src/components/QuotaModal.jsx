@@ -1,17 +1,21 @@
 import { useId, useRef, useState } from 'react';
 import { HardDrive, Loader2 } from 'lucide-react';
-import api from '../services/api';
+import { useSetAccountQuotaMutation } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import { QUOTA_ERROR, formToQuota, quotaToForm } from '../utils/quota';
 import Modal, { ModalActions } from './Modal';
 import QuotaFields from './QuotaFields';
 import { primaryButton, secondaryButton } from './modalStyles';
 
-/** Changes an account's quota. onSaved runs once the server has stored it. */
+/**
+ * Changes an account's quota. onSaved runs once the server has stored it; the accounts list
+ * refreshes through its cache tag.
+ */
 const QuotaModal = ({ account, onClose, onSaved }) =>
     account ? <QuotaDialog key={account.id} account={account} onClose={onClose} onSaved={onSaved} /> : null;
 
 const QuotaDialog = ({ account, onClose, onSaved }) => {
+    const [setAccountQuota] = useSetAccountQuotaMutation();
     const initial = quotaToForm(account.quotaBytes);
     const [amount, setAmount] = useState(initial.amount);
     const [unit, setUnit] = useState(initial.unit);
@@ -30,9 +34,7 @@ const QuotaDialog = ({ account, onClose, onSaved }) => {
         setSaving(true);
         setError(null);
         try {
-            await api.put(`/api/admin/users/${account.id}/quota`, new URLSearchParams({ quota }), {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            });
+            await setAccountQuota({ id: account.id, body: { quota } }).unwrap();
             onSaved();
         } catch (err) {
             setError(readableError(err, 'Could not change the quota.'));

@@ -222,6 +222,53 @@ describe('refreshing versions and share links', () => {
     });
 });
 
+// Which of the admin page's lists each change asks again.
+describe('refreshing the accounts and invitations', () => {
+    let store;
+    const asked = () => [
+        api.get.mock.calls.filter(([url]) => url === '/api/admin/users').length,
+        api.get.mock.calls.filter(([url]) => url === '/api/admin/invites').length,
+        api.get.mock.calls.filter(([url]) => url === '/api/files').length,
+    ];
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        api.put.mockResolvedValue({ data: { message: 'Changed' } });
+        api.post.mockResolvedValue({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z', files: 0, folders: 0, missing: 0, skipped: 0 } });
+        store = makeStore();
+        await store.dispatch(apiSlice.endpoints.listAccounts.initiate());
+        await store.dispatch(apiSlice.endpoints.listInvites.initiate());
+        await subscribe(store);
+    });
+
+    it.each([
+        ['a role change', () => apiSlice.endpoints.setAccountRole.initiate({ id: 2, body: { role: 'ADMIN' } }), [2, 1, 1]],
+        ['a quota change', () => apiSlice.endpoints.setAccountQuota.initiate({ id: 2, body: { quota: '5GB' } }), [2, 1, 1]],
+        // Disabling an account also withdraws the invitations it made.
+        ['disabling an account', () => apiSlice.endpoints.setAccountEnabled.initiate({ id: 2, body: { enabled: false } }), [2, 2, 1]],
+        // An import may be into the admin's own account.
+        ['an import', () => apiSlice.endpoints.importFiles.initiate({ id: 2 }), [2, 1, 2]],
+        ['an invitation', () => apiSlice.endpoints.createInvite.initiate({ body: { username: 'carol' } }), [1, 2, 1]],
+        ['a password reset link', () => apiSlice.endpoints.createPasswordResetLink.initiate({ id: 2 }), [1, 1, 1]],
+    ])('asks again for what %s changes', async (_label, change, expected) => {
+        await store.dispatch(change());
+        await settle();
+
+        expect(asked()).toEqual(expected);
+    });
+
+    // A failure is most often an invitation used or expired meanwhile, which shouldn't stay listed.
+    it('asks for the invitations again when withdrawing one fails', async () => {
+        api.delete.mockRejectedValueOnce({ response: { status: 404, data: { message: 'Invitation not found' } } });
+
+        await store.dispatch(apiSlice.endpoints.revokeInvite.initiate({ id: 9 }));
+        await settle();
+
+        expect(asked()).toEqual([1, 2, 1]);
+    });
+});
+
 // A file with its place inside the uploaded folder, as uploadFolder takes it.
 const pickedFile = (relativePath) => ({ file: new File(['x'], relativePath.split('/').at(-1)), relativePath });
 

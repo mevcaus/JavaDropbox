@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import { Loader2, UserPlus } from 'lucide-react';
-import api from '../services/api';
+import { useCreateInviteMutation } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { QUOTA_ERROR, formToQuota } from '../utils/quota';
@@ -9,17 +9,15 @@ import CopyLinkField from './CopyLinkField';
 import QuotaFields from './QuotaFields';
 import { primaryButton, secondaryButton } from './modalStyles';
 
-export const INVITES_ENDPOINT = '/api/admin/invites';
-
 /**
  * Invites someone: the admin picks a username, a role and a quota, and gets a one-time link to hand
- * over, at which the invitee chooses a password. onInvited runs once the invitation exists, so the
- * page can list it.
+ * over, at which the invitee chooses a password. Making it refreshes the page's list of invitations
+ * through its cache tag.
  */
-const InviteModal = ({ isOpen, onClose, onInvited }) =>
-    isOpen ? <InviteDialog onClose={onClose} onInvited={onInvited} /> : null;
+const InviteModal = ({ isOpen, onClose }) => (isOpen ? <InviteDialog onClose={onClose} /> : null);
 
-const InviteDialog = ({ onClose, onInvited }) => {
+const InviteDialog = ({ onClose }) => {
+    const [createInvite] = useCreateInviteMutation();
     const [username, setUsername] = useState('');
     const [role, setRole] = useState('USER');
     const [amount, setAmount] = useState('');
@@ -41,12 +39,8 @@ const InviteDialog = ({ onClose, onInvited }) => {
         setSending(true);
         setError(null);
         try {
-            const params = new URLSearchParams({ username: username.trim(), role, quota });
-            const response = await api.post(INVITES_ENDPOINT, params, {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            });
-            setLink(response.data);
-            onInvited?.();
+            // The invitations list refreshes through its tag.
+            setLink(await createInvite({ body: { username: username.trim(), role, quota } }).unwrap());
         } catch (err) {
             setError(readableError(err, 'Could not create the invitation.'));
             usernameRef.current?.focus();

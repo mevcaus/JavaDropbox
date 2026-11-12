@@ -1,21 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Navigate } from 'react-router-dom';
 import { KeyRound, Loader2, ShieldCheck, UserMinus, UserPlus, UserX } from 'lucide-react';
-import api from '../services/api';
+import {
+    useCreatePasswordResetLinkMutation,
+    useImportFilesMutation,
+    useListAccountsQuery,
+    useListInvitesQuery,
+    useRevokeInviteMutation,
+    useSetAccountEnabledMutation,
+    useSetAccountRoleMutation,
+} from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
 import { useToast } from '../hooks/useToast';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { formatSize } from '../utils/format';
-import InviteModal, { INVITES_ENDPOINT } from '../components/InviteModal';
+import InviteModal from '../components/InviteModal';
 import QuotaModal from '../components/QuotaModal';
 import Modal, { ModalActions } from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
 import CopyLinkField from '../components/CopyLinkField';
 import { primaryButton } from '../components/modalStyles';
-
-export const USERS_ENDPOINT = '/api/admin/users';
 
 const headerCell = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
 const cell = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
@@ -123,11 +129,24 @@ const Admin = () => {
 
 const AccountsPage = () => {
     const me = useSelector((state) => state.auth.user);
-    const [accounts, setAccounts] = useState(null);
-    const [invites, setInvites] = useState([]);
-    const [error, setError] = useState(null);
-    // The account an action is running for. Every row's buttons wait until it is done and the list
-    // shows its outcome, so a second click never acts on what the list showed before.
+    // Listed again each time the page opens; a change refreshes the list it touched through its tag.
+    const listed = useListAccountsQuery(undefined, { refetchOnMountOrArgChange: true });
+    const open = useListInvitesQuery(undefined, { refetchOnMountOrArgChange: true });
+    const accounts = listed.currentData ?? null;
+    const invites = open.currentData ?? [];
+    const error = listed.error ? readableError(listed.error, 'Could not load the accounts.') : null;
+    const invitesError = open.error ? readableError(open.error, 'Could not load the invitations.') : null;
+    // While either list is being asked for, a change made now could act on rows that are out of date,
+    // and RTK holds a change's refetch back until a request already in flight has answered, so every
+    // button waits on both lists.
+    const listsLoading = listed.isFetching || open.isFetching;
+    const [setAccountEnabled] = useSetAccountEnabledMutation();
+    const [setAccountRole] = useSetAccountRoleMutation();
+    const [createPasswordResetLink] = useCreatePasswordResetLinkMutation();
+    const [importAccountFiles] = useImportFilesMutation();
+    const [revokeInvite] = useRevokeInviteMutation();
+    // The account an action is running for. Every row's buttons wait until it is done and the lists
+    // have answered again, so a second click never acts on what they showed before.
     const [busy, setBusy] = useState(null);
     // Likewise for the invitation being withdrawn.
     const [withdrawing, setWithdrawing] = useState(null);
@@ -138,41 +157,12 @@ const AccountsPage = () => {
     const [confirming, setConfirming] = useState(null);
     const { addToast } = useToast();
 
-    // Counts loads, so that only the latest one's answer is shown: an earlier, slower one would show
-    // the accounts as they were before a change.
-    const loads = useRef(0);
-
-    // Loads the accounts and invitations, again after a change; settles once they are shown.
-    const reload = useCallback(() => {
-        const load = ++loads.current;
-        return Promise.all([api.get(USERS_ENDPOINT), api.get(INVITES_ENDPOINT)]).then(
-            ([users, open]) => {
-                if (load !== loads.current) return;
-                setAccounts(users.data);
-                setInvites(open.data);
-                setError(null);
-            },
-            (err) => {
-                if (load === loads.current) setError(readableError(err, 'Could not load the accounts.'));
-            },
-        );
-    }, []);
-
-    useEffect(() => {
-        reload();
-        // An answer arriving once the page has gone is dropped like an outdated one.
-        return () => {
-            loads.current += 1;
-        };
-    }, [reload]);
-
-    // Runs a change to one account, then shows the accounts as they are now.
+    // Runs a change to one account; the list then refreshes through its tag.
     const change = async (account, request, success, failure) => {
         setBusy(account.id);
         try {
-            await request();
+            await request().unwrap();
             addToast(success, 'success');
-            await reload();
         } catch (err) {
             addToast(readableError(err, failure), 'error');
         } finally {
@@ -180,15 +170,10 @@ const AccountsPage = () => {
         }
     };
 
-    const form = (values) => [
-        new URLSearchParams(values),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-    ];
-
     const setEnabled = (account, enabled) =>
         change(
             account,
-            () => api.put(`${USERS_ENDPOINT}/${account.id}/enabled`, ...form({ enabled })),
+            () => setAccountEnabled({ id: account.id, body: { enabled } }),
             enabled ? `${account.username} can sign in again` : `${account.username} is disabled`,
             'Could not change the account.',
         );
@@ -196,7 +181,7 @@ const AccountsPage = () => {
     const setRole = (account, role) =>
         change(
             account,
-            () => api.put(`${USERS_ENDPOINT}/${account.id}/role`, ...form({ role })),
+            () => setAccountRole({ id: account.id, body: { role } }),
             `${account.username} is now ${role === 'ADMIN' ? 'an admin' : 'a user'}`,
             'Could not change the role.',
         );
@@ -215,8 +200,8 @@ const AccountsPage = () => {
     const resetPassword = async (account) => {
         setBusy(account.id);
         try {
-            const response = await api.post(`${USERS_ENDPOINT}/${account.id}/password-reset`);
-            setResetLink({ username: account.username, ...response.data });
+            const link = await createPasswordResetLink({ id: account.id }).unwrap();
+            setResetLink({ username: account.username, ...link });
         } catch (err) {
             addToast(readableError(err, 'Could not make a reset link.'), 'error');
         } finally {
@@ -228,10 +213,9 @@ const AccountsPage = () => {
     const importFiles = async (account) => {
         setBusy(account.id);
         try {
-            const { data } = await api.post(`${USERS_ENDPOINT}/${account.id}/import`);
+            const data = await importAccountFiles({ id: account.id }).unwrap();
             // Anything missing or left out is worth a second look, not a plain success.
             addToast(importSummary(account, data), data.missing > 0 || data.skipped > 0 ? 'info' : 'success');
-            await reload();
         } catch (err) {
             addToast(readableError(err, 'Could not import the files.'), 'error');
         } finally {
@@ -242,14 +226,13 @@ const AccountsPage = () => {
     const withdraw = async (invite) => {
         setWithdrawing(invite.id);
         try {
-            await api.delete(`${INVITES_ENDPOINT}/${invite.id}`);
+            await revokeInvite({ id: invite.id }).unwrap();
             addToast(`The invitation for ${invite.username} no longer works`, 'success');
         } catch (err) {
             addToast(readableError(err, 'Could not withdraw the invitation.'), 'error');
         } finally {
-            // Either way: a failure is most often an invitation used or expired in the meantime,
-            // which should not stay listed.
-            await reload();
+            // The list is asked again either way, through its tag: a failure is most often an
+            // invitation used or expired in the meantime, which shouldn't stay listed.
             setWithdrawing(null);
         }
     };
@@ -306,7 +289,7 @@ const AccountsPage = () => {
                         <tbody className="bg-white divide-y divide-gray-200">
                             {accounts.map((account) => {
                                 const isMe = account.username === me;
-                                const waiting = busy !== null;
+                                const waiting = busy !== null || listsLoading;
                                 return (
                                     <tr key={account.id}>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -399,8 +382,13 @@ const AccountsPage = () => {
                 <h2 id="invites-heading" className="text-lg font-medium text-gray-900 mb-3">
                     Invitations
                 </h2>
-                {invites.length === 0 ? (
-                    <p className="text-sm text-gray-500">No invitation is waiting to be used.</p>
+                {invitesError ? (
+                    <p role="alert" className="text-sm text-red-500">
+                        {invitesError}
+                    </p>
+                ) : invites.length === 0 ? (
+                    // Only once the list has loaded: until then, or if it failed, nobody knows.
+                    open.isSuccess && <p className="text-sm text-gray-500">No invitation is waiting to be used.</p>
                 ) : (
                     <ul className="divide-y divide-gray-200 bg-white shadow-sm sm:rounded-lg">
                         {invites.map((invite) => (
@@ -420,7 +408,7 @@ const AccountsPage = () => {
                                 </div>
                                 <button
                                     type="button"
-                                    disabled={withdrawing !== null}
+                                    disabled={withdrawing !== null || listsLoading}
                                     onClick={() => withdraw(invite)}
                                     aria-label={`Withdraw the invitation for ${invite.username}`}
                                     className={dangerButton}
@@ -433,15 +421,15 @@ const AccountsPage = () => {
                 )}
             </section>
 
-            <InviteModal isOpen={inviting} onClose={() => setInviting(false)} onInvited={reload} />
+            <InviteModal isOpen={inviting} onClose={() => setInviting(false)} />
 
             <QuotaModal
                 account={quotaFor}
                 onClose={() => setQuotaFor(null)}
                 onSaved={() => {
                     addToast(`Changed the quota of ${quotaFor.username}`, 'success');
+                    // The list refreshes through its tag.
                     setQuotaFor(null);
-                    reload();
                 }}
             />
 

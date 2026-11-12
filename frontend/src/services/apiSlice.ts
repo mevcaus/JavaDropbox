@@ -18,8 +18,8 @@ export const apiSlice = generatedApi
     .enhanceEndpoints({
         // Files: one tag for the whole tree, which comes back as one answer. Once it's listed per
         // folder (#228), each folder can have its own. Versions: a file's, by its id. ShareLinks:
-        // an item's active links, by its path.
-        addTagTypes: ['Files', 'Versions', 'ShareLinks'],
+        // an item's active links, by its path. Accounts and Invites: the admin page's two lists.
+        addTagTypes: ['Files', 'Versions', 'ShareLinks', 'Accounts', 'Invites'],
         endpoints: {
             getFileTree: { providesTags: ['Files'] },
             // Uploading over a file keeps its old content as a version, and a delete takes the item's
@@ -57,6 +57,21 @@ export const apiSlice = generatedApi
                     }
                 },
             },
+            listAccounts: { providesTags: ['Accounts'] },
+            listInvites: { providesTags: ['Invites'] },
+            setAccountRole: { invalidatesTags: ['Accounts'] },
+            setAccountQuota: { invalidatesTags: ['Accounts'] },
+            // Disabling an account also withdraws the invitations it made; enabling one doesn't.
+            setAccountEnabled: {
+                invalidatesTags: (_result, _error, { body }) => (body.enabled ? ['Accounts'] : ['Accounts', 'Invites']),
+            },
+            // An import gives the account's files rows, which count toward its storage, and may be into
+            // the admin's own account.
+            importFiles: { invalidatesTags: ['Accounts', 'Files'] },
+            createInvite: { invalidatesTags: ['Invites'] },
+            // Failed or not: a failure is most often an invitation used or expired meanwhile, which
+            // shouldn't stay listed.
+            revokeInvite: { invalidatesTags: ['Invites'] },
         },
     })
     .injectEndpoints({
@@ -104,4 +119,13 @@ export const {
     useListShareLinksQuery,
     useCreateShareLinkMutation,
     useRevokeShareLinkMutation,
+    useListAccountsQuery,
+    useListInvitesQuery,
+    useSetAccountEnabledMutation,
+    useSetAccountRoleMutation,
+    useSetAccountQuotaMutation,
+    useCreatePasswordResetLinkMutation,
+    useImportFilesMutation,
+    useCreateInviteMutation,
+    useRevokeInviteMutation,
 } = apiSlice;
