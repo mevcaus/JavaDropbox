@@ -50,4 +50,29 @@ describe('readableError', () => {
     it('uses the fallback when there is no response at all', () => {
         expect(readableError(new Error('Network Error'), 'Failed to load files.')).toBe('Failed to load files.');
     });
+
+    // The API slice's errors are the answer itself, not an axios error carrying one.
+    describe('an error from the API slice', () => {
+        it('reads the server\'s message, or the status when there is none', () => {
+            expect(readableError({ status: 409, data: { message: 'Already exists' } }, 'Failed')).toBe('Already exists');
+            expect(readableError({ status: 500, data: '<!doctype html><h1>500</h1>' }, 'Failed')).toBe(
+                'The server is unavailable right now. Please try again.',
+            );
+        });
+
+        it('falls back when the request got no answer at all', () => {
+            expect(readableError({ status: 'FETCH_ERROR', error: 'TypeError: Failed to fetch' }, 'Failed')).toBe('Failed');
+        });
+    });
+
+    // A status is a number; one that isn't, which neither axios nor the slice sends, says nothing.
+    it('takes no meaning from a status that is not a number', () => {
+        expect(readableError({ status: '503' }, 'Failed')).toBe('Failed');
+    });
+
+    it('falls back for something that is not an error at all', () => {
+        expect(readableError(undefined, 'Failed')).toBe('Failed');
+        expect(readableError(null, 'Failed')).toBe('Failed');
+        expect(readableError('oops', 'Failed')).toBe('Failed');
+    });
 });

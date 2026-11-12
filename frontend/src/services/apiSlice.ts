@@ -4,7 +4,7 @@ import { filesByFolder } from '../features/files';
 import { REQUEST_BODIES } from './requestBodies';
 
 // The generated types the rest of the app reads, re-exported so they're imported from here.
-export type { CurrentUser, FileTreeNode, SearchResult, SearchResults } from './generatedApi';
+export type { CurrentUser, FileTreeNode, SearchResults } from './generatedApi';
 
 /** A file with its place inside a folder being uploaded, e.g. "Trip/Day 1/a.jpg". */
 export type PickedFile = { file: File; relativePath: string };

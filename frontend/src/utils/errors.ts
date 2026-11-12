@@ -3,9 +3,10 @@
 // the UI would put that on screen, so pick out something a person can actually read.
 const isHtmlDocument = (value: string): boolean => /^\s*<(!doctype|html)/i.test(value);
 
-// A field of something that may or may not be an object, such as an error or the body of an answer.
-const fieldOf = (value: unknown, name: string): unknown =>
-    typeof value === 'object' && value !== null && name in value ? (value as Record<string, unknown>)[name] : undefined;
+// The fields of something that may or may not be an object, such as an error or the body of an
+// answer; none when it isn't one.
+const fieldsOf = (value: unknown): Record<string, unknown> =>
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 
 /**
  * A message fit to show for a failed request: the server's own message when it sent one, otherwise
@@ -20,15 +21,13 @@ export const readableError = (
     { unauthorized = 'Your session has expired. Please sign in again.' }: { unauthorized?: string } = {},
 ): string => {
     // An axios error carries the answer in error.response; the API slice's errors are the answer.
-    const response = typeof error === 'object' && error !== null && 'response' in error ? error.response : undefined;
-    const answer = response ?? error;
-    const status = fieldOf(answer, 'status');
-    const data = fieldOf(answer, 'data');
+    const { status, data } = fieldsOf(fieldsOf(error).response ?? error);
 
     // The API's own errors carry a specific `message`; Spring's default error body adds only the
     // generic status text in `error` ("Bad Request"), which is the last resort.
     if (data && typeof data === 'object') {
-        const message = [fieldOf(data, 'message'), fieldOf(data, 'error')].find(
+        const { message: specific, error: generic } = fieldsOf(data);
+        const message = [specific, generic].find(
             (value): value is string => typeof value === 'string' && value.trim() !== '',
         );
         if (message) {

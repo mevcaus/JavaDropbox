@@ -128,7 +128,8 @@ JavaDropbox/
 │   │   ├── services/baseQuery.ts   #   Sends them through api.ts, each body as its endpoint takes it
 │   │   ├── services/baseApi.ts     #   The empty slice the endpoints are generated into
 │   │   ├── services/requestBodies.ts # How each endpoint takes its body, generated (npm run api:client)
-│   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard
+│   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard,
+│   │   │                           #   droppedFiles (reading a drop), names, passwords
 │   │   ├── App.jsx                 # Route definitions
 │   │   └── main.jsx                # Entry point; registers the 401 handler
 │   ├── vite.config.js              # Dev proxy to Spring Boot backend
