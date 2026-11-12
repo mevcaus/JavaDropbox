@@ -1,30 +1,37 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { HardDrive, Loader2 } from 'lucide-react';
-import { useSetAccountQuotaMutation } from '../services/apiSlice';
+import { useSetAccountQuotaMutation, type AccountDto } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import { QUOTA_ERROR, formToQuota, quotaToForm } from '../utils/quota';
 import Modal, { ModalActions } from './Modal';
 import QuotaFields from './QuotaFields';
 import { primaryButton, secondaryButton } from './modalStyles';
 
+interface QuotaModalProps {
+    /** The account whose quota to change; nothing is shown without one. */
+    account: AccountDto | null;
+    onClose: () => void;
+    onSaved: () => void;
+}
+
 /**
  * Changes an account's quota. onSaved runs once the server has stored it; the accounts list
  * refreshes through its cache tag.
  */
-const QuotaModal = ({ account, onClose, onSaved }) =>
+const QuotaModal = ({ account, onClose, onSaved }: QuotaModalProps) =>
     account ? <QuotaDialog key={account.id} account={account} onClose={onClose} onSaved={onSaved} /> : null;
 
-const QuotaDialog = ({ account, onClose, onSaved }) => {
+const QuotaDialog = ({ account, onClose, onSaved }: QuotaModalProps & { account: AccountDto }) => {
     const [setAccountQuota] = useSetAccountQuotaMutation();
     const initial = quotaToForm(account.quotaBytes);
     const [amount, setAmount] = useState(initial.amount);
-    const [unit, setUnit] = useState(initial.unit);
+    const [unit, setUnit] = useState<string>(initial.unit);
     const [saving, setSaving] = useState(false);
-    const [error, setError] = useState(null);
-    const amountRef = useRef(null);
+    const [error, setError] = useState<string | null>(null);
+    const amountRef = useRef<HTMLInputElement>(null);
     const quotaId = useId();
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const quota = formToQuota(amount, unit);
         if (quota === null) {

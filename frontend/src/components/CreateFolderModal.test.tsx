@@ -90,8 +90,8 @@ describe('CreateFolderModal', () => {
 
     describe('while the server decides', () => {
         const deferred = () => {
-            let resolve;
-            let reject;
+            let resolve!: (value?: unknown) => void;
+            let reject!: (reason: unknown) => void;
             const promise = new Promise((res, rej) => {
                 resolve = res;
                 reject = rej;

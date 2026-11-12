@@ -1,10 +1,10 @@
 import { Folder, FileText, Image, Film, Music } from 'lucide-react';
 
 // An icon for a folder, or for a file by its extension. Shared by the file table and share pages.
-const FileIcon = ({ type, name }) => {
+const FileIcon = ({ type, name }: { type: 'DIRECTORY' | 'FILE'; name: string }) => {
     if (type === 'DIRECTORY') return <Folder className="h-5 w-5 text-blue-500" />;
 
-    const ext = name.split('.').pop().toLowerCase();
+    const ext = (name.split('.').pop() ?? '').toLowerCase();
 
     // Images
     if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) return <Image className="h-5 w-5 text-purple-500" />;

@@ -1,5 +1,6 @@
+import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
-import Modal, { ModalActions } from './Modal';
+import Modal, { ModalActions, type ModalProps } from './Modal';
 import { primaryButton, secondaryButton } from './modalStyles';
 
 /**
@@ -18,6 +19,11 @@ const ConfirmModal = ({
     tone = 'blue',
     busy = false,
     children,
+}: Pick<ModalProps, 'isOpen' | 'onClose' | 'title' | 'icon' | 'iconClassName' | 'children'> & {
+    onConfirm: () => void;
+    confirmLabel: ReactNode;
+    tone?: keyof typeof primaryButton;
+    busy?: boolean;
 }) => (
     <Modal
         isOpen={isOpen}

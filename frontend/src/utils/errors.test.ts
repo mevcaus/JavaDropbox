@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readableError } from './errors';
+import { readableError, statusOf } from './errors';
 
 // The backend answers both a rejected password and a missing session with a bare 401.
 const unauthorized = { response: { status: 401, data: '' } };
@@ -74,5 +74,19 @@ describe('readableError', () => {
         expect(readableError(undefined, 'Failed')).toBe('Failed');
         expect(readableError(null, 'Failed')).toBe('Failed');
         expect(readableError('oops', 'Failed')).toBe('Failed');
+    });
+});
+
+// The status an axios request failed with, read from whatever was thrown.
+describe('statusOf', () => {
+    it('reads the status of an answer', () => {
+        expect(statusOf({ response: { status: 416, data: '' } })).toBe(416);
+    });
+
+    it('has none for a request with no answer, or anything else thrown', () => {
+        expect(statusOf({ message: 'Network Error' })).toBeUndefined();
+        expect(statusOf({ response: { status: '404' } })).toBeUndefined();
+        expect(statusOf(undefined)).toBeUndefined();
+        expect(statusOf('oops')).toBeUndefined();
     });
 });

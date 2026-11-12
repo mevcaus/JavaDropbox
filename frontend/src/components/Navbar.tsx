@@ -1,12 +1,12 @@
 import { Menu, LogOut, User } from 'lucide-react';
 import Logo from './Logo';
-import { useDispatch, useSelector } from 'react-redux';
+import { useAppDispatch, useAppSelector } from '../redux/withTypes';
 import { logoutUser } from '../features/authSlice';
 import { useToast } from '../hooks/useToast';
 
-const Navbar = ({ onMenuClick }) => {
-    const dispatch = useDispatch();
-    const { user } = useSelector((state) => state.auth);
+const Navbar = ({ onMenuClick }: { onMenuClick: () => void }) => {
+    const dispatch = useAppDispatch();
+    const user = useAppSelector((state) => state.auth.user);
     const { addToast } = useToast();
 
     const handleLogout = async () => {

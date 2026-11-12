@@ -6,16 +6,17 @@ import Sidebar from './Sidebar';
 import { loginUser } from '../features/authSlice';
 import { makeStore } from '../redux/store';
 import { apiSlice } from '../services/apiSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const GB = 1024 ** 3;
 
 const renderSidebar = ({ role = 'USER', isCollapsed = false } = {}) => {
     const store = makeStore();
-    store.dispatch(loginUser.fulfilled({ username: 'ada', role }, 'seed'));
+    store.dispatch(loginUser.fulfilled({ username: 'ada', role }, 'seed', { username: 'ada', password: '' }));
     const view = render(
         <Provider store={store}>
             <MemoryRouter>

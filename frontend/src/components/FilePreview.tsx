@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { Loader2 } from 'lucide-react';
 import api from '../services/api';
-import { readableError } from '../utils/errors';
+import type { FileTreeNode } from '../services/apiSlice';
+import { fieldsOf, readableError, statusOf } from '../utils/errors';
 import { formatSize } from '../utils/format';
 
 // Only the start of a text file is fetched: a multi-gigabyte log would otherwise be pulled into
@@ -9,17 +10,18 @@ import { formatSize } from '../utils/format';
 const TEXT_PREVIEW_BYTES = 256 * 1024;
 
 // "bytes 0-262143/1048576" -> 1048576; null when the header is missing or the size unknown ("*").
-const totalSize = (contentRange) => {
-    const total = /\/(\d+)$/.exec(contentRange ?? '')?.[1];
+const totalSize = (contentRange: unknown): number | null => {
+    const total = /\/(\d+)$/.exec(typeof contentRange === 'string' ? contentRange : '')?.[1];
     return total === undefined ? null : Number(total);
 };
 
 // The text request asks for a string, so an error's JSON body arrives unparsed too.
-const parsedError = (error) => {
-    const data = error?.response?.data;
+const parsedError = (error: unknown): unknown => {
+    const response = fieldsOf(error).response;
+    const { data } = fieldsOf(response);
     if (typeof data !== 'string') return error;
     try {
-        return { ...error, response: { ...error.response, data: JSON.parse(data) } };
+        return { ...fieldsOf(error), response: { ...fieldsOf(response), data: JSON.parse(data) } };
     } catch {
         return error;
     }
@@ -27,10 +29,16 @@ const parsedError = (error) => {
 
 // Read straight through api, not the API slice: these are a file's contents, which don't belong in
 // the cache, for the same reason the download endpoints are left out of the generated slice.
-const loadText = async (src, signal) => {
+interface TextResult {
+    content: string;
+    total: number | null;
+    truncated: boolean;
+}
+
+const loadText = async (src: string, signal: AbortSignal): Promise<TextResult> => {
     let response;
     try {
-        response = await api.get(src, {
+        response = await api.get<string>(src, {
             headers: { Range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` },
             // Kept as a string: a .json file must show as written, not be parsed by axios.
             responseType: 'text',
@@ -38,7 +46,7 @@ const loadText = async (src, signal) => {
         });
     } catch (error) {
         // Asking for the first byte of an empty file is a range that cannot be satisfied.
-        if (error.response?.status === 416) return { content: '', total: 0, truncated: false };
+        if (statusOf(error) === 416) return { content: '', total: 0, truncated: false };
         throw error;
     }
 
@@ -53,15 +61,20 @@ const loadText = async (src, signal) => {
     return { content, total, truncated };
 };
 
-const TextPreview = ({ src, name }) => {
-    const [result, setResult] = useState(null);
-    const [error, setError] = useState(null);
+interface PreviewProps {
+    src: string;
+    name: string;
+}
+
+const TextPreview = ({ src, name }: PreviewProps) => {
+    const [result, setResult] = useState<TextResult | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const controller = new AbortController();
         loadText(src, controller.signal)
             .then(setResult)
-            .catch((err) => {
+            .catch((err: unknown) => {
                 if (!controller.signal.aborted) {
                     setError(readableError(parsedError(err), 'Could not load the preview.'));
                 }
@@ -100,7 +113,7 @@ const TextPreview = ({ src, name }) => {
     );
 };
 
-const ImagePreview = ({ src, name }) => {
+const ImagePreview = ({ src, name }: PreviewProps) => {
     const [failed, setFailed] = useState(false);
 
     if (failed) return <p className="text-sm text-red-500">Could not load the image.</p>;
@@ -116,11 +129,14 @@ const ImagePreview = ({ src, name }) => {
     );
 };
 
-const PdfPreview = ({ src, name }) => (
+const PdfPreview = ({ src, name }: PreviewProps) => (
     <iframe src={src} title={`Preview of ${name}`} className="h-[70vh] w-full rounded-md border border-gray-200" />
 );
 
-const PREVIEWS = {
+/** How a file can be shown in place, as the server says (its previewType); null for not at all. */
+export type PreviewType = FileTreeNode['previewType'];
+
+const PREVIEWS: Record<NonNullable<PreviewType>, ComponentType<PreviewProps>> = {
     image: ImagePreview,
     pdf: PdfPreview,
     text: TextPreview,
@@ -131,8 +147,8 @@ const PREVIEWS = {
  * source files as text. Which kind a file is comes from the server (its previewType), so the two
  * agree on what opens. Used for the signed-in preview and for share links' pages.
  */
-const FilePreview = ({ type, src, name }) => {
-    const Preview = PREVIEWS[type];
+const FilePreview = ({ type, src, name }: { type: PreviewType; src: string; name: string }) => {
+    const Preview = type ? PREVIEWS[type] : undefined;
     if (!Preview) return <p className="text-sm text-gray-500">This kind of file cannot be previewed.</p>;
     // Keyed by URL, so moving to another file starts from a clean loading state.
     return <Preview key={src} src={src} name={name} />;

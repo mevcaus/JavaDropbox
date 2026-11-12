@@ -2,7 +2,19 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import { primaryButton, secondaryButton } from './modalStyles';
 
-const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, itemName, isDeleting = false }) => (
+const DeleteConfirmationModal = ({
+    isOpen,
+    onClose,
+    onConfirm,
+    itemName,
+    isDeleting = false,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    itemName?: string;
+    isDeleting?: boolean;
+}) => (
     <Modal
         isOpen={isOpen}
         // Closing mid-request would hide the outcome; the request finishes either way.

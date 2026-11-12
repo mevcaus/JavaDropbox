@@ -1,14 +1,33 @@
-import { Fragment, useState, useMemo } from 'react';
+import { Fragment, useState, useMemo, type ChangeEvent } from 'react';
 import { Download, Share2, Trash2, Search, ChevronUp, ChevronDown, History } from 'lucide-react';
 import FileIcon from './FileIcon';
-import { useFileSearch } from '../hooks/useFileSearch';
+import { useFileSearch, type SearchAnswer } from '../hooks/useFileSearch';
+import type { FileTreeNode, SearchResult } from '../services/apiSlice';
 import { formatDate, toTimestamp } from '../utils/date';
 import { formatSize } from '../utils/format';
+
+/**
+ * A row of the table: an item of the folder, or a search result, which is the tree's own node where
+ * there is one. A result the tree doesn't list (a file copied in by hand before it's imported) has
+ * no id.
+ */
+export type FileRow = Pick<FileTreeNode, 'name' | 'isDirectory' | 'relativePath' | 'previewType' | 'lastModified'> & {
+    id?: FileTreeNode['id'];
+    size: SearchResult['size'];
+    snippet?: SearchResult['snippet'];
+};
+
+type SortKey = 'name' | 'size' | 'lastModified';
+
+interface SortConfig {
+    key: SortKey;
+    direction: 'asc' | 'desc';
+}
 
 // Every node below the open folder by its path. A search result is shown as the tree's own node
 // where there is one, which carries what the result does not: the id that versions need, and a
 // folder's size.
-const indexByPath = (nodes, byPath = new Map()) => {
+const indexByPath = (nodes: readonly FileTreeNode[], byPath = new Map<string, FileTreeNode>()) => {
     for (const node of nodes) {
         byPath.set(node.relativePath, node);
         if (node.children && node.children.length > 0) {
@@ -20,8 +39,8 @@ const indexByPath = (nodes, byPath = new Map()) => {
 
 // The passage of a file's text that matched, with the matching words marked. The server gives
 // plain text and where the matches are, so nothing in a file is ever rendered as markup.
-const Snippet = ({ snippet }) => {
-    const parts = [];
+const Snippet = ({ snippet }: { snippet: NonNullable<SearchResult['snippet']> }) => {
+    const parts: { text: string; match?: boolean }[] = [];
     let at = 0;
     for (const { start, end } of snippet.highlights) {
         if (start > at) parts.push({ text: snippet.text.slice(at, start) });
@@ -41,12 +60,12 @@ const Snippet = ({ snippet }) => {
     );
 };
 
-const compareNodes = (a, b, { key, direction }) => {
+const compareNodes = (a: FileRow, b: FileRow, { key, direction }: SortConfig) => {
     // Folders always stay grouped ahead of files; the direction only reorders within a group
     if (a.isDirectory && !b.isDirectory) return -1;
     if (!a.isDirectory && b.isDirectory) return 1;
 
-    let aVal, bVal;
+    let aVal: number | string, bVal: number | string;
     if (key === 'size') {
         aVal = a.size || 0;
         bVal = b.size || 0;
@@ -64,13 +83,23 @@ const compareNodes = (a, b, { key, direction }) => {
 };
 
 // sortConfig is null while search results are in the server's order, best match first.
-const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
+const SortableHeader = ({
+    label,
+    sortKey,
+    sortConfig,
+    onSort,
+}: {
+    label: string;
+    sortKey: SortKey;
+    sortConfig: SortConfig | null;
+    onSort: (key: SortKey) => void;
+}) => {
     const isActive = sortConfig?.key === sortKey;
 
     return (
         <th
             scope="col"
-            aria-sort={isActive ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+            aria-sort={isActive ? (sortConfig?.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
             className="p-0 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
         >
             {/* The button carries the cell padding so the whole header stays clickable, and is
@@ -82,7 +111,7 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
             >
                 {label}
                 {isActive ? (
-                    sortConfig.direction === 'asc'
+                    sortConfig?.direction === 'asc'
                         ? <ChevronUp className="h-4 w-4 ml-1 text-gray-700" />
                         : <ChevronDown className="h-4 w-4 ml-1 text-gray-700" />
                 ) : (
@@ -96,7 +125,19 @@ const SortableHeader = ({ label, sortKey, sortConfig, onSort }) => {
 
 // What a search found, or that it is still looking. Announced politely, so a screen reader hears
 // the count once typing pauses rather than for every letter.
-const SearchStatus = ({ answer, pending, shown, sortedByRelevance, onSortByRelevance }) => {
+const SearchStatus = ({
+    answer,
+    pending,
+    shown,
+    sortedByRelevance,
+    onSortByRelevance,
+}: {
+    answer: SearchAnswer | null;
+    pending: boolean;
+    shown: number;
+    sortedByRelevance: boolean;
+    onSortByRelevance: () => void;
+}) => {
     let message;
     if (!answer) {
         message = 'Searching…';
@@ -132,16 +173,35 @@ const SearchStatus = ({ answer, pending, shown, sortedByRelevance, onSortByRelev
     );
 };
 
-const toggled = (current, key) => ({
+const toggled = (current: SortConfig | null, key: SortKey): SortConfig => ({
     key,
     direction: current?.key === key && current.direction === 'asc' ? 'desc' : 'asc',
 });
 
-const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onFolderClick, onVersions, onPreview }) => {
+const FileTable = ({
+    files,
+    currentPath = '',
+    onDelete,
+    onDownload,
+    onShare,
+    onFolderClick,
+    onVersions,
+    onPreview,
+}: {
+    /** The open folder's items; none until the tree has loaded. */
+    files: readonly FileTreeNode[] | null | undefined;
+    currentPath?: string;
+    onDelete: (row: FileRow) => void;
+    onDownload: (row: FileRow) => void;
+    onShare: (row: FileRow) => void;
+    onFolderClick: (path: string) => void;
+    onVersions?: (row: FileRow) => void;
+    onPreview?: (row: FileRow) => void;
+}) => {
     const [searchQuery, setSearchQuery] = useState('');
-    const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+    const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'name', direction: 'asc' });
     // How search results are sorted when not by relevance, which is how they arrive.
-    const [resultSort, setResultSort] = useState(null);
+    const [resultSort, setResultSort] = useState<SortConfig | null>(null);
 
     // Clear the search when the user navigates to a different folder: a query typed against one
     // folder's contents would otherwise keep hiding the next folder's. Sort order is deliberately
@@ -158,13 +218,13 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
     // The server searches names and the text inside files, everywhere below this folder.
     const { answer, pending } = useFileSearch(query, currentPath);
 
-    const handleSearchChange = (e) => {
+    const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
         setSearchQuery(e.target.value);
         // A new search starts out best first again.
         if (!e.target.value.trim()) setResultSort(null);
     };
 
-    const handleSort = (key) => {
+    const handleSort = (key: SortKey) => {
         if (searching) {
             setResultSort((current) => toggled(current, key));
         } else {
@@ -176,13 +236,13 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
 
     // Browsing lists just this folder; searching lists the matches from every folder below it,
     // each row labelled with its own path so you can tell which folder it came from.
-    const visibleFiles = useMemo(() => {
+    const visibleFiles = useMemo((): FileRow[] => {
         if (!files) return [];
         if (!searching) return [...files].sort((a, b) => compareNodes(a, b, sortConfig));
         if (!answer) return [];
 
         const results = answer.results.map((result) => ({
-            ...(nodesByPath.get(result.relativePath) ?? result),
+            ...(nodesByPath?.get(result.relativePath) ?? result),
             snippet: result.snippet,
         }));
         return resultSort ? results.sort((a, b) => compareNodes(a, b, resultSort)) : results;
@@ -225,7 +285,13 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            {[['Name', 'name'], ['Size', 'size'], ['Last Modified', 'lastModified']].map(([label, key]) => (
+                            {(
+                                [
+                                    ['Name', 'name'],
+                                    ['Size', 'size'],
+                                    ['Last Modified', 'lastModified'],
+                                ] as const
+                            ).map(([label, key]) => (
                                 <SortableHeader
                                     key={key}
                                     label={label}
@@ -242,7 +308,7 @@ const FileTable = ({ files, currentPath = '', onDelete, onDownload, onShare, onF
                     <tbody className="bg-white divide-y divide-gray-200">
                         {visibleFiles.length === 0 ? (
                             <tr>
-                                <td colSpan="4" className="px-6 py-10 text-center text-gray-500">
+                                <td colSpan={4} className="px-6 py-10 text-center text-gray-500">
                                     {searching && !answer ? 'Searching…' : 'No files match your search.'}
                                 </td>
                             </tr>

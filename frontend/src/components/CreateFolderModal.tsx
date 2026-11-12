@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import { primaryButton, secondaryButton } from './modalStyles';
@@ -8,11 +8,19 @@ import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
  * Asks for a folder name. onCreate returns a promise: the dialog closes once it resolves, and stays
  * open with the typed name and the rejection's message otherwise (a 409 for a name already taken).
  */
-const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
+const CreateFolderModal = ({
+    isOpen,
+    onClose,
+    onCreate,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onCreate: (name: string) => Promise<unknown>;
+}) => {
     const [folderName, setFolderName] = useState('');
     const [creating, setCreating] = useState(false);
-    const [error, setError] = useState(null);
-    const inputRef = useRef(null);
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const errorId = useId();
 
     const reset = () => {
@@ -27,7 +35,7 @@ const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
         onClose();
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const name = folderName.trim();
         if (!name || creating) return;

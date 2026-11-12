@@ -95,23 +95,23 @@ JavaDropbox/
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Modal.jsx           #   Shared dialog shell: Escape, focus trap, focus restore
-│   │   │   ├── CreateFolderModal.jsx
-│   │   │   ├── DeleteConfirmationModal.jsx
-│   │   │   ├── ShareModal.jsx      #   Share-link creation and the active links
-│   │   │   ├── CopyLinkField.jsx   #   A link shown once, with copying that works over plain http
-│   │   │   ├── InviteModal.jsx     #   Admins: invite someone, with a role and a quota
-│   │   │   ├── QuotaModal.jsx      #   Admins: change an account's quota (QuotaFields: amount + unit)
-│   │   │   ├── VersionHistoryModal.jsx  # List and restore previous versions
-│   │   │   ├── PreviewModal.jsx    #   The preview dialog on the dashboard
-│   │   │   ├── FilePreview.jsx     #   Image, PDF and text previews, for the dialog and share pages
-│   │   │   ├── FileIcon.jsx        #   Folder and file-type icons
-│   │   │   ├── FileTable.jsx       #   File listing with search results, sorting, row actions
-│   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
-│   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
-│   │   │   ├── Sidebar.jsx         #   Navigation, and storage used against the quota
-│   │   │   ├── DemoBanner.jsx      #   The live demo's limits and next reset
-│   │   │   └── Logo.jsx, AnimatedLogo.jsx
+│   │   │   ├── Modal.tsx           #   Shared dialog shell: Escape, focus trap, focus restore
+│   │   │   ├── CreateFolderModal.tsx
+│   │   │   ├── DeleteConfirmationModal.tsx
+│   │   │   ├── ShareModal.tsx      #   Share-link creation and the active links
+│   │   │   ├── CopyLinkField.tsx   #   A link shown once, with copying that works over plain http
+│   │   │   ├── InviteModal.tsx     #   Admins: invite someone, with a role and a quota
+│   │   │   ├── QuotaModal.tsx      #   Admins: change an account's quota (QuotaFields: amount + unit)
+│   │   │   ├── VersionHistoryModal.tsx  # List and restore previous versions
+│   │   │   ├── PreviewModal.tsx    #   The preview dialog on the dashboard
+│   │   │   ├── FilePreview.tsx     #   Image, PDF and text previews, for the dialog and share pages
+│   │   │   ├── FileIcon.tsx        #   Folder and file-type icons
+│   │   │   ├── FileTable.tsx       #   File listing with search results, sorting, row actions
+│   │   │   ├── Breadcrumbs.tsx     #   Path navigation breadcrumbs
+│   │   │   ├── Navbar.tsx          #   Top bar with user info and logout
+│   │   │   ├── Sidebar.tsx         #   Navigation, and storage used against the quota
+│   │   │   ├── DemoBanner.tsx      #   The live demo's limits and next reset
+│   │   │   └── Logo.tsx, AnimatedLogo.tsx
 │   │   ├── contexts/ToastContext.tsx # Shows toasts; screens raise them with useToast
 │   │   ├── features/               # Redux slices and helpers
 │   │   │   ├── authSlice.ts        #   Login/logout/session thunks + state, the role
