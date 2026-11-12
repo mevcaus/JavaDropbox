@@ -16,14 +16,21 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Creates the first account, an admin, who invites everyone else. Until it exists, anyone who can
  * reach the server could claim it, so setup also needs a one-time code that is only printed to the
  * server's log: whoever installed the server can read it, someone who merely found the address
  * cannot.
+ *
+ * <p>Several servers sharing the database share the code too: whichever needs one first generates
+ * it and keeps it in the database until setup is done, and every server prints and checks that one.
+ * Creating the first account holds a lock in the database, so two servers can't each create one.
  */
 @Service
 public class SetupService {
@@ -41,12 +48,13 @@ public class SetupService {
   private final FirstAccountImport firstAccountImport;
   private final String configuredCode;
   private final SecureRandom random = new SecureRandom();
+  private final JdbcTemplate jdbc;
+  private final TransactionTemplate transaction;
 
   // Wrong codes are throttled per client, like sign-ins, and counted apart from them. The code
-  // itself never changes before a restart: replacing it after wrong guesses would let anyone make
-  // the logged code stale.
+  // itself never changes before setup is done: replacing it after wrong guesses would let anyone
+  // make the logged code stale.
   private final LoginAttemptLimiter codeAttempts;
-  private final String code;
 
   public SetupService(
       UserRepository users,
@@ -54,8 +62,12 @@ public class SetupService {
       AuthService authService,
       FirstAccountImport firstAccountImport,
       @Qualifier(LoginAttemptLimiter.SETUP_CODE) LoginAttemptLimiter codeAttempts,
+      JdbcTemplate jdbc,
+      PlatformTransactionManager transactions,
       @Value("${app.setup.code:}") String configuredCode) {
     this.users = users;
+    this.jdbc = jdbc;
+    this.transaction = new TransactionTemplate(transactions);
     this.codeAttempts = codeAttempts;
     this.passwordEncoder = passwordEncoder;
     this.authService = authService;
@@ -67,9 +79,24 @@ public class SetupService {
           "app.setup.code must be at least "
               + MIN_CONFIGURED_CODE_LENGTH
               + " characters long, not counting dashes and spaces. Remove it to have a random"
-              + " code generated on each start instead.");
+              + " code generated instead.");
     }
-    this.code = this.configuredCode.isEmpty() ? generateCode() : this.configuredCode;
+  }
+
+  /**
+   * The code setup needs: the configured one, or the one kept in the database, which the first
+   * server to need it generates.
+   */
+  String code() {
+    if (!configuredCode.isEmpty()) {
+      return configuredCode;
+    }
+    // Two servers asking at once both get the one that was stored first.
+    return jdbc.queryForObject(
+        "INSERT INTO setup_code (id, code, created_at) VALUES (1, ?, now())"
+            + " ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id RETURNING code",
+        String.class,
+        generateCode());
   }
 
   @EventListener(ApplicationReadyEvent.class)
@@ -80,23 +107,33 @@ public class SetupService {
   }
 
   /**
-   * Creates the first account, which is given whatever is already at the top of the store.
-   * Synchronized, and the check and insert both commit before it returns, so two simultaneous
-   * submissions cannot both create an account.
+   * Creates the first account, which is given whatever is already at the top of the store. The
+   * check and the insert happen in one transaction, holding a lock in the database, and commit
+   * before it returns, so two submissions at once, to one server or to two, can't both create an
+   * account.
    *
    * @param client the caller's address, which wrong setup codes are throttled by
    */
-  public synchronized void createFirstUser(
-      String client, String setupCode, String username, String password) {
-    if (!authService.isSetupRequired()) {
-      throw new ConflictException("Setup has already been completed");
-    }
-    checkCode(client, setupCode);
+  public void createFirstUser(String client, String setupCode, String username, String password) {
+    User user =
+        transaction.execute(
+            status -> {
+              DatabaseLocks.holdUntilCommit(jdbc, DatabaseLocks.SETUP);
+              if (!authService.isSetupRequired()) {
+                throw new ConflictException("Setup has already been completed");
+              }
+              checkCode(client, setupCode);
 
-    String name = Credentials.username(username);
-    Credentials.checkPassword(password);
+              String name = Credentials.username(username);
+              Credentials.checkPassword(password);
 
-    User user = users.save(new User(name, passwordEncoder.encode(password), User.ROLE_ADMIN));
+              User saved =
+                  users.save(new User(name, passwordEncoder.encode(password), User.ROLE_ADMIN));
+              // Used up: a later install on this database would need a new one.
+              jdbc.update("DELETE FROM setup_code");
+              return saved;
+            });
+    String name = user.getUsername();
     log.info("Setup complete: created the account \"{}\"", name);
     firstAccountImport.forNewFirstAccount(user);
   }
@@ -113,7 +150,7 @@ public class SetupService {
         submitted != null
             && MessageDigest.isEqual(
                 normalize(submitted).getBytes(StandardCharsets.UTF_8),
-                normalize(code).getBytes(StandardCharsets.UTF_8));
+                normalize(code()).getBytes(StandardCharsets.UTF_8));
     if (matches) {
       codeAttempts.recordSuccess(client);
       return;
@@ -151,9 +188,9 @@ public class SetupService {
     }
     log.warn(
         "\n{}\n No account exists yet. Open the app and create one with this setup code:\n\n"
-            + "     {}\n\n The code changes on every restart until setup is done.\n{}",
+            + "     {}\n\n The code stays the same until setup is done.\n{}",
         line,
-        code,
+        code(),
         line);
   }
 }

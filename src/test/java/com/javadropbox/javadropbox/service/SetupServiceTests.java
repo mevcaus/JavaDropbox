@@ -18,7 +18,6 @@ import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.TooManyRequestsException;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import java.lang.reflect.Field;
 import java.time.Clock;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -48,21 +47,22 @@ class SetupServiceTests {
   // Wrong codes are counted in the database, as in the app.
   private static final DataSource DATABASE = MigratedDatabase.create();
   private final JdbcTemplate jdbc = new JdbcTemplate(DATABASE);
+  private final DataSourceTransactionManager transactions =
+      new DataSourceTransactionManager(DATABASE);
   private final LoginAttemptLimiter codeAttempts =
       new LoginAttemptLimiter(
-          jdbc,
-          new DataSourceTransactionManager(DATABASE),
-          Clock.systemUTC(),
-          LoginAttemptLimiter.SETUP_CODE);
+          jdbc, transactions, Clock.systemUTC(), LoginAttemptLimiter.SETUP_CODE);
 
   @AfterEach
   void forgetAttempts() {
     jdbc.update("DELETE FROM login_attempts");
+    jdbc.update("DELETE FROM setup_code");
   }
 
   @BeforeEach
   void setUp() {
     when(authService.isSetupRequired()).thenReturn(true);
+    when(users.save(any(User.class))).thenAnswer(saved -> saved.getArgument(0));
     setup =
         new SetupService(
             users,
@@ -70,6 +70,8 @@ class SetupServiceTests {
             authService,
             firstAccountImport,
             codeAttempts,
+            jdbc,
+            transactions,
             "");
   }
 
@@ -214,6 +216,8 @@ class SetupServiceTests {
           authService,
           firstAccountImport,
           codeAttempts,
+          jdbc,
+          transactions,
           code);
     }
   }
@@ -227,9 +231,39 @@ class SetupServiceTests {
     assertThat(output.getAll()).contains(code());
   }
 
-  private String code() throws ReflectiveOperationException {
-    Field field = SetupService.class.getDeclaredField("code");
-    field.setAccessible(true);
-    return (String) field.get(setup);
+  private String code() {
+    return setup.code();
+  }
+
+  // Each server's SetupService, on the database they share.
+  @Test
+  @DisplayName("servers sharing the database print and take the same code")
+  @ExtendWith(OutputCaptureExtension.class)
+  void serversShareTheCode(CapturedOutput output) {
+    SetupService other =
+        new SetupService(
+            users,
+            NoOpPasswordEncoder.getInstance(),
+            authService,
+            firstAccountImport,
+            codeAttempts,
+            jdbc,
+            transactions,
+            "");
+    other.announceCodeIfNeeded();
+    String printed = other.code();
+
+    assertThat(output.getAll()).contains(printed);
+    assertThat(code()).isEqualTo(printed);
+    assertThatCode(() -> setup.createFirstUser(OWNER, printed, "ada", "long enough"))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  @DisplayName("the code is used up once the account exists")
+  void codeIsUsedUp() {
+    setup.createFirstUser(OWNER, code(), "ada", "long enough");
+
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
   }
 }

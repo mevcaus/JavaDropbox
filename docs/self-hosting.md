@@ -20,7 +20,7 @@ The container runs as uid and gid `10001`. To keep the files in a host directory
 
 ## First-run setup
 
-While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
+While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. The code stays the same until setup is done, and every server sharing the database prints the same one. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
 
 The first account is an **admin**, and anything already in the serving directory becomes its files.
 
@@ -149,7 +149,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
 | `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute), besides at each sign-in, up to 1,000 at a time; `-` turns the schedule off, as the demo does |
-| `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
+| `app.setup.code` | generated once, kept in the database until setup is done | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
@@ -181,7 +181,6 @@ Elasticsearch is for several app servers behind a load balancer. Each server's L
 - search answers `503` while the service is down, though everything else keeps working.
 
 Search is only one of the things several servers need, though, and the app doesn't support running more than one yet. Until [#336](https://github.com/mevcaus/JavaDropbox/issues/336) is done:
-- the setup code only works on one of them;
 - with the files in [S3](#storing-files-in-s3), which several servers need anyway, a folder one server deleted and another made again can vanish once its last file is deleted.
 
 So for now Lucene is the right pick. Elasticsearch is here to try, and to build on.
