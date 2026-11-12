@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
-    setupFiles: './src/setupTests.js',
+    setupFiles: './src/setupTests.ts',
     // npm test -- --coverage writes the report to coverage/ and fails below these thresholds.
     // They sit just under the coverage when they were set (94.6% of lines, 87.7% of branches,
     // 93.8% of statements, 92.1% of functions), about 7 lines, 5 branches, 10 statements and
@@ -13,12 +13,12 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Every source file, so one no test imports counts as uncovered instead of going unseen.
-      include: ['src/**/*.{js,jsx,ts,tsx}'],
+      include: ['src/**/*.{ts,tsx}'],
       // The generated API files are left out, like the tests: npm run api:types and api:client
       // write them from the spec.
       exclude: [
         'src/**/*.test.*',
-        'src/setupTests.js',
+        'src/setupTests.ts',
         'src/test/**',
         'src/services/apiSchema.ts',
         'src/services/generatedApi.ts',

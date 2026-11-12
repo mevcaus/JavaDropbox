@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { skipToken } from '@reduxjs/toolkit/query';
-import { useDispatch, useSelector } from 'react-redux';
+import { useAppDispatch, useAppSelector } from '../redux/withTypes';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import {
@@ -10,7 +10,7 @@ import {
     useResetPasswordMutation,
 } from '../services/apiSlice';
 import { clearUser, logoutUser } from '../features/authSlice';
-import { readableError } from '../utils/errors';
+import { fieldsOf, readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
 import logo from '../assets/logo/javadropbox-vertical-color.png';
@@ -19,7 +19,7 @@ import logo from '../assets/logo/javadropbox-vertical-color.png';
 const PURPOSES = {
     invite: {
         heading: 'Create your account',
-        intro: (username) => (
+        intro: (username: string) => (
             <>
                 You have been invited to JavaDropbox as <span className="font-semibold">{username}</span>.
                 Choose a password to finish creating your account.
@@ -32,7 +32,7 @@ const PURPOSES = {
     },
     reset: {
         heading: 'Choose a new password',
-        intro: (username) => (
+        intro: (username: string) => (
             <>
                 Choose a new password for <span className="font-semibold">{username}</span>. You will be signed
                 out everywhere you are signed in now.
@@ -48,17 +48,21 @@ const PURPOSES = {
 const inputClass =
     'appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm';
 
+/** Which kind of link a page is for. */
+type LinkPurpose = keyof typeof PURPOSES;
+
 /**
  * The page an invitation or a password reset link opens: it says which account the link is for and
  * takes the password. A link works once; afterwards, or once it has expired, the page says so.
  * Someone signed in on this browser is signed out once the link is used, so that they can sign in
  * as the new account or with the new password.
  */
-const AccountLink = ({ purpose }) => {
-    const { token } = useParams();
+const AccountLink = ({ purpose }: { purpose: LinkPurpose }) => {
+    // Always there: the routes are /invite/:token and /reset-password/:token.
+    const { token = '' } = useParams();
     const navigate = useNavigate();
-    const dispatch = useDispatch();
-    const { isAuthenticated, user } = useSelector((state) => state.auth);
+    const dispatch = useAppDispatch();
+    const { isAuthenticated, user } = useAppSelector((state) => state.auth);
     const text = PURPOSES[purpose];
     // Encoded, since the generated endpoints put it into the URL as it is: a token from the address
     // bar could otherwise hold "../" and send the request somewhere else in the API.
@@ -74,10 +78,10 @@ const AccountLink = ({ purpose }) => {
     // Anything but the link's description, such as the app's HTML from a request that never reached
     // the server, is no link to show a form for.
     const link = typeof described.currentData?.username === 'string' ? described.currentData : null;
-    let loadError = null;
+    let loadError: string | null = null;
     if (described.error) {
         loadError =
-            described.error.status === 404
+            fieldsOf(described.error).status === 404
                 ? 'This link has expired or has already been used. Ask your admin for a new one.'
                 : readableError(described.error, 'Could not open this link.');
     } else if (described.currentData !== undefined && !link) {
@@ -86,9 +90,9 @@ const AccountLink = ({ purpose }) => {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [saving, setSaving] = useState(false);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState<string | null>(null);
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError(null);
         if (password.length < MIN_PASSWORD_LENGTH) {

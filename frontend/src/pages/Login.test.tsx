@@ -3,15 +3,17 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
+import type { UnknownAction } from '@reduxjs/toolkit';
 import Login from './Login';
 import { fetchCurrentUser, loginUser, SETUP_REQUIRED } from '../features/authSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
 import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 // Seeds the outcome of the session check App runs before anything is shown.
-const renderAfterSessionCheck = (payload, ...laterActions) => {
+const renderAfterSessionCheck = (payload: string, ...laterActions: UnknownAction[]) => {
     const store = makeStore();
     store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, payload));
     laterActions.forEach((action) => store.dispatch(action));
@@ -79,7 +81,7 @@ describe('Login', () => {
     it('announces a failed sign-in to screen readers', () => {
         renderAfterSessionCheck(
             'Not authenticated',
-            loginUser.rejected(null, 'submit', undefined, 'Invalid username or password.'),
+            loginUser.rejected(null, 'submit', { username: 'ada', password: '' }, 'Invalid username or password.'),
         );
 
         expect(screen.getByRole('alert')).toHaveTextContent('Invalid username or password.');

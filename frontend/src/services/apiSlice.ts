@@ -8,10 +8,14 @@ export type {
     AccountDto,
     CurrentUser,
     FileTreeNode,
+    ImportResult,
+    InviteDto,
     NewLink,
     SearchResult,
     SearchResults,
     ShareLinkDto,
+    SharedEntry,
+    SharedItemDto,
 } from './generatedApi';
 
 /** A file with its place inside a folder being uploaded, e.g. "Trip/Day 1/a.jpg". */

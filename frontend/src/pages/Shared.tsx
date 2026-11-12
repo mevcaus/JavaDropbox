@@ -1,25 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ChevronRight, Download, Link2Off, Loader2 } from 'lucide-react';
-import { useDescribeSharedItemQuery } from '../services/apiSlice';
+import { useDescribeSharedItemQuery, type SharedEntry, type SharedItemDto } from '../services/apiSlice';
 import FileIcon from '../components/FileIcon';
 import FilePreview from '../components/FilePreview';
 import Logo from '../components/Logo';
-import { readableError } from '../utils/errors';
+import { fieldsOf, readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { formatSize } from '../utils/format';
 
-const itemCount = (count) => `${count} ${count === 1 ? 'item' : 'items'}`;
+const itemCount = (count: number) => `${count} ${count === 1 ? 'item' : 'items'}`;
 
 /**
  * What a shared folder holds, browsed in place: the folders in it open, and a trail of the folders
  * opened leads back. Read-only; the whole folder is downloaded as a zip.
  */
-const FolderContents = ({ folder }) => {
-    const [trail, setTrail] = useState([]);
-    const entries = trail.reduce(
+const FolderContents = ({ folder }: { folder: SharedItemDto }) => {
+    const [trail, setTrail] = useState<string[]>([]);
+    const entries = trail.reduce<SharedEntry[]>(
         (children, name) => children.find((entry) => entry.isDirectory && entry.name === name)?.children ?? [],
-        folder.contents,
+        folder.contents ?? [],
     );
 
     return (
@@ -69,7 +69,7 @@ const FolderContents = ({ folder }) => {
                                 )}
                             </div>
                             <span className="whitespace-nowrap text-xs text-gray-500">
-                                {entry.isDirectory ? itemCount(entry.children.length) : formatSize(entry.size)}
+                                {entry.isDirectory ? itemCount(entry.children?.length ?? 0) : formatSize(entry.size)}
                             </span>
                         </li>
                     ))}
@@ -85,16 +85,17 @@ const FolderContents = ({ folder }) => {
  * it only uses the link's own routes, never the signed-in API.
  */
 const Shared = () => {
-    const { token } = useParams();
+    // Always there: the route is /share/:token.
+    const { token = '' } = useParams();
     const link = `/share/${encodeURIComponent(token)}`;
     // Encoded, as in link above: the generated endpoint puts it into the URL as it is.
     const described = useDescribeSharedItemQuery({ token: encodeURIComponent(token) });
     // Anything but the item's description, such as the app's HTML from a request that never reached
     // the server, is nothing to show.
     const item = typeof described.currentData?.name === 'string' ? described.currentData : null;
-    let error = null;
+    let error: string | null = null;
     if (described.error) {
-        error = described.error.status === 404 ? 'gone' : readableError(described.error, 'Could not open this link.');
+        error = fieldsOf(described.error).status === 404 ? 'gone' : readableError(described.error, 'Could not open this link.');
     } else if (described.currentData !== undefined && !item) {
         error = 'Could not open this link.';
     }
@@ -144,7 +145,7 @@ const Shared = () => {
                             <h1 className="text-xl font-semibold text-gray-900 break-all">{item.name}</h1>
                             <p className="mt-1 text-sm text-gray-500">
                                 {item.isDirectory
-                                    ? `Folder · ${itemCount(item.contents.length)} · ${formatSize(item.size)}`
+                                    ? `Folder · ${itemCount(item.contents?.length ?? 0)} · ${formatSize(item.size)}`
                                     : formatSize(item.size)}
                                 {' · '}Link expires {formatDate(item.expiresAt)}
                             </p>

@@ -3,16 +3,18 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Shared from './Shared';
-import api from '../services/api';
+import type { SharedItemDto } from '../services/apiSlice';
+import mockedApi from '../services/api';
 import { controlsWithoutFocusIndicator } from '../test/focusIndicator';
 import { Provider } from 'react-redux';
 import { makeStore } from '../redux/store';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 const EXPIRES = '2026-11-01T12:00:00Z';
 
-const file = (overrides) => ({
+const file = (overrides: Partial<SharedItemDto> = {}): SharedItemDto => ({
     name: 'notes.txt',
     isDirectory: false,
     size: 2048,
@@ -43,7 +45,7 @@ const folder = {
 };
 
 // Answers the link's description with info, and a text preview with its content.
-const serve = (info, text = 'hello\n') =>
+const serve = (info: unknown, text = 'hello\n') =>
     api.get.mockImplementation(async (url) => {
         if (url.endsWith('/info')) return { data: info };
         return { status: 200, headers: {}, data: text };
@@ -173,5 +175,22 @@ describe('Shared', () => {
         renderAt();
 
         expect(await screen.findByText('Could not open this link.')).toBeInTheDocument();
+    });
+
+    // The spec allows a folder's contents, and a folder's children, to be null; neither is a crash.
+    it('lists a folder whose contents or a folder\'s children are missing as empty', async () => {
+        const user = userEvent.setup();
+        serve({ ...folder, contents: [{ name: 'Day 1', isDirectory: true, size: 0, children: null }] });
+        renderAt();
+
+        expect(await screen.findByText('0 items')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Day 1' }));
+        expect(screen.getByText('This folder is empty.')).toBeInTheDocument();
+        cleanup();
+
+        serve({ ...folder, contents: null });
+        renderAt();
+        expect(await screen.findByText(/^Folder · 0 items/)).toBeInTheDocument();
+        expect(screen.getByText('This folder is empty.')).toBeInTheDocument();
     });
 });

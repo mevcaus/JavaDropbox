@@ -1,23 +1,27 @@
-import { useState, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useState, useEffect, type FormEvent } from 'react';
+import { useAppDispatch, useAppSelector } from '../redux/withTypes';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { loginUser } from '../features/authSlice';
 import { Loader2 } from 'lucide-react';
 import AnimatedLogo from '../components/AnimatedLogo';
 import { useDemoInfo } from '../hooks/useDemoInfo';
+import { fieldsOf } from '../utils/errors';
 
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const dispatch = useDispatch();
+    const dispatch = useAppDispatch();
     const navigate = useNavigate();
     const location = useLocation();
-    const { isAuthenticated, loading, error, setupRequired } = useSelector((state) => state.auth);
+    const { isAuthenticated, loading, error, setupRequired } = useAppSelector((state) => state.auth);
     const demo = useDemoInfo();
 
-    const from = location.state?.from?.pathname || '/dashboard';
-    // Set by the page that sent the user here, such as one that has just created their account.
-    const notice = location.state?.notice;
+    // What the page that sent the user here left in the history entry: where they were going, and
+    // something to tell them, such as that their account has just been created.
+    const state = fieldsOf(location.state);
+    const { pathname } = fieldsOf(state.from);
+    const from = typeof pathname === 'string' && pathname ? pathname : '/dashboard';
+    const notice = typeof state.notice === 'string' ? state.notice : undefined;
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -25,7 +29,7 @@ const Login = () => {
         }
     }, [isAuthenticated, navigate, from]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         dispatch(loginUser({ username, password }));
     };

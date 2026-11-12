@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type InputHTMLAttributes } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DOWNLOAD_ENDPOINT, filesIn, relativePathOf } from '../features/files';
 import {
@@ -7,30 +7,44 @@ import {
     useGetFileTreeQuery,
     useUploadFilesMutation,
     useUploadFolderMutation,
+    type PickedFile,
 } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
-import FileTable from '../components/FileTable';
+import FileTable, { type FileRow } from '../components/FileTable';
 import Breadcrumbs from '../components/Breadcrumbs';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import CreateFolderModal from '../components/CreateFolderModal';
-import ShareModal from '../components/ShareModal';
+import ShareModal, { type ShareItem } from '../components/ShareModal';
 import VersionHistoryModal from '../components/VersionHistoryModal';
 import PreviewModal from '../components/PreviewModal';
 import { useToast } from '../hooks/useToast';
 import { DOT_NAME_RULE, startsWithDot } from '../utils/names';
 import { carriesFiles, readDrop } from '../utils/droppedFiles';
-import { Loader2, FolderPlus, FolderUp, Upload as UploadIcon } from 'lucide-react';
+import { Loader2, FolderPlus, FolderUp, Upload as UploadIcon, type LucideIcon } from 'lucide-react';
 
 // Search results carry their own relativePath; a plain row in this folder may not.
-const pathOf = (file, currentPath) =>
+const pathOf = (file: Pick<FileRow, 'name' | 'relativePath'>, currentPath: string) =>
     file.relativePath || (currentPath ? `${currentPath}/${file.name}` : file.name);
 
-const notUploaded = (names) =>
+const notUploaded = (names: string[]) =>
     `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`;
 
 // A label styled as a button around a hidden file input, so clicking it opens the browser's own
 // picker. inputProps go to the input, e.g. webkitdirectory to pick a folder.
-const UploadButton = ({ icon: Icon, label, busy, disabled, ...inputProps }) => (
+const UploadButton = ({
+    icon: Icon,
+    label,
+    busy,
+    disabled,
+    ...inputProps
+}: {
+    icon: LucideIcon;
+    label: string;
+    busy: boolean;
+    disabled: boolean;
+    // Picks a folder rather than files. Every browser has it, but React's types don't list it.
+    webkitdirectory?: string;
+} & InputHTMLAttributes<HTMLInputElement>) => (
     <label
         className={`flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 shadow-xs transition-colors ${
             disabled ? 'opacity-50 cursor-wait' : 'cursor-pointer'
@@ -65,14 +79,14 @@ const Dashboard = () => {
     const [deleteItem] = useDeleteItemMutation();
     const { addToast } = useToast();
 
-    const [itemToDelete, setItemToDelete] = useState(null);
+    const [itemToDelete, setItemToDelete] = useState<FileRow | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
-    const [itemToShare, setItemToShare] = useState(null);
-    const [versionsFile, setVersionsFile] = useState(null);
-    const [previewItem, setPreviewItem] = useState(null);
-    // 'files', 'folder' or 'drop' while an upload is running: one upload at a time.
-    const [uploading, setUploading] = useState(null);
+    const [itemToShare, setItemToShare] = useState<ShareItem | null>(null);
+    const [versionsFile, setVersionsFile] = useState<FileRow | null>(null);
+    const [previewItem, setPreviewItem] = useState<(FileRow & { path: string }) | null>(null);
+    // What is being uploaded, while an upload is running: one upload at a time.
+    const [uploading, setUploading] = useState<'files' | 'folder' | 'drop' | null>(null);
     // Whether files are being dragged over the table.
     const [draggingOver, setDraggingOver] = useState(false);
     // How many of the table's elements the drag has entered and not yet left. Every move onto a
@@ -82,15 +96,16 @@ const Dashboard = () => {
     // Whether the drag started on this page, such as the logo being dragged. Chrome lists an
     // image dragged in the page as carrying files, but nothing should be uploaded from it.
     const dragFromPage = useRef(false);
-    const isFileDrag = (e) => !dragFromPage.current && carriesFiles(e.dataTransfer);
+    const isFileDrag = (e: { dataTransfer: DataTransfer | null }) => !dragFromPage.current && carriesFiles(e.dataTransfer);
 
     // A file dropped beside the table would otherwise be opened by the browser in place of the
     // app. The table's own handlers run first and claim drops on it.
     useEffect(() => {
-        const refuse = (e) => {
-            if (e.defaultPrevented || dragFromPage.current || !carriesFiles(e.dataTransfer)) return;
+        const refuse = (e: globalThis.DragEvent) => {
+            const transfer = e.dataTransfer;
+            if (e.defaultPrevented || dragFromPage.current || !transfer || !carriesFiles(transfer)) return;
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'none';
+            transfer.dropEffect = 'none';
         };
         const startInPage = () => {
             dragFromPage.current = true;
@@ -112,12 +127,12 @@ const Dashboard = () => {
 
     // FileTable hands back the folder's full path, which is what search results need: a nested
     // match cannot be located by name alone.
-    const handleNavigate = (path) => {
+    const handleNavigate = (path: string) => {
         setSearchParams(path ? { path } : {});
     };
 
     // A failure propagates to CreateFolderModal, which stays open and shows it next to the name.
-    const handleCreateFolder = async (folderName) => {
+    const handleCreateFolder = async (folderName: string) => {
         try {
             await createFolder({ body: { path: currentPath, name: folderName } }).unwrap();
         } catch (err) {
@@ -126,7 +141,7 @@ const Dashboard = () => {
         addToast(`Folder "${folderName}" created successfully.`, 'success');
     };
 
-    const handleFileUpload = async (e) => {
+    const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
         const input = e.target;
         const chosen = Array.from(input.files ?? []);
         // Clear the input so choosing the same file again still fires a change event.
@@ -153,7 +168,7 @@ const Dashboard = () => {
     // Uploads { file, relativePath } pairs below the open folder, keeping their subfolders. Used by
     // the folder picker and by a drop. skipped names the dot-named files and folders left out.
     // The caller marks the page busy around it.
-    const uploadTree = async (files, skipped) => {
+    const uploadTree = async (files: PickedFile[], skipped: string[]) => {
         if (skipped.length > 0) {
             addToast(notUploaded(skipped), 'info');
         }
@@ -175,7 +190,7 @@ const Dashboard = () => {
         }
     };
 
-    const handleFolderUpload = async (e) => {
+    const handleFolderUpload = async (e: ChangeEvent<HTMLInputElement>) => {
         const input = e.target;
         const chosen = Array.from(input.files ?? []).map((file) => ({ file, relativePath: relativePathOf(file) }));
         input.value = '';
@@ -183,8 +198,8 @@ const Dashboard = () => {
         // A file is left out if it, or a folder it is in, has a dot name. Inside a folder those are
         // mostly put there by the system (.DS_Store, .git), so this is news, not an error, and each
         // name is listed once however many folders it turned up in.
-        const dotNameOf = ({ relativePath }) => relativePath.split('/').find(startsWithDot);
-        const skipped = [...new Set(chosen.map(dotNameOf).filter(Boolean))];
+        const dotNameOf = ({ relativePath }: PickedFile) => relativePath.split('/').find(startsWithDot);
+        const skipped = [...new Set(chosen.map(dotNameOf).filter((name): name is string => Boolean(name)))];
         setUploading('folder');
         try {
             await uploadTree(chosen.filter((picked) => !dotNameOf(picked)), skipped);
@@ -195,26 +210,26 @@ const Dashboard = () => {
 
     // Files and folders dragged onto the table. Drags that carry no files (selected text, a link)
     // are left to the browser, so they show no drop state and cannot be dropped.
-    const handleDragEnter = (e) => {
+    const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();
         dragDepth.current += 1;
         setDraggingOver(true);
     };
 
-    const handleDragOver = (e) => {
+    const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = uploading === null ? 'copy' : 'none';
     };
 
-    const handleDragLeave = (e) => {
+    const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
         if (!isFileDrag(e)) return;
         dragDepth.current = Math.max(0, dragDepth.current - 1);
         if (dragDepth.current === 0) setDraggingOver(false);
     };
 
-    const handleDrop = async (e) => {
+    const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
         if (!isFileDrag(e)) return;
         // Without this the browser opens the dropped file in place of the app.
         e.preventDefault();
@@ -262,7 +277,7 @@ const Dashboard = () => {
 
     // A plain link rather than fetching the file into memory: the browser streams it to disk, so
     // a large file or folder zip never has to fit in the tab. The session cookie goes with it.
-    const handleDownload = (file) => {
+    const handleDownload = (file: FileRow) => {
         const link = document.createElement('a');
         link.href = `${DOWNLOAD_ENDPOINT}?path=${encodeURIComponent(pathOf(file, currentPath))}`;
         link.download = '';
@@ -271,11 +286,11 @@ const Dashboard = () => {
         link.remove();
     };
 
-    const handlePreview = (file) => {
+    const handlePreview = (file: FileRow) => {
         setPreviewItem({ ...file, path: pathOf(file, currentPath) });
     };
 
-    const handleShare = (file) => {
+    const handleShare = (file: FileRow) => {
         setItemToShare({ name: file.name, isDirectory: file.isDirectory, path: pathOf(file, currentPath) });
     };
 

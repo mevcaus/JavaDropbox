@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useState, type ReactNode } from 'react';
+import { useAppSelector } from '../redux/withTypes';
 import { Navigate } from 'react-router-dom';
 import { KeyRound, Loader2, ShieldCheck, UserMinus, UserPlus, UserX } from 'lucide-react';
 import {
@@ -10,6 +10,10 @@ import {
     useRevokeInviteMutation,
     useSetAccountEnabledMutation,
     useSetAccountRoleMutation,
+    type AccountDto,
+    type ImportResult,
+    type InviteDto,
+    type NewLink,
 } from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
 import { useToast } from '../hooks/useToast';
@@ -30,12 +34,21 @@ const actionButton =
 const dangerButton =
     'text-xs font-medium px-2 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-red-500';
 
-const roleLabel = (role) => (role === 'ADMIN' ? 'Admin' : 'User');
+const roleLabel = (role: string) => (role === 'ADMIN' ? 'Admin' : 'User');
+
+interface Confirmation {
+    title: ReactNode;
+    icon: ReactNode;
+    iconClassName: string;
+    tone: 'red' | 'blue' | 'green';
+    confirmLabel: string;
+    message: ReactNode;
+}
 
 // What the dialog asking before a change to an account says. Enabling an account is not asked
 // about: it gives back what disabling took away, and nothing more.
 const CONFIRMATIONS = {
-    disable: (account) => ({
+    disable: (account: AccountDto): Confirmation => ({
         title: (
             <>
                 Disable <span className="font-semibold">{account.username}</span>?
@@ -57,7 +70,7 @@ const CONFIRMATIONS = {
             </>
         ),
     }),
-    makeAdmin: (account) => ({
+    makeAdmin: (account: AccountDto): Confirmation => ({
         title: (
             <>
                 Make <span className="font-semibold">{account.username}</span> an admin?
@@ -75,7 +88,7 @@ const CONFIRMATIONS = {
             </p>
         ),
     }),
-    makeUser: (account) => ({
+    makeUser: (account: AccountDto): Confirmation => ({
         title: (
             <>
                 Make <span className="font-semibold">{account.username}</span> a user?
@@ -94,15 +107,17 @@ const CONFIRMATIONS = {
     }),
 };
 
-const usageLabel = (account) =>
+type ConfirmAction = keyof typeof CONFIRMATIONS;
+
+const usageLabel = (account: AccountDto) =>
     account.quotaBytes
         ? `${formatSize(account.usedBytes)} of ${formatSize(account.quotaBytes)}`
         : `${formatSize(account.usedBytes)} (no limit)`;
 
-const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 // What an import found, in a sentence: counts only, never the files.
-const importSummary = (account, { files, folders, missing, skipped }) => {
+const importSummary = (account: AccountDto, { files, folders, missing, skipped }: ImportResult) => {
     const found =
         files + folders === 0
             ? `Nothing new to import for ${account.username}`
@@ -120,7 +135,7 @@ const importSummary = (account, { files, folders, missing, skipped }) => {
  * much they store.
  */
 const Admin = () => {
-    const isAdmin = useSelector(selectIsAdmin);
+    const isAdmin = useAppSelector(selectIsAdmin);
     if (!isAdmin) {
         return <Navigate to="/dashboard" replace />;
     }
@@ -128,7 +143,7 @@ const Admin = () => {
 };
 
 const AccountsPage = () => {
-    const me = useSelector((state) => state.auth.user);
+    const me = useAppSelector((state) => state.auth.user);
     // Listed again each time the page opens; a change refreshes the list it touched through its tag.
     const listed = useListAccountsQuery(undefined, { refetchOnMountOrArgChange: true });
     const open = useListInvitesQuery(undefined, { refetchOnMountOrArgChange: true });
@@ -147,18 +162,23 @@ const AccountsPage = () => {
     const [revokeInvite] = useRevokeInviteMutation();
     // The account an action is running for. Every row's buttons wait until it is done and the lists
     // have answered again, so a second click never acts on what they showed before.
-    const [busy, setBusy] = useState(null);
+    const [busy, setBusy] = useState<number | null>(null);
     // Likewise for the invitation being withdrawn.
-    const [withdrawing, setWithdrawing] = useState(null);
+    const [withdrawing, setWithdrawing] = useState<number | null>(null);
     const [inviting, setInviting] = useState(false);
-    const [quotaFor, setQuotaFor] = useState(null);
-    const [resetLink, setResetLink] = useState(null);
-    // The change waiting to be confirmed: { action, account }, action a key of CONFIRMATIONS.
-    const [confirming, setConfirming] = useState(null);
+    const [quotaFor, setQuotaFor] = useState<AccountDto | null>(null);
+    const [resetLink, setResetLink] = useState<(NewLink & { username: string }) | null>(null);
+    // The change waiting to be confirmed.
+    const [confirming, setConfirming] = useState<{ action: ConfirmAction; account: AccountDto } | null>(null);
     const { addToast } = useToast();
 
     // Runs a change to one account; the list then refreshes through its tag.
-    const change = async (account, request, success, failure) => {
+    const change = async (
+        account: AccountDto,
+        request: () => { unwrap: () => Promise<unknown> },
+        success: string,
+        failure: string,
+    ) => {
         setBusy(account.id);
         try {
             await request().unwrap();
@@ -170,7 +190,7 @@ const AccountsPage = () => {
         }
     };
 
-    const setEnabled = (account, enabled) =>
+    const setEnabled = (account: AccountDto, enabled: boolean) =>
         change(
             account,
             () => setAccountEnabled({ id: account.id, body: { enabled } }),
@@ -178,7 +198,7 @@ const AccountsPage = () => {
             'Could not change the account.',
         );
 
-    const setRole = (account, role) =>
+    const setRole = (account: AccountDto, role: 'ADMIN' | 'USER') =>
         change(
             account,
             () => setAccountRole({ id: account.id, body: { role } }),
@@ -187,6 +207,7 @@ const AccountsPage = () => {
         );
 
     const confirmChange = async () => {
+        if (!confirming) return;
         const { action, account } = confirming;
         if (action === 'disable') {
             await setEnabled(account, false);
@@ -195,9 +216,9 @@ const AccountsPage = () => {
         }
         setConfirming(null);
     };
-    const confirmation = confirming && CONFIRMATIONS[confirming.action](confirming.account);
+    const confirmation = confirming ? CONFIRMATIONS[confirming.action](confirming.account) : null;
 
-    const resetPassword = async (account) => {
+    const resetPassword = async (account: AccountDto) => {
         setBusy(account.id);
         try {
             const link = await createPasswordResetLink({ id: account.id }).unwrap();
@@ -210,7 +231,7 @@ const AccountsPage = () => {
     };
 
     // Gives files copied into the account's folder outside the app rows of their own.
-    const importFiles = async (account) => {
+    const importFiles = async (account: AccountDto) => {
         setBusy(account.id);
         try {
             const data = await importAccountFiles({ id: account.id }).unwrap();
@@ -223,7 +244,7 @@ const AccountsPage = () => {
         }
     };
 
-    const withdraw = async (invite) => {
+    const withdraw = async (invite: InviteDto) => {
         setWithdrawing(invite.id);
         try {
             await revokeInvite({ id: invite.id }).unwrap();
@@ -426,8 +447,8 @@ const AccountsPage = () => {
             <QuotaModal
                 account={quotaFor}
                 onClose={() => setQuotaFor(null)}
-                onSaved={() => {
-                    addToast(`Changed the quota of ${quotaFor.username}`, 'success');
+                onSaved={(account) => {
+                    addToast(`Changed the quota of ${account.username}`, 'success');
                     // The list refreshes through its tag.
                     setQuotaFor(null);
                 }}

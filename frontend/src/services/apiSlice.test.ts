@@ -5,6 +5,7 @@ import { clearUser, loginUser, logoutUser } from '../features/authSlice';
 import { AxiosError } from 'axios';
 import mockedApi from './api';
 import { baseQuery } from './baseQuery';
+import { postedFileNames, postedFormBody, postedMultipart } from '../test/forms';
 import type { BaseQueryApi } from '@reduxjs/toolkit/query';
 
 vi.mock('./api');
@@ -13,12 +14,6 @@ const api = vi.mocked(mockedApi);
 type Store = ReturnType<typeof makeStore>;
 // Each change is dispatched by the test, which keeps each one's own thunk type.
 type Dispatch = Store['dispatch'];
-
-// What the slice handed axios as a body, checked to be the kind expected.
-const sentAs = <T>(kind: new (...args: never[]) => T, body: unknown): T => {
-    expect(body).toBeInstanceOf(kind);
-    return body as T;
-};
 
 const deferred = <T = unknown>() => {
     let resolve!: (value: T) => void;
@@ -395,8 +390,7 @@ const pickedFile = (relativePath: string) => ({ file: new File(['x'], relativePa
 
 const postedFolders = () =>
     api.post.mock.calls.map(([, body]) => {
-        const form = sentAs(FormData, body);
-        return [form.get('path'), form.getAll('files').map((file) => (file as File).name)];
+        return [postedMultipart(body).get('path'), postedFileNames(body)];
     });
 
 describe('uploadFolder', () => {
@@ -484,7 +478,7 @@ describe('request bodies', () => {
 
         const [url, body] = api.post.mock.calls[0];
         expect(url).toBe('/api/share');
-        expect(sentAs(URLSearchParams, body).toString()).toBe('path=a.txt&expirationMinutes=60');
+        expect(postedFormBody(body).toString()).toBe('path=a.txt&expirationMinutes=60');
     });
 
     it('sends an upload as multipart, one part per file', async () => {
@@ -494,8 +488,8 @@ describe('request bodies', () => {
             apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: 'docs' } }),
         );
 
-        const form = sentAs(FormData, api.post.mock.calls[0][1]);
-        expect(form.getAll('files').map((file) => (file as File).name)).toEqual(['a.txt', 'b.txt']);
+        const form = postedMultipart(api.post.mock.calls[0][1]);
+        expect(postedFileNames(form)).toEqual(['a.txt', 'b.txt']);
         expect(form.get('path')).toBe('docs');
     });
 
@@ -514,7 +508,7 @@ describe('request bodies', () => {
 
         const [url, body] = api.put.mock.calls[0];
         expect(url).toBe('/api/admin/users/3/quota');
-        expect(sentAs(URLSearchParams, body).toString()).toBe('quota=5GB');
+        expect(postedFormBody(body).toString()).toBe('quota=5GB');
     });
 
     it('sends a new folder as multipart, as the app always has', async () => {
@@ -524,7 +518,7 @@ describe('request bodies', () => {
 
         const [url, body] = api.post.mock.calls[0];
         expect(url).toBe('/api/folders');
-        const form = sentAs(FormData, body);
+        const form = postedMultipart(body);
         expect([form.get('path'), form.get('name')]).toEqual(['Holidays', 'Trip']);
     });
 
@@ -533,7 +527,7 @@ describe('request bodies', () => {
 
         await store.dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new Blob(['x'])], path: '' } }));
 
-        expect(sentAs(FormData, api.post.mock.calls[0][1]).getAll('files')).toHaveLength(1);
+        expect(postedMultipart(api.post.mock.calls[0][1]).getAll('files')).toHaveLength(1);
     });
 });
 

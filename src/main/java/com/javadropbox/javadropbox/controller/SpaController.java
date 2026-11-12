@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 public class SpaController {
 
   /**
-   * Client-side routes defined in frontend/src/App.jsx. SecurityConfig lets them through without a
+   * Client-side routes defined in frontend/src/App.tsx. SecurityConfig lets them through without a
    * session; keep the mapping below in step (annotations cannot reference an array constant).
    */
   public static final String[] ROUTES = {"/", "/login", "/setup", "/dashboard", "/admin"};
