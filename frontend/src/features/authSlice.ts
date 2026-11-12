@@ -1,13 +1,48 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice } from '@reduxjs/toolkit';
+import type { AxiosResponse } from 'axios';
+import { createAppAsyncThunk } from '../redux/withTypes';
 import api from '../services/api';
 import { readableError } from '../utils/errors';
+
+/** Who is signed in, as sign-in and the session check answer it. */
+export interface SignedInUser {
+    username: string;
+    role: string | null;
+}
+
+export interface AuthState {
+    user: string | null;
+    role: string | null;
+    isAuthenticated: boolean;
+    isInitialized: boolean;
+    loading: boolean;
+    error: string | null;
+    setupRequired: boolean;
+}
+
+// The account in an answer from /login or /api/me, or null when it isn't one, such as the setup
+// page's HTML after a redirect.
+const accountIn = (data: unknown): SignedInUser | null => {
+    if (typeof data !== 'object' || data === null || !('username' in data) || typeof data.username !== 'string') {
+        return null;
+    }
+    return { username: data.username, role: 'role' in data && typeof data.role === 'string' ? data.role : null };
+};
+
+// The HTTP status a failed request was answered with, if it got an answer.
+const statusOf = (error: unknown): number | undefined => {
+    if (typeof error !== 'object' || error === null || !('response' in error)) return undefined;
+    const { response } = error;
+    if (typeof response !== 'object' || response === null || !('status' in response)) return undefined;
+    return typeof response.status === 'number' ? response.status : undefined;
+};
 
 // Async thunk for login
 // Signing in and out go through api, not the API slice: Spring Security answers /login and /logout,
 // so they aren't in the API spec the slice is generated from.
-export const loginUser = createAsyncThunk(
+export const loginUser = createAppAsyncThunk(
     'auth/loginUser',
-    async ({ username, password }, { rejectWithValue }) => {
+    async ({ username, password }: { username: string; password: string }, { rejectWithValue }) => {
         try {
             // Using URLSearchParams for x-www-form-urlencoded specific standard
             const params = new URLSearchParams();
@@ -22,11 +57,7 @@ export const loginUser = createAsyncThunk(
             // The backend answers a successful login as it answers /api/me: {username, role}. Its
             // username is the account's: the one typed may differ, e.g. by a trailing space that
             // sign-in trims, and pages such as the accounts list compare against it.
-            const data = response?.data;
-            return {
-                username: typeof data?.username === 'string' ? data.username : username,
-                role: data?.role ?? null,
-            };
+            return accountIn(response?.data) ?? { username, role: null };
         } catch (error) {
             // Nothing is logged here: the error carries the request config, and with it the
             // form body holding the password. The form shows the readable message instead.
@@ -37,9 +68,9 @@ export const loginUser = createAsyncThunk(
     }
 );
 
-export const logoutUser = createAsyncThunk(
+export const logoutUser = createAppAsyncThunk(
     'auth/logoutUser',
-    async (_, { rejectWithValue }) => {
+    async (_: void, { rejectWithValue }) => {
         try {
             // Spring Security only accepts POST for logout while CSRF protection is on; a GET is
             // a 404 that leaves the server session alive.
@@ -49,10 +80,11 @@ export const logoutUser = createAsyncThunk(
             // Anything else (a stale CSRF token, a network error, a 500) may have left the session
             // alive, so the user stays signed in here rather than being shown a logout that did
             // not happen.
-            if (error.response?.status !== 401) {
+            if (statusOf(error) !== 401) {
                 return rejectWithValue(readableError(error, 'Logout failed.'));
             }
         }
+        return undefined;
     }
 );
 
@@ -61,7 +93,7 @@ export const SETUP_REQUIRED = 'setup-required';
 
 // Until the first account exists, SetupFilter redirects every request to /setup, and the browser
 // follows that redirect without telling the page. The final URL of the request is the only trace.
-const wasSentToSetup = (response) => {
+const wasSentToSetup = (response: AxiosResponse): boolean => {
     try {
         return new URL(response.request?.responseURL).pathname === '/setup';
     } catch {
@@ -69,9 +101,9 @@ const wasSentToSetup = (response) => {
     }
 };
 
-export const fetchCurrentUser = createAsyncThunk(
+export const fetchCurrentUser = createAppAsyncThunk(
     'auth/fetchCurrentUser',
-    async (_, { rejectWithValue }) => {
+    async (_: void, { rejectWithValue }) => {
         try {
             // Bound the wait: the whole app sits behind a spinner until this settles, and an
             // unreachable backend can otherwise take the better part of a minute to fail (a dead
@@ -81,31 +113,34 @@ export const fetchCurrentUser = createAsyncThunk(
             // When first-run setup is still pending the backend redirects /api/me to the setup
             // page; the browser follows that redirect and the call resolves as a 200 of HTML.
             // Only a real user payload counts as a session -- a 2xx on its own does not.
-            if (typeof response.data?.username !== 'string') {
+            const account = accountIn(response.data);
+            if (!account) {
                 return rejectWithValue(wasSentToSetup(response) ? SETUP_REQUIRED : 'Not authenticated');
             }
-            return response.data;
+            return account;
         } catch (error) {
             return rejectWithValue(readableError(error, 'Not authenticated'));
         }
     }
 );
 
+const initialState: AuthState = {
+    user: localStorage.getItem('user') || null,
+    // ADMIN or USER, from the server; not kept across reloads, since the session check at
+    // startup learns it again.
+    role: null,
+    isAuthenticated: !!localStorage.getItem('user'),
+    isInitialized: false,
+    loading: false,
+    error: null,
+    // Whether the backend has no account yet, so the sign-in page should point to setup.
+    // Learnt from the session check at startup; a 401 there means an account exists.
+    setupRequired: false,
+};
+
 const authSlice = createSlice({
     name: 'auth',
-    initialState: {
-        user: localStorage.getItem('user') || null,
-        // ADMIN or USER, from the server; not kept across reloads, since the session check at
-        // startup learns it again.
-        role: null,
-        isAuthenticated: !!localStorage.getItem('user'),
-        isInitialized: false,
-        loading: false,
-        error: null,
-        // Whether the backend has no account yet, so the sign-in page should point to setup.
-        // Learnt from the session check at startup; a 401 there means an account exists.
-        setupRequired: false,
-    },
+    initialState,
     reducers: {
         clearUser: (state) => {
             state.user = null;
@@ -165,7 +200,7 @@ const authSlice = createSlice({
 });
 
 /** Whether the signed-in user manages the accounts. */
-export const selectIsAdmin = (state) => state.auth?.role === 'ADMIN';
+export const selectIsAdmin = (state: { auth?: AuthState }): boolean => state.auth?.role === 'ADMIN';
 
 export const { clearUser, setupCompleted } = authSlice.actions;
 export default authSlice.reducer;

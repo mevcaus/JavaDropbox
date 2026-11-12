@@ -1,7 +1,6 @@
-import { AxiosError } from 'axios';
-import { configureStore } from '@reduxjs/toolkit';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import authReducer, {
+import {
     clearUser,
     fetchCurrentUser,
     loginUser,
@@ -9,19 +8,21 @@ import authReducer, {
     selectIsAdmin,
     setupCompleted,
 } from './authSlice';
-import api from '../services/api';
+import mockedApi from '../services/api';
+import { makeStore, type AppStore } from '../redux/store';
 
 vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
 
 // The slice's initialState is captured at import time, so seed localStorage through the
 // reducers rather than expecting a fresh store to re-read it.
-const makeStore = () => configureStore({ reducer: { auth: authReducer } });
-const authState = (store) => store.getState().auth;
+const authState = (store: AppStore) => store.getState().auth;
 // Seeds a signed-in session the way a successful login leaves it.
-const signIn = (store, username) => store.dispatch(loginUser.fulfilled({ username }, 'seed'));
+const signIn = (store: AppStore, username: string) =>
+    store.dispatch(loginUser.fulfilled({ username, role: 'USER' }, 'seed', { username, password: '' }));
 
 // Whether a secret appears anywhere in a value, however deeply nested (cycle-safe).
-const mentions = (value, secret, seen = new WeakSet()) => {
+const mentions = (value: unknown, secret: string, seen = new WeakSet<object>()): boolean => {
     if (typeof value === 'string') return value.includes(secret);
     if (value instanceof URLSearchParams) return value.toString().includes(secret);
     if (value === null || typeof value !== 'object' || seen.has(value)) return false;
@@ -30,7 +31,7 @@ const mentions = (value, secret, seen = new WeakSet()) => {
 };
 
 describe('authSlice', () => {
-    let store;
+    let store: AppStore;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -46,9 +47,11 @@ describe('authSlice', () => {
 
             const [url, body, config] = api.post.mock.calls[0];
             expect(url).toBe('/login');
-            expect(body.get('username')).toBe('ada');
-            expect(body.get('password')).toBe('hunter2');
-            expect(config.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+            expect(body).toBeInstanceOf(URLSearchParams);
+            const form = body as URLSearchParams;
+            expect(form.get('username')).toBe('ada');
+            expect(form.get('password')).toBe('hunter2');
+            expect(config?.headers?.['Content-Type']).toBe('application/x-www-form-urlencoded');
         });
 
         it('marks the request in flight and clears any previous error', () => {
@@ -96,14 +99,14 @@ describe('authSlice', () => {
         });
 
         describe('console output', () => {
-            const methods = ['log', 'info', 'warn', 'error', 'debug'];
+            const methods = ['log', 'info', 'warn', 'error', 'debug'] as const;
             afterEach(() => vi.restoreAllMocks());
 
             it('never contains the submitted password', async () => {
                 const spies = methods.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
                 // Shaped like a real axios failure: the request config, body included, rides along
                 // on both the error and its response.
-                const config = { method: 'post', url: '/login', data: 'username=ada&password=hunter2-secret' };
+                const config = { method: 'post', url: '/login', data: 'username=ada&password=hunter2-secret', headers: new AxiosHeaders() };
                 const response = { status: 401, statusText: 'Unauthorized', data: '', headers: {}, config };
                 api.post.mockRejectedValueOnce(
                     new AxiosError('Request failed with status code 401', 'ERR_BAD_REQUEST', config, null, response),
@@ -393,11 +396,11 @@ describe('the signed-in role', () => {
 
     it('is forgotten when the session ends', async () => {
         const store = makeStore();
-        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed'));
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', { username: 'ada', password: '' }));
         store.dispatch(clearUser());
         expect(authState(store).role).toBeNull();
 
-        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed'));
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', { username: 'ada', password: '' }));
         api.post.mockResolvedValueOnce({});
         await store.dispatch(logoutUser());
         expect(selectIsAdmin(store.getState())).toBe(false);
