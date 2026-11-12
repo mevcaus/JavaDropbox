@@ -5,12 +5,11 @@ import com.javadropbox.javadropbox.repository.UserRepository;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -38,13 +37,18 @@ import org.springframework.util.unit.DataSize;
  * task: the demo's host suspends the server while nobody uses it, and a timer cannot fire then.
  * Instead the server checks at startup and on every request (see DemoResetFilter), so the first
  * visitor after the reset time gets fresh files before anything else happens.
+ *
+ * <p>Several servers sharing the database reset the files once a day between them: the time of the
+ * last reset is kept in the database, and a reset holds a lock there, so a server that waited for
+ * another's sees it done and doesn't do it again. Creating the account holds one too.
  */
 @Service
 @Profile("demo")
 public class DemoService implements ApplicationRunner {
 
-  /** When the last reset finished, as the file's modification time. Survives restarts. */
-  private static final String MARKER = "demo-reset";
+  // Where releases before the time was kept in the database kept it: as this file's modification
+  // time, in the app's own folder. Read once if the database has none, then deleted.
+  private static final String OLD_MARKER = "demo-reset";
 
   // After a failed reset, how long until the next request tries again.
   private static final Duration RETRY_AFTER_FAILURE = Duration.ofMinutes(10);
@@ -189,8 +193,19 @@ public class DemoService implements ApplicationRunner {
         return;
       }
       try {
-        reset();
-        nextReset = resetTimeAfter(clock.instant());
+        DatabaseLocks.whileHeld(
+            jdbc,
+            DatabaseLocks.DEMO_RESET,
+            () -> {
+              // Another server may have reset the files while this one waited.
+              Instant due = resetTimeAfter(lastReset());
+              if (clock.instant().isBefore(due)) {
+                nextReset = due;
+                return;
+              }
+              reset();
+              nextReset = resetTimeAfter(clock.instant());
+            });
       } catch (IOException | RuntimeException e) {
         log.error("Could not reset the demo's files", e);
         nextReset = clock.instant().plus(RETRY_AFTER_FAILURE);
@@ -203,6 +218,8 @@ public class DemoService implements ApplicationRunner {
   // must never manage accounts: upgrading to accounts of their own made the first account, which on
   // the demo is this one, an admin.
   private void ensureAccount() {
+    // Two servers starting at once would otherwise both create it, and one would fail to start.
+    DatabaseLocks.holdUntilCommit(jdbc, DatabaseLocks.DEMO_ACCOUNT);
     User user = users.findByUsername(username).orElse(null);
     if (user == null) {
       User created = new User(username, passwordEncoder.encode(password), User.ROLE_USER);
@@ -271,16 +288,24 @@ public class DemoService implements ApplicationRunner {
           owner);
     }
 
-    Path marker = storagePaths.internalDir().resolve(MARKER);
-    Files.createDirectories(marker.getParent());
-    Files.writeString(marker, "");
-    Files.setLastModifiedTime(marker, FileTime.from(clock.instant()));
+    jdbc.update(
+        "INSERT INTO demo_reset (id, reset_at) VALUES (1, ?)"
+            + " ON CONFLICT (id) DO UPDATE SET reset_at = EXCLUDED.reset_at",
+        clock.instant().atOffset(ZoneOffset.UTC));
+    Files.deleteIfExists(storagePaths.internalDir().resolve(OLD_MARKER));
     log.info("Reset the demo's files");
   }
 
   private Instant lastReset() throws IOException {
+    List<Instant> stored =
+        jdbc.query(
+            "SELECT reset_at FROM demo_reset",
+            (row, number) -> row.getObject(1, OffsetDateTime.class).toInstant());
+    if (!stored.isEmpty()) {
+      return stored.getFirst();
+    }
     try {
-      return Files.getLastModifiedTime(storagePaths.internalDir().resolve(MARKER)).toInstant();
+      return Files.getLastModifiedTime(storagePaths.internalDir().resolve(OLD_MARKER)).toInstant();
     } catch (NoSuchFileException e) {
       return Instant.MIN;
     }

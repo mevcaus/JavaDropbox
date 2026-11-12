@@ -43,6 +43,7 @@ final class TestDatabase {
     jdbc.execute("DELETE FROM one_time_steps");
     jdbc.execute("DELETE FROM login_attempts");
     jdbc.execute("DELETE FROM setup_code");
+    jdbc.execute("DELETE FROM demo_reset");
   }
 
   /** How many sessions the account signed in as {@code username} has. */
