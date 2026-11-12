@@ -42,6 +42,7 @@ final class TestDatabase {
     jdbc.execute("DELETE FROM spring_session");
     jdbc.execute("DELETE FROM one_time_steps");
     jdbc.execute("DELETE FROM login_attempts");
+    jdbc.execute("DELETE FROM setup_code");
   }
 
   /** How many sessions the account signed in as {@code username} has. */
