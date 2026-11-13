@@ -20,7 +20,7 @@ const api = vi.mocked(mockedApi);
 const authState = (store: AppStore) => store.getState().auth;
 // Seeds a signed-in session the way a successful login leaves it.
 const signIn = (store: AppStore, username: string) =>
-    store.dispatch(loginUser.fulfilled({ username, role: null }, 'seed', { username, password: '' }));
+    store.dispatch(loginUser.fulfilled({ username, role: null }, 'seed', username));
 
 // Whether a secret appears anywhere in a value, however deeply nested (cycle-safe).
 const mentions = (value: unknown, secret: string, seen = new WeakSet<object>()): boolean => {
@@ -428,11 +428,11 @@ describe('the signed-in role', () => {
 
     it('is forgotten when the session ends', async () => {
         const store = makeStore();
-        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', { username: 'ada', password: '' }));
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', 'ada'));
         store.dispatch(clearUser());
         expect(authState(store).role).toBeNull();
 
-        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', { username: 'ada', password: '' }));
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', 'ada'));
         api.post.mockResolvedValueOnce({});
         await store.dispatch(logoutUser());
         expect(selectIsAdmin(store.getState())).toBe(false);

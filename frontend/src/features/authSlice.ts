@@ -27,12 +27,22 @@ const accountIn = (data: unknown): SignedInUser | null => {
     return { username: data.username, role: 'role' in data && typeof data.role === 'string' ? data.role : null };
 };
 
-// Async thunk for login
+/** What the sign-in form sends. */
+export interface Credentials {
+    username: string;
+    password: string;
+}
+
 // Signing in and out go through api, not the API slice: Spring Security answers /login and /logout,
 // so they aren't in the API spec the slice is generated from.
-export const loginUser = createAppAsyncThunk(
-    'auth/loginUser',
-    async ({ username, password }: { username: string; password: string }, { rejectWithValue }) => {
+//
+// Redux Toolkit puts a thunk's argument on every action it dispatches (meta.arg), where the Redux
+// DevTools and any middleware see it. So the password can't be the argument. Each sign-in makes its
+// own thunk that holds the password, and its argument is only the username. They all share one
+// action type, so the reducers and listeners match any of them through loginUser.pending,
+// loginUser.fulfilled and loginUser.rejected.
+const signInWith = (password: string) =>
+    createAppAsyncThunk('auth/loginUser', async (username: string, { rejectWithValue }) => {
         try {
             // Using URLSearchParams for x-www-form-urlencoded specific standard
             const params = new URLSearchParams();
@@ -55,7 +65,20 @@ export const loginUser = createAppAsyncThunk(
                 readableError(error, 'Login failed', { unauthorized: 'Invalid username or password.' }),
             );
         }
-    }
+    });
+
+// Never dispatched. It only names the actions every sign-in dispatches.
+const signInActions = signInWith('');
+
+export const loginUser = Object.assign(
+    ({ username, password }: Credentials) => signInWith(password)(username),
+    {
+        pending: signInActions.pending,
+        fulfilled: signInActions.fulfilled,
+        rejected: signInActions.rejected,
+        settled: signInActions.settled,
+        typePrefix: signInActions.typePrefix,
+    },
 );
 
 export const logoutUser = createAppAsyncThunk(

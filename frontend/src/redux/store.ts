@@ -26,6 +26,9 @@ export const makeStore = () => {
             [apiSlice.reducerPath]: apiSlice.reducer,
         },
         middleware: (getDefault) => getDefault().prepend(listener.middleware).concat(apiSlice.middleware),
+        // Off in production builds, where anyone with the extension installed could read every
+        // action and the whole state.
+        devTools: import.meta.env.DEV,
     });
 };
 

@@ -16,7 +16,7 @@ const GB = 1024 ** 3;
 
 const renderSidebar = ({ role = 'USER', isCollapsed = false } = {}) => {
     const store = makeStore();
-    store.dispatch(loginUser.fulfilled({ username: 'ada', role }, 'seed', { username: 'ada', password: '' }));
+    store.dispatch(loginUser.fulfilled({ username: 'ada', role }, 'seed', 'ada'));
     const view = render(
         <Provider store={store}>
             <MemoryRouter>

@@ -17,7 +17,7 @@ vi.mock('../hooks/useToast', () => ({
 
 const renderSignedIn = () => {
     const store = makeStore();
-    store.dispatch(loginUser.fulfilled({ username: 'ada', role: null }, 'seed', { username: 'ada', password: '' }));
+    store.dispatch(loginUser.fulfilled({ username: 'ada', role: null }, 'seed', 'ada'));
     render(
         <Provider store={store}>
             <Navbar onMenuClick={vi.fn()} />

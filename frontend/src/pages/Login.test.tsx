@@ -81,7 +81,7 @@ describe('Login', () => {
     it('announces a failed sign-in to screen readers', () => {
         renderAfterSessionCheck(
             'Not authenticated',
-            loginUser.rejected(null, 'submit', { username: 'ada', password: '' }, 'Invalid username or password.'),
+            loginUser.rejected(null, 'submit', 'ada', 'Invalid username or password.'),
         );
 
         expect(screen.getByRole('alert')).toHaveTextContent('Invalid username or password.');
