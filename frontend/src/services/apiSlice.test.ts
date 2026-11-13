@@ -73,7 +73,7 @@ describe('the file tree at the end of a session', () => {
 
     // Whatever an earlier session left behind is gone before the new one's screens load.
     it('is forgotten when someone signs in', () => {
-        store.dispatch(loginUser.fulfilled({ username: 'grace', role: 'USER' }, 'signin', { username: 'grace', password: '' }));
+        store.dispatch(loginUser.fulfilled({ username: 'grace', role: 'USER' }, 'signin', 'grace'));
 
         expect(tree(store)).toBeUndefined();
     });
@@ -109,7 +109,7 @@ describe('overlapping listings', () => {
         ['logout', () => logoutUser()],
         ['session expiry', () => clearUser()],
     ])('does not refill the tree from a request that was in flight at %s', async (_label, reset) => {
-        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'USER' }, 'seed', { username: 'ada', password: '' }));
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'USER' }, 'seed', 'ada'));
         const inflight = deferred();
         api.get.mockReturnValueOnce(inflight.promise);
         api.post.mockResolvedValueOnce({});

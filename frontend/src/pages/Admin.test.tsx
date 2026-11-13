@@ -47,7 +47,7 @@ const serve = ({ accounts = ACCOUNTS, invites = [INVITE] } = {}) =>
 
 const renderAs = (role: string, username = 'ada', store = makeStore()) => {
     if (!store.getState().auth.user) {
-        store.dispatch(loginUser.fulfilled({ username, role }, 'seed', { username, password: '' }));
+        store.dispatch(loginUser.fulfilled({ username, role }, 'seed', username));
     }
     const view = render(
         <Provider store={store}>
