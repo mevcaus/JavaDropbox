@@ -10,7 +10,7 @@ Errors come back as `{"message": "..."}` with a meaningful status: `400` for an 
 
 | Method | Endpoint | Auth Required | Description |
 |--------|----------|:---:|-------------|
-| `POST` | `/setup` (form: `code`, `username`, `password`) | ❌ | Create the first account, an admin; only while none exists |
+| `POST` | `/setup` (form: `code`, `username`, `password`) | ❌ | Create the first account, an admin; only while none exists. A username is up to 255 characters, without line breaks or other control characters (`400`) |
 | `POST` | `/login` | ❌ | Authenticate with `username` + `password` (form-encoded): `{username, role}`. A disabled account is refused like a wrong password (`401`), and so, rarely, is a sign-in to an account an admin changes while it is being checked; signing in again works if the account can still sign in |
 | `POST` | `/logout` | ❌ | Invalidate the session, if there is one (POST only, with the CSRF header) |
 | `GET` | `/api/me` | ✅ | The signed-in user: `{username, role}`, where `role` is `ADMIN` or `USER` |
@@ -38,7 +38,7 @@ An account's sessions end at once when it is disabled, or its role or password c
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/search?q=<words>&path=<folder>&limit=<n>` | Items below the folder at `path` (the root when left out; not the folder itself) with every word of `q` in their name or their text, best first: `{results, total, indexing}`. Each result is `{name, relativePath, isDirectory, size, lastModified, previewType, snippet}`, where `snippet` is the passage of text that matched, `{text, highlights: [{start, end}]}`, or `null` when only the name did. `limit` is 1 to 200 (default 50) and `total` counts every match. `indexing` is `true` until the index has caught up after a restart, when some files may be missing. `400` for an empty `q` or one over 200 characters, `404` for a folder that does not exist |
+| `GET` | `/api/search?q=<words>&path=<folder>&limit=<n>` | Items below the folder at `path` (the root when left out; not the folder itself) with every word of `q` in their name or their text, best first: `{results, total, indexing}`. Each result is `{name, relativePath, isDirectory, size, lastModified, previewType, snippet}`, where `snippet` is the passage of text that matched, `{text, highlights: [{start, end}]}`, or `null` when only the name did. `limit` is 1 to 200 (default 50) and `total` counts every match. `indexing` is `true` until the index has caught up after a restart, when some files may be missing. `400` for an empty `q` or one over 200 characters, `404` for a folder that does not exist, `503` when the search service can't be reached (everything else still works) |
 
 ### Admin
 
@@ -53,7 +53,7 @@ Admins only; anyone else gets a `403`. Admins see how much each account stores, 
 | `POST` | `/api/admin/users/{id}/password-reset` | A one-time link, valid for a day, to set a new password: `{url, expiresAt}`. Only returned here; a new one replaces the previous one |
 | `POST` | `/api/admin/users/{id}/import` | Give a row to every file and folder in the account's folder that has none, such as files copied in by hand, so each has an id and an owner: `{files, folders, missing, skipped}`: the counts imported, the rows whose file is missing from the store (counted, never removed), and items left out, with what they hold, because the app wouldn't accept their name (over 255 characters, a backslash, or a path over 4096 characters). `409` when none of the account's files are in the store, which looks like the wrong serving directory or bucket |
 | `GET` | `/api/admin/invites` | Invitations not yet used or expired, newest first: `[{id, username, role, quotaBytes, createdAt, expiresAt, createdBy}]` |
-| `POST` | `/api/admin/invites` (form: `username`, `role`, `quota`) | Invite someone: `role` is `ADMIN` or `USER`, default `USER`, and `quota` as above, default none: `{url, expiresAt}`, valid for 7 days and only returned here. A new invitation for the same username replaces the previous one; `409` if an account has the username |
+| `POST` | `/api/admin/invites` (form: `username`, `role`, `quota`) | Invite someone: `role` is `ADMIN` or `USER`, default `USER`, and `quota` as above, default none: `{url, expiresAt}`, valid for 7 days and only returned here. A new invitation for the same username replaces the previous one; `409` if an account has the username, `400` if it's longer than 255 characters or holds a line break or another control character |
 | `DELETE` | `/api/admin/invites/{id}` | Withdraw an invitation; its link stops working at once |
 | `GET` | `/actuator/metrics` | The server's meters (see [self-hosting.md](self-hosting.md#observability)) |
 

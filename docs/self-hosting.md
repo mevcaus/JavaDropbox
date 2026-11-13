@@ -14,13 +14,13 @@ docker compose --profile app up --build
 
 The logos and favicon are stored in Git LFS (run `git lfs install` once before cloning). Cloned without it, they are small text pointers instead of images: run `git lfs pull` to fetch them. The Docker build stops with a message saying so rather than ship broken images.
 
-Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Uploads are kept in the volume while they arrive too, not in the container, so the volume needs room for them. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
+Open `http://localhost:8080` and complete setup with the code from `docker compose logs app`. To run search on Elasticsearch instead, see [Lucene or Elasticsearch](#lucene-or-elasticsearch). Files and their versions live in the `javadropbox-data` volume, and the database in `postgres-data`. Uploads are kept in the volume while they arrive too, not in the container, so the volume needs room for them. Set `POSTGRES_PASSWORD` for anything beyond local use, before the first start: Postgres only reads it when it creates the `postgres-data` volume. To change it later, change it in the database as well, with `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"`, then start again with the new `POSTGRES_PASSWORD`. The app service sits behind the `app` profile so that `./gradlew bootRun`, which starts `compose.yaml` for its database, doesn't also start a second copy of the app.
 
 The container runs as uid and gid `10001`. To keep the files in a host directory instead of the volume, mount it at `/data` and hand it to that user first, e.g. `sudo chown -R 10001:10001 /srv/javadropbox`. A volume created by an image from before the uid was fixed belongs to a different uid; hand it over once with `docker compose run --rm --no-deps --user root --entrypoint chown app -R 10001:10001 /data`.
 
 ## First-run setup
 
-While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
+While no account exists, every page redirects to the setup page. Creating the first account needs the **setup code** the server prints to its log on startup (a banner reading *"No account exists yet…"* with a code like `K7QMT-9XH2C`), so only whoever can read the server's log can claim the server. The code stays the same until setup is done, and every server sharing the database prints the same one. To replace one that has leaked, delete it from the database (`docker compose exec postgres psql -U postgres -d javadropbox -c "DELETE FROM setup_code"`) and restart the app, which prints a new one. Choose a username and a password of at least 8 characters, then sign in. Five wrong codes from one address lock that address out for 15 minutes.
 
 The first account is an **admin**, and anything already in the serving directory becomes its files.
 
@@ -149,7 +149,7 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
 | `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute), besides at each sign-in, up to 1,000 at a time; `-` turns the schedule off, as the demo does |
-| `app.setup.code` | generated per start | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
+| `app.setup.code` | generated once, kept in the database until setup is done | Fixed setup code for scripted installs: at least 10 characters (not counting dashes), and not printed to the log |
 | `app.cors.allowed-origins` | none | Origins allowed to call the API cross-origin, comma-separated |
 | `server.tomcat.remoteip.internal-proxies` | loopback only | Regex of reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` | `false` (`true` in dev) | Publish the OpenAPI spec and Swagger UI |
@@ -160,7 +160,7 @@ Sessions are kept in the database, so restarting the server doesn't sign anyone 
 
 ## Search
 
-The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). The index lives in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a PDF, PDFBox may keep parts of it in scratch files in `.javadropbox/tmp`, up to about the PDF's own size (mostly for protected PDFs, which it decrypts there), and deletes them when it is done.
+The search box looks through the name of every file and folder you have, and the text of text and source files, PDFs and Word documents (`.docx`), keeping the first 200,000 characters of each (about 80 pages). By default the index is a Lucene index inside the app (see [Lucene or Elasticsearch](#lucene-or-elasticsearch)), kept in `.javadropbox/search-index` in the serving directory, so it is in the same volume and backups as the files, and stays on the server's disk when the files are in S3. It does not count toward any account's quota. While it reads a PDF, PDFBox may keep parts of it in scratch files in `.javadropbox/tmp`, up to about the PDF's own size (mostly for protected PDFs, which it decrypts there), and deletes them when it is done.
 
 The files stored are the source of truth, and the index only mirrors them:
 
@@ -168,17 +168,70 @@ The files stored are the source of truth, and the index only mirrors them:
 - Search indexes what the file list shows, from the database's rows. Files copied into the serving directory by hand or into the bucket with another tool are found once an admin imports them. At startup and then every ten minutes, each row's size and time are compared with the index, which catches anything a change didn't report.
 - Upgrading to a release whose search lists rows (#394) reads the text of nearly every file once more on the first reconcile, since files are then compared by their rows' times rather than the store's. On a large install, and in S3 especially, that can take hours; search keeps working meanwhile. Files copied in by hand and not yet imported drop out of search until they are.
 - The first start after upgrading reads every file once to build the index, logging `Building the search index` and then how many items it indexed. Until that finishes, search results say some files may be missing.
-- To rebuild the index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
+- To rebuild Lucene's index from scratch, stop the server, delete the `search-index` folder and start it again. When an upgrade changes what is indexed, the old index is rebuilt the same way on its own.
 
 A PDF or Word document that cannot be read, such as a damaged or password-protected one, is logged at `WARN` and is still found by its name.
+
+### Lucene or Elasticsearch
+
+Keep the default, Lucene, for one app server. Its index is inside the app, so there's no second service to run, secure, upgrade or back up, and no network hop between a change and the index. It handles one server's files with room to spare. The live demo runs on it.
+
+Elasticsearch is for several app servers behind a load balancer. Each server's Lucene index only knows the changes made through that server, and a Lucene index on a network filesystem isn't reliable. On Elasticsearch, every server reads and writes one index, so a file uploaded through one server turns up in searches on the others. What it costs:
+- a service that wants a gigabyte or more of memory, and has to be secured;
+- a network hop for every search;
+- search answers `503` while the service is down, though everything else keeps working.
+
+Search is only one of the things several servers need, though, and the app doesn't support running more than one yet. Until [#336](https://github.com/mevcaus/JavaDropbox/issues/336) is done:
+- with the files in [S3](#storing-files-in-s3), which several servers need anyway, a folder one server deleted and another made again can vanish once its last file is deleted.
+
+So for now Lucene is the right pick. Elasticsearch is here to try, and to build on.
+
+To try it on one host, `compose.yaml` has Elasticsearch 8.18 behind an `elasticsearch` profile (it needs Docker Compose 2.20 or later). Turn the profile on and point the app at it, in a `.env` file next to `compose.yaml`, so every later `docker compose` command (`logs`, `down`, a restart) runs the same stack:
+
+```bash
+cat > .env <<'EOF'
+COMPOSE_PROFILES=app,elasticsearch
+JAVADROPBOX_SEARCH_BACKEND=elasticsearch
+EOF
+docker compose up --build
+```
+
+It's the same `app` service as above, with the same port, files, database and anything a `compose.override.yaml` sets for it. Only its search changes. It waits for Elasticsearch to be healthy before it starts.
+- With this `.env`, leave `--profile` out of every command, including the ones elsewhere on this page. A `--profile` given on the command line replaces `COMPOSE_PROFILES` rather than adding to it, so `docker compose --profile app up` would start the app on Elasticsearch without Elasticsearch.
+- To go back to Lucene, run `docker compose down` first, while the `.env` still names both profiles, so it stops Elasticsearch too. Then delete the two lines and run `docker compose --profile app up -d`. The volumes stay, Elasticsearch's included, until `docker volume rm`.
+
+On its first start, the app fills the index from the files. The index lives in the `elasticsearch-data` volume, and needs no backup, since it can be filled again from the files.
+- Elasticsearch gets a 1 GB heap. Set `ES_JAVA_OPTS` to change it, e.g. `ES_JAVA_OPTS=-Xms2g -Xmx2g` in `.env`.
+- Its security is off, and it publishes no port. Only the app can reach it, over the compose network. That's fine on one machine, but not for a service other machines reach.
+- Once its disk is 95% full, Elasticsearch stops taking writes. Search keeps answering from what it has, the changes wait, and `search` in the health check says why. The files' volume is usually on the same disk, so keep an eye on it.
+
+For an Elasticsearch elsewhere, with security on (its default), give each app server the same settings. With `compose.yaml`, put them in `.env` with `COMPOSE_PROFILES=app` alone, and compose passes them to the app:
+
+```bash
+JAVADROPBOX_SEARCH_BACKEND=elasticsearch
+JAVADROPBOX_SEARCH_ELASTICSEARCH_URL=https://search.internal:9200
+JAVADROPBOX_SEARCH_ELASTICSEARCH_USERNAME=javadropbox
+JAVADROPBOX_SEARCH_ELASTICSEARCH_PASSWORD=...
+```
+
+Switching either way loses nothing, since both indexes are filled from the files.
+- **Lucene to Elasticsearch:** the first start fills the Elasticsearch index. The old `search-index` folder can then be deleted.
+- **Back to Lucene:** a `search-index` folder still there is brought up to date at startup, reading only the files that changed.
+
+### On Elasticsearch
 
 With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearch service instead, and searches find and show the same things. Every app server can then search what any of them stored. Each still reconciles every ten minutes, and a reconcile only reads again the files that changed. The app was tested against Elasticsearch 8.18 (OpenSearch isn't supported: Elasticsearch's client refuses it).
 
 - The app makes its index the first time it writes, as `javadropbox-1` (the setting's name and the format of the index), and reads and writes it through an alias called `javadropbox`. It won't touch an index called `javadropbox` that it didn't make, and turns search off with an error in the log instead. A newer version that changes the format makes `javadropbox-2`, moves the alias and deletes the old index; until it is filled, searches may miss files.
 - To rebuild the index, delete it (`DELETE /javadropbox-1`). The app makes it again and fills it, at the next search or change.
 - The index holds every account's paths, file names, sizes and times, and the text of their files, so reach the service over `https`, and give the app an account that can only use its own index: `create_index`, `delete_index`, `manage` (refresh and aliases), `read` and `write` on `javadropbox*`. Snapshots of the service keep deleted files' text. A service with a certificate of its own, as Elasticsearch 8 makes by default, has to be trusted by the JVM: add its CA to the truststore the app runs with (`-Djavax.net.ssl.trustStore=…`).
-- While the service can't be reached, changes wait and are tried again every five seconds, logged once, and logged again when they get through. Searches fail with an error, or, if the service couldn't be reached since the app started, find nothing and say the index is still being built. A refusal, such as for want of a permission, is logged once and the changes wait for the next reconcile.
+- When the service is down, only search is. Searches answer `503` with "Search can't be reached right now", and everything else works as before. Uploads, moves and deletes never wait for the index or fail because of it. A search fails when the service leaves it without an answer for five seconds, or has taken ten in all, and for five seconds after one fails that way, searches fail at once, so a service that hangs doesn't tie up the server's request threads.
+- Changes that couldn't be written wait and are tried again, five seconds later, then ten, and so on up to a minute apart, until they get through. Each failure is logged once, and its end is logged when changes, or searches, get through again. The same goes for a service that is too busy (`429`, `503`). A refusal, such as for want of a permission, is logged once and the changes wait for the next reconcile.
 - A cluster with `search.allow_expensive_queries: false` refuses every search, and every change: finding a word anywhere in a name or as the start of one, and dropping a folder's items, need those queries.
+
+## Logs
+
+The app logs to the console, in Spring Boot's usual format, which `docker compose logs app` shows. A line break or other control character in a value it logs, such as a username or a file name, is written as an escape (`\n`), so nobody can start a line that looks like one of the app's own. An exception's stack trace is written as it comes. Levels are set as usual, such as `LOGGING_LEVEL_COM_JAVADROPBOX=DEBUG`. Logging is configured in `src/main/resources/logback-spring.xml`, so Spring Boot's `logging.file.*` and `logging.structured.*` settings have no effect: collect the console output instead.
 
 ## Observability
 
@@ -186,8 +239,8 @@ With `javadropbox.search.backend=elasticsearch`, the index is on an Elasticsearc
 
 | Endpoint | Access | What it reports |
 |----------|--------|-----------------|
-| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable, the disk the files are stored on is nearly full, or the bucket they are stored in cannot be reached. To an admin, it also shows each check (`db`, `diskSpace` for the serving directory, `storage` for the bucket, `ping`) |
-| `GET /actuator/metrics` | Admins | The names of all meters; `/actuator/metrics/<name>` gives one meter's values, filtered with `?tag=key:value` |
+| `GET /actuator/health` | Public, even before setup | `UP`, or `DOWN` with `503` when the database is unreachable, the disk the files are stored on is nearly full, or the bucket they are stored in cannot be reached. To an admin, it also shows each check (`db`, `diskSpace` for the serving directory, `storage` for the bucket, `search` for the index, `ping`). `search` is `DEGRADED`, with what went wrong, while Elasticsearch can't take changes, until they get through, or after a search it couldn't answer, until one gets through or a minute has passed. The app as a whole stays `UP`, so a load balancer keeps sending it requests, since everything else still works |
+| `GET /actuator/metrics` | Admins | The names of all meters; `/actuator/metrics/<name>` gives one meter's values, filtered with `?tag=key:value`. `javadropbox.search.available` is 1 while search works and 0 while `search` is `DEGRADED`, to alert on |
 
 Health is public because load balancers and the Docker `HEALTHCHECK` call it without a session, and an anonymous caller learns only `UP` or `DOWN`. The details and the metrics describe the whole server, so they are for admins: anyone else gets `UP` or `DOWN`, and a `403` for metrics.
 

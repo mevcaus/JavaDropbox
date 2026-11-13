@@ -31,10 +31,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Only when the elasticsearch profile below is on.
+      elasticsearch:
+        condition: service_healthy
+        required: false
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/javadropbox
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      # lucene, the index inside the app, or elasticsearch, the service below
+      # (see docs/self-hosting.md#lucene-or-elasticsearch).
+      JAVADROPBOX_SEARCH_BACKEND: ${JAVADROPBOX_SEARCH_BACKEND:-lucene}
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_URL: ${JAVADROPBOX_SEARCH_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_USERNAME: ${JAVADROPBOX_SEARCH_ELASTICSEARCH_USERNAME:-}
+      JAVADROPBOX_SEARCH_ELASTICSEARCH_PASSWORD: ${JAVADROPBOX_SEARCH_ELASTICSEARCH_PASSWORD:-}
       # To keep the files in a bucket rather than the javadropbox-data volume (see
       # docs/self-hosting.md#storing-files-in-s3):
       # JAVADROPBOX_STORAGE_TYPE: s3
@@ -44,6 +54,31 @@ services:
     volumes:
       - javadropbox-data:/data
 
+  # Search on Elasticsearch, a service several app servers can share, instead of
+  # the index inside the app. Behind the "elasticsearch" profile, and used by the
+  # app once JAVADROPBOX_SEARCH_BACKEND=elasticsearch:
+  #   COMPOSE_PROFILES=app,elasticsearch JAVADROPBOX_SEARCH_BACKEND=elasticsearch \
+  #     docker compose up --build
+  # Its security is off, and it publishes no port: only the app, over the compose
+  # network, can reach it. The index holds every account's file names and text.
+  elasticsearch:
+    profiles: ["elasticsearch"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.18.6
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      # Without a heap size, Elasticsearch takes half the machine's memory.
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
 volumes:
   postgres-data:
   javadropbox-data:
+  elasticsearch-data:

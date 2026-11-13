@@ -11,12 +11,16 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.javadropbox.javadropbox.MigratedDatabase;
+import com.javadropbox.javadropbox.config.LoginAttemptLimiter;
 import com.javadropbox.javadropbox.exception.ConflictException;
 import com.javadropbox.javadropbox.exception.ForbiddenException;
 import com.javadropbox.javadropbox.exception.TooManyRequestsException;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
-import java.lang.reflect.Field;
+import java.time.Clock;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -25,6 +29,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 
 @DisplayName("Setup service")
@@ -38,12 +44,35 @@ class SetupServiceTests {
   private final FirstAccountImport firstAccountImport = mock(FirstAccountImport.class);
   private SetupService setup;
 
+  // Wrong codes are counted in the database, as in the app.
+  private static final DataSource DATABASE = MigratedDatabase.create();
+  private final JdbcTemplate jdbc = new JdbcTemplate(DATABASE);
+  private final DataSourceTransactionManager transactions =
+      new DataSourceTransactionManager(DATABASE);
+  private final LoginAttemptLimiter codeAttempts =
+      new LoginAttemptLimiter(
+          jdbc, transactions, Clock.systemUTC(), LoginAttemptLimiter.SETUP_CODE);
+
+  @AfterEach
+  void forgetAttempts() {
+    jdbc.update("DELETE FROM login_attempts");
+    jdbc.update("DELETE FROM setup_code");
+  }
+
   @BeforeEach
   void setUp() {
     when(authService.isSetupRequired()).thenReturn(true);
+    when(users.save(any(User.class))).thenAnswer(saved -> saved.getArgument(0));
     setup =
         new SetupService(
-            users, NoOpPasswordEncoder.getInstance(), authService, firstAccountImport, "");
+            users,
+            NoOpPasswordEncoder.getInstance(),
+            authService,
+            firstAccountImport,
+            codeAttempts,
+            jdbc,
+            transactions,
+            "");
   }
 
   @Test
@@ -119,6 +148,16 @@ class SetupServiceTests {
   }
 
   @Test
+  @DisplayName("a username with a line break or another control character is refused")
+  void usernameWithControlCharactersRefused() {
+    for (String name : new String[] {"ada\nINFO forged", "ada\rb", "a\u0000da", "ada\u2028b"}) {
+      assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), name, "long enough"))
+          .hasMessage("Usernames can't contain line breaks or other control characters");
+    }
+    verify(users, never()).save(any(User.class));
+  }
+
+  @Test
   @DisplayName("a password over BCrypt's 72-byte limit is refused rather than truncated")
   void overlongPasswordRefused() {
     assertThatThrownBy(() -> setup.createFirstUser(OWNER, code(), "ada", "ü".repeat(37)))
@@ -172,7 +211,14 @@ class SetupServiceTests {
 
     private SetupService configured(String code) {
       return new SetupService(
-          users, NoOpPasswordEncoder.getInstance(), authService, firstAccountImport, code);
+          users,
+          NoOpPasswordEncoder.getInstance(),
+          authService,
+          firstAccountImport,
+          codeAttempts,
+          jdbc,
+          transactions,
+          code);
     }
   }
 
@@ -185,9 +231,61 @@ class SetupServiceTests {
     assertThat(output.getAll()).contains(code());
   }
 
-  private String code() throws ReflectiveOperationException {
-    Field field = SetupService.class.getDeclaredField("code");
-    field.setAccessible(true);
-    return (String) field.get(setup);
+  private String code() {
+    return setup.code();
+  }
+
+  // Each server's SetupService, on the database they share.
+  @Test
+  @DisplayName("servers sharing the database print and take the same code")
+  @ExtendWith(OutputCaptureExtension.class)
+  void serversShareTheCode(CapturedOutput output) {
+    SetupService other =
+        new SetupService(
+            users,
+            NoOpPasswordEncoder.getInstance(),
+            authService,
+            firstAccountImport,
+            codeAttempts,
+            jdbc,
+            transactions,
+            "");
+    other.announceCodeIfNeeded();
+    String printed = other.code();
+
+    assertThat(output.getAll()).contains(printed);
+    assertThat(code()).isEqualTo(printed);
+    assertThatCode(() -> setup.createFirstUser(OWNER, printed, "ada", "long enough"))
+        .doesNotThrowAnyException();
+  }
+
+  // Another server sets up between this request's first look and its check of the code.
+  @Test
+  @DisplayName("a setup another server finished meanwhile answers 409, and makes no new code")
+  void setupFinishedMeanwhile() {
+    String printed = code();
+    when(authService.isSetupRequired()).thenReturn(true, false);
+    jdbc.update("DELETE FROM setup_code");
+
+    assertThatThrownBy(() -> setup.createFirstUser(OWNER, printed, "ada", "long enough"))
+        .isInstanceOf(ConflictException.class);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
+    assertThat(codeAttempts.retryAfter(OWNER)).isZero();
+  }
+
+  @Test
+  @DisplayName("before any server has printed a code, none is taken")
+  void noCodeBeforeOneIsPrinted() {
+    assertThatThrownBy(() -> setup.createFirstUser(OWNER, "ABCDE-FGHJK", "ada", "long enough"))
+        .isInstanceOf(ForbiddenException.class);
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
+  }
+
+  @Test
+  @DisplayName("the code is used up once the account exists")
+  void codeIsUsedUp() {
+    setup.createFirstUser(OWNER, code(), "ada", "long enough");
+
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM setup_code", Integer.class)).isZero();
   }
 }

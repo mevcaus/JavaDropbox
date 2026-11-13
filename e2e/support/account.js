@@ -30,7 +30,8 @@ export const readSetupCode = () => {
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
     });
-    // The code changes on every restart, so only the last one printed works.
+    // The code stays the same until setup is done, but take the last one printed: a database set up
+    // and emptied since may have made another.
     const code = [...log.matchAll(SETUP_CODE)].at(-1)?.[1];
     if (!code) {
         throw new Error(

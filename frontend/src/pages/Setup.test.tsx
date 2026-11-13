@@ -1,0 +1,123 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
+import { postedForm } from '../test/forms';
+import { MemoryRouter } from 'react-router-dom';
+import { Provider } from 'react-redux';
+import Setup from './Setup';
+import { fetchCurrentUser, SETUP_REQUIRED } from '../features/authSlice';
+import mockedApi from '../services/api';
+import { makeStore } from '../redux/store';
+
+vi.mock('../services/api');
+const api = vi.mocked(mockedApi);
+
+const mockNavigate = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => ({
+    ...(await importOriginal()),
+    useNavigate: () => mockNavigate,
+}));
+
+// Starts where App leaves a fresh install: the session check found setup pending.
+const renderSetup = () => {
+    const store = makeStore();
+    store.dispatch(fetchCurrentUser.rejected(null, 'startup', undefined, SETUP_REQUIRED));
+    render(
+        <Provider store={store}>
+            <MemoryRouter>
+                <Setup />
+            </MemoryRouter>
+        </Provider>,
+    );
+    return store;
+};
+
+const fillForm = async (
+    user: UserEvent,
+    {
+        code = 'ABCDE-FGHJK',
+        username = 'ada',
+        password = 'correct horse',
+        confirm = password,
+    }: { code?: string; username?: string; password?: string; confirm?: string } = {},
+) => {
+    await user.type(screen.getByLabelText('Setup code'), code);
+    await user.type(screen.getByPlaceholderText('Username'), username);
+    await user.type(screen.getByPlaceholderText('Password'), password);
+    await user.type(screen.getByPlaceholderText('Confirm password'), confirm);
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+};
+
+describe('Setup', () => {
+    afterEach(() => {
+        cleanup();
+        vi.clearAllMocks();
+    });
+
+    it('sends the setup code with the new account and moves on to sign in', async () => {
+        api.post.mockResolvedValueOnce({ data: { message: 'Setup successful' } });
+        const user = userEvent.setup();
+        const store = renderSetup();
+
+        await fillForm(user);
+
+        const params = api.post.mock.calls[0][1];
+        expect(api.post.mock.calls[0][0]).toBe('/setup');
+        expect(postedForm(params)).toEqual({
+            code: 'ABCDE-FGHJK',
+            username: 'ada',
+            password: 'correct horse',
+        });
+        expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true });
+        // So the sign-in page stops offering setup
+        expect(store.getState().auth.setupRequired).toBe(false);
+    });
+
+    it('does not submit when the passwords differ', async () => {
+        const user = userEvent.setup();
+        renderSetup();
+
+        await fillForm(user, { confirm: 'something else' });
+
+        expect(api.post).not.toHaveBeenCalled();
+        expect(screen.getByRole('alert')).toHaveTextContent('The passwords do not match.');
+    });
+
+    it('does not submit a password shorter than the minimum', async () => {
+        const user = userEvent.setup();
+        renderSetup();
+
+        await fillForm(user, { password: 'short' });
+
+        expect(api.post).not.toHaveBeenCalled();
+        expect(screen.getByRole('alert')).toHaveTextContent('Password must be at least 8 characters.');
+    });
+
+    it('shows the server message when the code is wrong', async () => {
+        api.post.mockRejectedValueOnce({
+            response: { status: 403, data: { message: 'Incorrect setup code. It is printed in the server log.' } },
+        });
+        const user = userEvent.setup();
+        renderSetup();
+
+        await fillForm(user);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect setup code. It is printed in the server log.');
+        expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    // Setup reads errors through the same readableError as every other screen.
+    it.each([
+        ['the specific message over the status text', { status: 400, data: { error: 'Bad Request', message: 'Username is required' } }, 'Username is required'],
+        ['a readable line instead of an HTML error page', { status: 500, data: '<!doctype html><h1>HTTP Status 500</h1>' }, 'The server is unavailable right now. Please try again.'],
+        ['the fallback when there is nothing better', { status: 409, data: '' }, 'Setup failed. An account may already exist.'],
+    ])('shows %s', async (_label, response, expected) => {
+        api.post.mockRejectedValueOnce({ response });
+        const user = userEvent.setup();
+        renderSetup();
+
+        await fillForm(user);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    });
+});

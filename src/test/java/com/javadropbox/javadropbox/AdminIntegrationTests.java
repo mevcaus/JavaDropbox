@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,7 +62,11 @@ class AdminIntegrationTests {
   @Autowired private UserRepository users;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private AccountService accountService;
-  @Autowired private LoginAttemptLimiter limiter;
+
+  @Autowired
+  @Qualifier(LoginAttemptLimiter.SIGN_IN)
+  private LoginAttemptLimiter limiter;
+
   @Autowired private SearchIndex searchIndex;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ObjectMapper json;
@@ -120,6 +125,17 @@ class AdminIntegrationTests {
   }
 
   // --- invitations ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("an invitation for a username with a line break is refused, and none is made")
+  void invitationForAUsernameWithALineBreakIsRefused() throws Exception {
+    inviting("bob\nINFO forged", "USER", "")
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message")
+                .value("Usernames can't contain line breaks or other control characters"));
+    mockMvc.perform(get("/api/admin/invites").with(ADMIN)).andExpect(jsonPath("$").isEmpty());
+  }
 
   @Test
   @DisplayName("an invitation creates its account once, with the role and quota it was made with")

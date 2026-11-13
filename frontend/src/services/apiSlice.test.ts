@@ -1,0 +1,567 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeStore } from '../redux/store';
+import { apiSlice } from './apiSlice';
+import { clearUser, loginUser, logoutUser } from '../features/authSlice';
+import { AxiosError } from 'axios';
+import mockedApi from './api';
+import { baseQuery } from './baseQuery';
+import { postedFileNames, postedFormBody, postedMultipart } from '../test/forms';
+import type { BaseQueryApi } from '@reduxjs/toolkit/query';
+
+vi.mock('./api');
+const api = vi.mocked(mockedApi);
+
+type Store = ReturnType<typeof makeStore>;
+// Each change is dispatched by the test, which keeps each one's own thunk type.
+type Dispatch = Store['dispatch'];
+
+const deferred = <T = unknown>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
+
+const OLD_TREE = [{ name: 'deleted.txt', isDirectory: false, size: 1 }];
+const NEW_TREE = [{ name: 'kept.txt', isDirectory: false, size: 1 }];
+
+const tree = (store: Store) => apiSlice.endpoints.getFileTree.select()(store.getState()).data;
+
+// The dashboard keeps the tree subscribed while it's open; tags only refetch what's subscribed.
+const subscribe = async (store: Store) => {
+    const subscription = store.dispatch(apiSlice.endpoints.getFileTree.initiate());
+    await subscription;
+    return subscription;
+};
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe('the file tree at the end of a session', () => {
+    let store: Store;
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        store = makeStore();
+        api.get.mockResolvedValue({ data: [{ name: 'private.txt', isDirectory: false, size: 1 }] });
+        await subscribe(store);
+    });
+
+    it('is forgotten on logout', async () => {
+        api.post.mockResolvedValueOnce({});
+
+        await store.dispatch(logoutUser());
+
+        expect(tree(store)).toBeUndefined();
+    });
+
+    it('is kept when the logout fails and the user is still signed in', async () => {
+        api.post.mockRejectedValueOnce({ response: { status: 500, data: '' } });
+
+        await store.dispatch(logoutUser());
+
+        expect(tree(store)).toHaveLength(1);
+    });
+
+    it('is forgotten when the session expires', () => {
+        store.dispatch(clearUser());
+
+        expect(tree(store)).toBeUndefined();
+    });
+
+    // Whatever an earlier session left behind is gone before the new one's screens load.
+    it('is forgotten when someone signs in', () => {
+        store.dispatch(loginUser.fulfilled({ username: 'grace', role: 'USER' }, 'signin', { username: 'grace', password: '' }));
+
+        expect(tree(store)).toBeUndefined();
+    });
+});
+
+// Every change refetches the tree, so listings can arrive out of order.
+describe('overlapping listings', () => {
+    let store: Store;
+
+    beforeEach(() => {
+        vi.resetAllMocks();
+        store = makeStore();
+    });
+
+    // RTK Query sends one listing at a time; a change that lands while one is in flight gets a
+    // fresh listing after it, so the older answer is never the last word.
+    it('lists again after a change made while a listing was in flight', async () => {
+        const older = deferred();
+        api.get.mockReturnValueOnce(older.promise).mockResolvedValueOnce({ data: NEW_TREE });
+
+        store.dispatch(apiSlice.endpoints.getFileTree.initiate());
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
+        older.resolve({ data: OLD_TREE });
+        await settle();
+        await settle();
+
+        // The item deleted between the two requests must not come back.
+        expect(api.get).toHaveBeenCalledTimes(2);
+        expect(tree(store)).toEqual(NEW_TREE);
+    });
+
+    it.each([
+        ['logout', () => logoutUser()],
+        ['session expiry', () => clearUser()],
+    ])('does not refill the tree from a request that was in flight at %s', async (_label, reset) => {
+        store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'USER' }, 'seed', { username: 'ada', password: '' }));
+        const inflight = deferred();
+        api.get.mockReturnValueOnce(inflight.promise);
+        api.post.mockResolvedValueOnce({});
+
+        store.dispatch(apiSlice.endpoints.getFileTree.initiate());
+        await store.dispatch(reset());
+        inflight.resolve({ data: OLD_TREE });
+        await settle();
+
+        expect(tree(store)).toBeUndefined();
+    });
+});
+
+// A failure doesn't mean nothing changed: an upload stores its files one at a time, and a failed
+// delete may be about an item that's already gone.
+describe('refreshing after a change', () => {
+    let store: Store;
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        store = makeStore();
+        await subscribe(store);
+    });
+
+    it.each([
+        ['succeeds', () => api.post.mockResolvedValueOnce({ data: { message: 'Uploaded 2 files' } })],
+        ['fails part-way', () => api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'b.txt is a folder' } } })],
+    ])('refreshes the tree when an upload %s', async (_label, arrange) => {
+        arrange();
+
+        await store.dispatch(
+            apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: '' } }),
+        );
+        await settle();
+
+        expect(api.get).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+        ['succeeds', () => api.delete.mockResolvedValueOnce({ data: { message: 'Deleted folder' } })],
+        ['fails', () => api.delete.mockRejectedValueOnce({ response: { status: 404, data: { message: 'Not found' } } })],
+    ])('refreshes the tree when a delete %s', async (_label, arrange) => {
+        arrange();
+
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'folder' }));
+        await settle();
+
+        expect(api.delete).toHaveBeenCalledWith('/api/files', expect.objectContaining({ params: { path: 'folder' } }));
+        expect(api.get).toHaveBeenCalledTimes(2);
+    });
+});
+
+// Which lists a change asks again, by the tags it invalidates.
+describe('refreshing versions and share links', () => {
+    let store: Store;
+    const gets = (url: string) => api.get.mock.calls.filter(([called]) => called === url).length;
+
+    beforeEach(() => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        store = makeStore();
+    });
+
+    it('refreshes the tree and that file\'s versions after a restore, not another file\'s', async () => {
+        await subscribe(store);
+        await store.dispatch(apiSlice.endpoints.listFileVersions.initiate({ fileId: 7 }));
+        await store.dispatch(apiSlice.endpoints.listFileVersions.initiate({ fileId: 8 }));
+        api.post.mockResolvedValueOnce({ data: { message: 'Version 1 restored' } });
+
+        await store.dispatch(apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' }));
+        await settle();
+
+        expect(gets('/api/files')).toBe(2);
+        expect(gets('/api/files/7/versions')).toBe(2);
+        expect(gets('/api/files/8/versions')).toBe(1);
+    });
+
+    it('refreshes the shared item\'s links after a new link, not another item\'s', async () => {
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'b.txt' }));
+        api.post.mockResolvedValueOnce({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z' } });
+
+        await store.dispatch(apiSlice.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
+        await settle();
+
+        const paths = api.get.mock.calls.filter(([url]) => url === '/api/share').map(([, config]) => config?.params);
+        expect(paths).toEqual([{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'a.txt' }]);
+    });
+
+    // Uploading over a file keeps its old content as a version; a delete takes versions and links.
+    it('refreshes the versions after an upload, and the versions and links after a delete', async () => {
+        await store.dispatch(apiSlice.endpoints.listFileVersions.initiate({ fileId: 7 }));
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
+        api.post.mockResolvedValueOnce({ data: { message: 'Uploaded 1 file' } });
+        api.delete.mockResolvedValueOnce({ data: { message: 'Deleted a.txt' } });
+
+        await store.dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } }));
+        await settle();
+        expect([gets('/api/files/7/versions'), gets('/api/share')]).toEqual([2, 1]);
+
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }));
+        await settle();
+        expect([gets('/api/files/7/versions'), gets('/api/share')]).toEqual([3, 2]);
+    });
+
+    // A link's id doesn't say whose item it shares.
+    it('refreshes every list of links after a revoke', async () => {
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'b.txt' }));
+        api.delete.mockResolvedValueOnce({ data: { message: 'Share link revoked' } });
+
+        await store.dispatch(apiSlice.endpoints.revokeShareLink.initiate({ id: 3 }));
+        await settle();
+
+        expect(gets('/api/share')).toBe(4);
+    });
+});
+
+// Which of the admin page's lists each change asks again.
+describe('refreshing the accounts and invitations', () => {
+    let store: Store;
+    const asked = () => [
+        api.get.mock.calls.filter(([url]) => url === '/api/admin/users').length,
+        api.get.mock.calls.filter(([url]) => url === '/api/admin/invites').length,
+        api.get.mock.calls.filter(([url]) => url === '/api/files').length,
+    ];
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        api.put.mockResolvedValue({ data: { message: 'Changed' } });
+        api.post.mockResolvedValue({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z', files: 0, folders: 0, missing: 0, skipped: 0 } });
+        store = makeStore();
+        await store.dispatch(apiSlice.endpoints.listAccounts.initiate());
+        await store.dispatch(apiSlice.endpoints.listInvites.initiate());
+        await subscribe(store);
+    });
+
+    it.each([
+        ['a role change', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountRole.initiate({ id: 2, body: { role: 'ADMIN' } })), [2, 1, 1]],
+        ['a quota change', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 2, body: { quota: '5GB' } })), [2, 1, 1]],
+        // Disabling an account also withdraws the invitations it made.
+        ['disabling an account', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountEnabled.initiate({ id: 2, body: { enabled: false } })), [2, 2, 1]],
+        // An import may be into the admin's own account.
+        ['an import', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.importFiles.initiate({ id: 2 })), [2, 1, 2]],
+        ['an invitation', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.createInvite.initiate({ body: { username: 'carol' } })), [1, 2, 1]],
+        ['a password reset link', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.createPasswordResetLink.initiate({ id: 2 })), [1, 1, 1]],
+    ])('asks again for what %s changes', async (_label, change, expected) => {
+        await change(store.dispatch);
+        await settle();
+
+        expect(asked()).toEqual(expected);
+    });
+
+    // A failure is most often an invitation used or expired meanwhile, which shouldn't stay listed.
+    it('asks for the invitations again when withdrawing one fails', async () => {
+        api.delete.mockRejectedValueOnce({ response: { status: 404, data: { message: 'Invitation not found' } } });
+
+        await store.dispatch(apiSlice.endpoints.revokeInvite.initiate({ id: 9 }));
+        await settle();
+
+        expect(asked()).toEqual([1, 2, 1]);
+    });
+});
+
+// The storage meter follows the tree: each listing asks for storage use again, once.
+describe('refreshing storage use', () => {
+    let store: Store;
+    const gets = (url: string) => api.get.mock.calls.filter(([called]) => called === url).length;
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        api.post.mockResolvedValue({ data: { message: 'Done', files: 0, folders: 0, missing: 0, skipped: 0 } });
+        api.put.mockResolvedValue({ data: { message: 'Quota changed' } });
+        api.delete.mockResolvedValue({ data: { message: 'Deleted' } });
+        store = makeStore();
+        await store.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
+        await subscribe(store);
+        await settle();
+        api.get.mockClear();
+    });
+
+    // Whatever changed the files, here, in another tab or by the demo's reset.
+    it('asks again once each time the tree is listed', async () => {
+        store.dispatch(apiSlice.util.invalidateTags(['Files']));
+        await settle();
+        await settle();
+
+        expect([gets('/api/files'), gets('/api/storage')]).toEqual([1, 1]);
+    });
+
+    it.each([
+        ['an upload', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt')], path: '' } }))],
+        ['a folder upload', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.uploadFolder.initiate({ files: [{ file: new File(['a'], 'a.txt'), relativePath: 'T/a.txt' }], path: '' }))],
+        ['a delete', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }))],
+        ['a restore', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.restoreVersion.initiate({ fileId: 7, version: 1, mode: 'OVERWRITE' }))],
+    ])('asks once after %s, through the listing it causes', async (_label, change) => {
+        await change(store.dispatch);
+        await settle();
+        await settle();
+
+        expect([gets('/api/files'), gets('/api/storage')]).toEqual([1, 1]);
+    });
+
+    // The admin page lists no files, so these ask for storage use themselves.
+    it.each([
+        ['an import', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.importFiles.initiate({ id: 1 }))],
+        ['a quota change', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 1, body: { quota: '5GB' } }))],
+    ])('asks again after %s', async (_label, change) => {
+        // As on the admin page: storage use shown, no tree listed.
+        const admin = makeStore();
+        await admin.dispatch(apiSlice.endpoints.getStorageUsage.initiate());
+        api.get.mockClear();
+
+        await change(admin.dispatch);
+        await settle();
+
+        expect(gets('/api/storage')).toBe(1);
+    });
+
+    // A search answers from the files as they are, so a change asks again, once.
+    it('asks for a search again once after a change to the files', async () => {
+        await store.dispatch(apiSlice.endpoints.searchFiles.initiate({ q: 'plan', path: '' }));
+        api.get.mockClear();
+
+        await store.dispatch(apiSlice.endpoints.deleteItem.initiate({ path: 'a.txt' }));
+        await settle();
+        await settle();
+
+        expect(gets('/api/search')).toBe(1);
+    });
+});
+
+// Asked once per page, and a 404 on an ordinary install is an answer, not a failure to retry.
+describe('the demo\'s limits', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it('are null on an ordinary install, asked once however many screens show them', async () => {
+        api.get.mockRejectedValue({ response: { status: 404, data: { message: 'Not found' } } });
+        const store = makeStore();
+
+        const first = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(first.data).toBeNull();
+        expect(api.get).toHaveBeenCalledTimes(1);
+    });
+
+    // A passing failure isn't kept as "no demo", which would hide the demo's banner and limits.
+    it('are asked again after any other failure', async () => {
+        api.get
+            .mockRejectedValueOnce({ response: { status: 500, data: '' } })
+            .mockResolvedValueOnce({ data: { username: 'demo' } });
+        const store = makeStore();
+
+        const failed = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+        const retried = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(failed.isError).toBe(true);
+        expect(retried.data).toEqual({ username: 'demo' });
+    });
+
+    it('are the demo\'s account and limits on the demo', async () => {
+        api.get.mockResolvedValue({ data: { username: 'demo', maxShareMinutes: 15 } });
+        const store = makeStore();
+
+        const result = await store.dispatch(apiSlice.endpoints.demoInfo.initiate());
+
+        expect(result.data).toEqual({ username: 'demo', maxShareMinutes: 15 });
+    });
+});
+
+// A file with its place inside the uploaded folder, as uploadFolder takes it.
+const pickedFile = (relativePath: string) => ({ file: new File(['x'], relativePath.slice(relativePath.lastIndexOf('/') + 1)), relativePath });
+
+const postedFolders = () =>
+    api.post.mock.calls.map(([, body]) => {
+        return [postedMultipart(body).get('path'), postedFileNames(body)];
+    });
+
+describe('uploadFolder', () => {
+    let store: Store;
+
+    beforeEach(async () => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        store = makeStore();
+        await subscribe(store);
+    });
+
+    it('uploads each folder into its place below the open folder, parents first', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+
+        const result = await store.dispatch(
+            apiSlice.endpoints.uploadFolder.initiate({
+                files: [pickedFile('Trip/Day 1/a.jpg'), pickedFile('Trip/plan.txt'), pickedFile('Trip/Day 1/b.jpg')],
+                path: 'Holidays',
+            }),
+        );
+
+        expect(result.error).toBeUndefined();
+        expect(postedFolders()).toEqual([
+            ['Holidays/Trip', ['plan.txt']],
+            ['Holidays/Trip/Day 1', ['a.jpg', 'b.jpg']],
+        ]);
+    });
+
+    it('starts from the root when no folder is open', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+
+        await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files: [pickedFile('Trip/plan.txt')], path: '' }));
+
+        expect(postedFolders()).toEqual([['Trip', ['plan.txt']]]);
+    });
+
+    // The browser sends a picked file's webkitRelativePath as its name unless told otherwise, and
+    // the server refuses a name with a slash in it.
+    it('names each file part by the bare file name', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const append = vi.spyOn(FormData.prototype, 'append');
+        const picked = pickedFile('Trip/Day 1/a.jpg');
+
+        await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files: [picked], path: '' }));
+
+        expect(append).toHaveBeenCalledWith('files', picked.file, 'a.jpg');
+        append.mockRestore();
+    });
+
+    it('stops at the first folder that fails and refreshes the tree once', async () => {
+        api.post
+            .mockResolvedValueOnce({ data: { message: 'Uploaded' } })
+            .mockRejectedValueOnce({ response: { status: 400, data: { message: '"B" is a file, not a folder' } } });
+
+        const result = await store.dispatch(
+            apiSlice.endpoints.uploadFolder.initiate({
+                files: [pickedFile('Top/a.txt'), pickedFile('Top/B/b.txt'), pickedFile('Top/C/c.txt')],
+                path: '',
+            }),
+        );
+        await settle();
+
+        expect(result.error).toEqual({ status: 400, data: { message: '"B" is a file, not a folder' } });
+        expect(postedFolders().map(([path]) => path)).toEqual(['Top', 'Top/B']);
+        // Once for the subscription, once after the upload.
+        expect(api.get).toHaveBeenCalledTimes(2);
+    });
+});
+
+// The server takes forms and uploads, not JSON, and answers JSON to a form endpoint with a 415.
+describe('request bodies', () => {
+    let store: Store;
+
+    beforeEach(() => {
+        vi.resetAllMocks();
+        api.get.mockResolvedValue({ data: [] });
+        store = makeStore();
+    });
+
+    it('sends a form endpoint its fields as a form', async () => {
+        api.post.mockResolvedValue({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z' } });
+
+        await store.dispatch(apiSlice.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
+
+        const [url, body] = api.post.mock.calls[0];
+        expect(url).toBe('/api/share');
+        expect(postedFormBody(body).toString()).toBe('path=a.txt&expirationMinutes=60');
+    });
+
+    it('sends an upload as multipart, one part per file', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded 2 files' } });
+
+        await store.dispatch(
+            apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')], path: 'docs' } }),
+        );
+
+        const form = postedMultipart(api.post.mock.calls[0][1]);
+        expect(postedFileNames(form)).toEqual(['a.txt', 'b.txt']);
+        expect(form.get('path')).toBe('docs');
+    });
+
+    it('reports a request that got no answer at all', async () => {
+        api.get.mockRejectedValueOnce(new AxiosError('Network Error', AxiosError.ERR_NETWORK));
+
+        const result = await store.dispatch(apiSlice.endpoints.getFileTree.initiate());
+
+        expect(result.error).toEqual({ status: 'FETCH_ERROR' });
+    });
+
+    it('sends a PUT as a form', async () => {
+        api.put.mockResolvedValue({ data: { message: 'Quota changed' } });
+
+        await store.dispatch(apiSlice.endpoints.setAccountQuota.initiate({ id: 3, body: { quota: '5GB' } }));
+
+        const [url, body] = api.put.mock.calls[0];
+        expect(url).toBe('/api/admin/users/3/quota');
+        expect(postedFormBody(body).toString()).toBe('quota=5GB');
+    });
+
+    it('sends a new folder as multipart, as the app always has', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Created folder Trip' } });
+
+        await store.dispatch(apiSlice.endpoints.createFolder.initiate({ body: { path: 'Holidays', name: 'Trip' } }));
+
+        const [url, body] = api.post.mock.calls[0];
+        expect(url).toBe('/api/folders');
+        const form = postedMultipart(body);
+        expect([form.get('path'), form.get('name')]).toEqual(['Holidays', 'Trip']);
+    });
+
+    it('sends a part that is a Blob rather than a File', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded 1 file' } });
+
+        await store.dispatch(apiSlice.endpoints.uploadFiles.initiate({ body: { files: [new Blob(['x'])], path: '' } }));
+
+        expect(postedMultipart(api.post.mock.calls[0][1]).getAll('files')).toHaveLength(1);
+    });
+});
+
+// Mistakes in the slice, not failures of a request, so they aren't reported as one.
+describe('baseQuery', () => {
+    // What RTK hands a base query; these tests read only the endpoint's name and the signal.
+    const context: BaseQueryApi = {
+        endpoint: 'test',
+        signal: new AbortController().signal,
+        abort: () => {},
+        dispatch: vi.fn(),
+        getState: () => ({}),
+        extra: undefined,
+        type: 'query',
+    };
+
+    beforeEach(() => vi.resetAllMocks());
+
+    it('refuses a method the API takes nowhere, rather than sending it as another', async () => {
+        await expect(baseQuery({ url: '/api/files', method: 'PATCH' }, context, {})).rejects.toThrow('test uses PATCH');
+        expect(api.post).not.toHaveBeenCalled();
+    });
+
+    it('lets an error that is not about the request through', async () => {
+        api.get.mockRejectedValueOnce(new TypeError('a bug in an interceptor'));
+
+        await expect(baseQuery({ url: '/api/files' }, context, {})).rejects.toThrow(TypeError);
+    });
+
+    it('passes the request\'s abort signal on, so a superseded request can be cancelled', async () => {
+        api.get.mockResolvedValueOnce({ data: [] });
+
+        await baseQuery({ url: '/api/files' }, context, {});
+
+        expect(api.get).toHaveBeenCalledWith('/api/files', expect.objectContaining({ signal: context.signal }));
+    });
+});

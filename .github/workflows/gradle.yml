@@ -173,6 +173,40 @@ jobs:
       if: always()
       run: docker compose --profile app down --volumes
 
+    # The same image again, with search on Elasticsearch as docs/self-hosting.md sets it up
+    # (compose's elasticsearch profile), and the end-to-end tests again on it, search among them.
+    - name: Start the app with search on Elasticsearch
+      id: elasticsearch
+      if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
+      env:
+        COMPOSE_PROFILES: app,elasticsearch
+        JAVADROPBOX_SEARCH_BACKEND: elasticsearch
+      run: |
+        docker compose up --detach --wait --wait-timeout 300
+        docker compose logs --no-color app | grep -q 'Search uses the Elasticsearch index javadropbox at http://elasticsearch:9200'
+
+    - name: Run the end-to-end tests on Elasticsearch
+      id: e2e-elasticsearch
+      if: ${{ !cancelled() && steps.elasticsearch.outcome == 'success' }}
+      working-directory: e2e
+      run: npm test
+
+    - name: Upload the Playwright report on Elasticsearch
+      if: ${{ !cancelled() && steps.e2e-elasticsearch.outcome == 'failure' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: playwright-report-elasticsearch
+        path: e2e/playwright-report
+        retention-days: 14
+
+    - name: Show the logs on Elasticsearch
+      if: ${{ !cancelled() && (steps.elasticsearch.outcome == 'failure' || steps.e2e-elasticsearch.outcome == 'failure') }}
+      run: docker compose --profile app --profile elasticsearch logs
+
+    - name: Stop the app on Elasticsearch
+      if: always()
+      run: docker compose --profile app --profile elasticsearch down --volumes
+
     # Known vulnerabilities in the image the steps above ran, after the end-to-end tests so a finding
     # doesn't hide whether they pass, and after the stack is down (the image stays) so nothing Trivy
     # runs can reach it. Trivy runs from its own image (.github/trivy/Dockerfile, pinned by digest,

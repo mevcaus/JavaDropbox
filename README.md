@@ -301,7 +301,7 @@ Storing files as blobs ([above](#why-does-the-database-list-what-exists-and-the-
 Sessions are kept in PostgreSQL with Spring Session JDBC rather than in the server's memory, so a restart or a deploy doesn't sign anyone out. The cost is the database on every signed-in request: the session is read, and its last-used time written so that it expires after being idle whichever server handled it. Only signing in starts a session: refused requests and share links don't, so an anonymous visitor writes no row. Each sign-in also deletes the sessions that have expired, so the table stays at about the sessions in use even on the demo, which is suspended whenever it's idle and so can't count on a schedule. There, expired sessions wait for the next sign-in. When an account is disabled, its role changes or its password is reset, its sessions are deleted, found by the username they signed in with, in the same transaction as that change (`AccountSessions`). That leaves someone signing in while the change is made: the password was checked against the account as it was, and the session may not exist yet to be deleted. So the same changes bump a version number on the account, and a sign-in reads it again once its session is stored, refusing the sign-in if it moved. The change writes the version before it deletes, and the sign-in stores its session before it reads, so whichever goes second sees the first. That check runs once per sign-in, so a request doesn't look the account up just to stay signed in.
 
 ### Why a setup filter and a setup code?
-Rather than shipping hardcoded credentials, the app detects first-run state (no users in the database) and redirects every request to a setup page. This is a filter inside Spring Security's chain, ahead of form login, so setup is reachable without authentication. Reachable without authentication also means reachable by whoever finds the server first, so creating the account also needs a one-time code that the server prints to its log (the approach Jupyter takes): whoever installed the server can read it, someone who merely found the address cannot.
+Rather than shipping hardcoded credentials, the app detects first-run state (no users in the database) and redirects every request to a setup page. This is a filter inside Spring Security's chain, ahead of form login, so setup is reachable without authentication. Reachable without authentication also means reachable by whoever finds the server first, so creating the account also needs a one-time code that the server prints to its log (the approach Jupyter takes): whoever installed the server can read it, someone who merely found the address cannot. Several servers share one code, kept in the database until setup is done, so whoever can read the database could take it from there too, but they could add an account outright anyway.
 
 ### Why do previews have their own route?
 Downloads are deliberately unable to render: every one is `Content-Disposition: attachment` with `Content-Security-Policy: sandbox`, and no response may be framed. They also serve the public share route. So rather than a flag that relaxes all of that, `GET /api/files/preview` (and `GET /share/{token}/preview`, for a share link's page) serves only an allowlist of types, each with the narrowest headers that still let the browser show it:
@@ -315,7 +315,7 @@ The list of previewable types lives on the server and reaches the UI through the
 Share links used to be stateless JWTs naming a path. That avoided a table, but a link could not be withdrawn without changing the signing key (killing every link), its path was readable by anyone holding it, it served whatever was at the path when opened, and the key itself had to be stored somewhere. Storing links as rows with a random token fixes all of that at the cost of one indexed lookup per download, and storing only the token's hash means a database leak does not hand out working links.
 
 ### Why Redux Toolkit over React Context?
-What the app reads from the server is moving onto RTK Query, which ships with Redux Toolkit; the dashboard's files and its version and share dialogs already use it, and the other screens follow. Its endpoints are generated from the backend's OpenAPI spec, and it caches each answer, drops one that arrives after a newer request, and refetches when a change invalidates it. Doing that by hand with Context and `useReducer` meant a counter per screen to ignore stale answers, and a refresh dispatched after every change ([#334](https://github.com/mevcaus/JavaDropbox/issues/334)).
+What the app reads from the server goes through RTK Query, which ships with Redux Toolkit. Its endpoints are generated from the backend's OpenAPI spec, and it caches each answer, drops one that arrives after a newer request, and refetches when a change invalidates it. Doing that by hand with Context and `useReducer` meant a counter per screen to ignore stale answers, and a refresh dispatched after every change ([#334](https://github.com/mevcaus/JavaDropbox/issues/334)).
 
 ## Features
 
@@ -344,12 +344,12 @@ What the app reads from the server is moving onto RTK Query, which ships with Re
 **Security**
 - Spring Security form login with sessions kept in PostgreSQL, so restarts don't sign anyone out, BCrypt passwords and cookie-based CSRF protection
 - `ADMIN` and `USER` roles; metrics and account management for admins only
-- Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy
+- Sign-in throttling: five failures from one address lock it out for 15 minutes (`429` with `Retry-After`), using the real client address behind a trusted reverse proxy. The count is kept in PostgreSQL, so several servers share it
 - Path safety, as above; paths are keyed by their on-disk spelling, so case variants on macOS or Windows share one record
 - Optional caps on upload size and share-link lifetime, and a quota per account (versions included)
 
 **Frontend**
-- React 19 single-page app with Redux Toolkit, Tailwind CSS and responsive layout
+- React 19 single-page app in TypeScript, with Redux Toolkit, Tailwind CSS and responsive layout
 - Accessible dialogs (focus trap and restore, Escape to close), keyboard-operable sorting with `aria-sort`, errors announced to screen readers
 
 **Operations**
@@ -365,7 +365,7 @@ What the app reads from the server is moving onto RTK Query, which ships with Re
 | **Database** | PostgreSQL, Flyway migrations |
 | **Storage** | The local filesystem, or S3 and compatible services through the AWS SDK for Java 2 |
 | **Search** | Apache Lucene (embedded), or Elasticsearch through its Java client; Apache PDFBox for the text of PDFs |
-| **Frontend** | React 19, Vite, Redux Toolkit, Axios, Tailwind CSS, Lucide icons |
+| **Frontend** | React 19, TypeScript, Vite, Redux Toolkit with RTK Query, Axios, Tailwind CSS, Lucide icons |
 | **Testing** | JUnit 5, MockMvc, Testcontainers (PostgreSQL, S3Mock), Jimfs; Vitest, Testing Library |
 | **Build and style** | Gradle, JaCoCo, Spotless with google-java-format, ESLint, the TypeScript compiler (`strict`) |
 | **Delivery** | Docker (multi-stage build), Docker Compose, GitHub Actions, Fly.io |
@@ -415,9 +415,9 @@ cd JavaDropbox
 docker compose --profile app up --build
 ```
 
-Then open `http://localhost:8080` and create the first account with the setup code from `docker compose logs app`.
+Then open `http://localhost:8080` and create the first account with the setup code from `docker compose logs app`. Search can also run on Elasticsearch, as a step toward running several app servers ([when to pick it, and how](docs/self-hosting.md#lucene-or-elasticsearch)).
 
-- **[Self-hosting](docs/self-hosting.md):** first-run setup, configuration, reverse proxies, password recovery, health and metrics
+- **[Self-hosting](docs/self-hosting.md):** first-run setup, configuration, files in S3, search on Elasticsearch, reverse proxies, password recovery, health and metrics
 - **[Development](docs/development.md):** running from source with hot reload, project structure, database migrations, code style
 - **[Testing](docs/testing.md):** what each backend, frontend and end-to-end test suite covers
 - **[API reference](docs/api.md):** every endpoint, with Swagger UI available in development
@@ -442,7 +442,7 @@ What a sync client needs from the server comes first, so that each step is usefu
 
 ### Scale and operations
 
-- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared, with the end-to-end tests run against two instances
+- [ ] **More than one instance** behind a load balancer: sessions in PostgreSQL ([#229]), the search index off the local disk ([#222]) and sign-in throttling shared (done, through PostgreSQL), with the end-to-end tests run against two instances
 - [ ] **The database as the list of what exists** ([#228]), with folders listed a page at a time rather than the whole tree in one response
 - [ ] **Each content stored once**, as a blob named by its SHA-256, so identical files and versions take no extra space and replacing, moving or renaming a file copies nothing in the store ([#198])
 - [ ] **Load tests with published numbers** ([#195]): uploads a second, and how long a folder of 10,000 files takes to list, on disk and in S3
@@ -456,7 +456,7 @@ What a sync client needs from the server comes first, so that each step is usefu
 - [ ] **Thumbnails** of images and PDFs, made in the background ([#210])
 - [ ] **Two-factor sign-in** with TOTP, and single sign-on through OpenID Connect ([#207])
 - [ ] **Live updates**: a change made in one tab or device shows up in the others without a refresh ([#205])
-- [ ] **TypeScript** for the frontend ([#206])
+- [x] **TypeScript** for the frontend, with `strict` on ([#206])
 
 [#26]: https://github.com/mevcaus/JavaDropbox/issues/26
 [#30]: https://github.com/mevcaus/JavaDropbox/issues/30

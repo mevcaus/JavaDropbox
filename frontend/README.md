@@ -5,7 +5,7 @@ Boot backend through Vite's dev proxy.
 
 ## Stack
 
-- React 19 + Vite, moving from JavaScript to TypeScript (`strict`)
+- React 19 + Vite, in TypeScript (`strict`)
 - Redux Toolkit (state) and React Router (routing)
 - Tailwind CSS (styling)
 - axios (HTTP)

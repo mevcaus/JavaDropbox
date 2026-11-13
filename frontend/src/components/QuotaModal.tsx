@@ -1,0 +1,95 @@
+import { useId, useRef, useState, type FormEvent } from 'react';
+import { HardDrive, Loader2 } from 'lucide-react';
+import { useSetAccountQuotaMutation, type AccountDto } from '../services/apiSlice';
+import { readableError } from '../utils/errors';
+import { QUOTA_ERROR, formToQuota, quotaToForm } from '../utils/quota';
+import Modal, { ModalActions } from './Modal';
+import QuotaFields from './QuotaFields';
+import { primaryButton, secondaryButton } from './modalStyles';
+
+interface QuotaModalProps {
+    /** The account whose quota to change; nothing is shown without one. */
+    account: AccountDto | null;
+    onClose: () => void;
+    /** Runs with the account once its new quota is stored. */
+    onSaved: (account: AccountDto) => void;
+}
+
+/**
+ * Changes an account's quota. onSaved runs once the server has stored it; the accounts list
+ * refreshes through its cache tag.
+ */
+const QuotaModal = ({ account, onClose, onSaved }: QuotaModalProps) =>
+    account ? <QuotaDialog key={account.id} account={account} onClose={onClose} onSaved={onSaved} /> : null;
+
+const QuotaDialog = ({ account, onClose, onSaved }: QuotaModalProps & { account: AccountDto }) => {
+    const [setAccountQuota] = useSetAccountQuotaMutation();
+    const initial = quotaToForm(account.quotaBytes);
+    const [amount, setAmount] = useState(initial.amount);
+    const [unit, setUnit] = useState<string>(initial.unit);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const amountRef = useRef<HTMLInputElement>(null);
+    const quotaId = useId();
+
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const quota = formToQuota(amount, unit);
+        if (quota === null) {
+            setError(QUOTA_ERROR);
+            return;
+        }
+        setSaving(true);
+        setError(null);
+        try {
+            await setAccountQuota({ id: account.id, body: { quota } }).unwrap();
+            onSaved(account);
+        } catch (err) {
+            setError(readableError(err, 'Could not change the quota.'));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Modal
+            isOpen
+            onClose={() => !saving && onClose()}
+            title={
+                <>
+                    Quota for <span className="font-semibold">{account.username}</span>
+                </>
+            }
+            icon={<HardDrive className="h-6 w-6 text-blue-600" aria-hidden="true" />}
+            iconClassName="bg-blue-100"
+            initialFocusRef={amountRef}
+        >
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+                <QuotaFields
+                    id={quotaId}
+                    inputRef={amountRef}
+                    amount={amount}
+                    unit={unit}
+                    onAmountChange={setAmount}
+                    onUnitChange={setUnit}
+                    disabled={saving}
+                />
+                {error && (
+                    <p role="alert" className="text-sm text-red-600">
+                        {error}
+                    </p>
+                )}
+                <ModalActions>
+                    <button type="submit" className={primaryButton.blue} disabled={saving}>
+                        {saving ? <Loader2 className="animate-spin h-5 w-5" aria-label="Saving" /> : 'Save'}
+                    </button>
+                    <button type="button" className={secondaryButton} onClick={onClose} disabled={saving}>
+                        Cancel
+                    </button>
+                </ModalActions>
+            </form>
+        </Modal>
+    );
+};
+
+export default QuotaModal;

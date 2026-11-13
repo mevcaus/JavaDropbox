@@ -48,6 +48,19 @@ npm run dev
 
 Then open `http://localhost:5173`. While no account exists, the sign-in page offers **Set up the first user**; the setup code is in the backend's log (see [self-hosting.md](self-hosting.md#first-run-setup)). With the `dev` profile, the Swagger UI at `http://localhost:8080/swagger-ui.html` lists and runs every endpoint, and [api.md](api.md) has the same reference in writing.
 
+### With search on Elasticsearch
+
+To work on the Elasticsearch backend, run Elasticsearch with its port on this host, then run the backend against it. `compose.yaml`'s Elasticsearch publishes no port, since its security is off.
+
+```bash
+docker run --rm -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false \
+  -e ES_JAVA_OPTS="-Xms1g -Xmx1g" docker.elastic.co/elasticsearch/elasticsearch:8.18.6
+
+JAVADROPBOX_SEARCH_BACKEND=elasticsearch ./gradlew bootRun
+```
+
+The URL's default, `http://localhost:9200`, is where that puts it. The tests start their own in Testcontainers, so they don't need this. Don't use the `.env` from [self-hosting.md](self-hosting.md#lucene-or-elasticsearch) in a checkout you develop in: `bootRun` starts `compose.yaml` too, and with that `.env` it would start the app's container beside it.
+
 ### With the files in S3
 
 To work on the S3 store, run an S3 server and point the backend at a bucket in it. [S3Mock](https://github.com/adobe/S3Mock), which the tests use, keeps everything in the container, so its bucket is empty again on every start:
@@ -82,43 +95,47 @@ JavaDropbox/
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Modal.jsx           #   Shared dialog shell: Escape, focus trap, focus restore
-│   │   │   ├── CreateFolderModal.jsx
-│   │   │   ├── DeleteConfirmationModal.jsx
-│   │   │   ├── ShareModal.jsx      #   Share-link creation and the active links
-│   │   │   ├── CopyLinkField.jsx   #   A link shown once, with copying that works over plain http
-│   │   │   ├── InviteModal.jsx     #   Admins: invite someone, with a role and a quota
-│   │   │   ├── QuotaModal.jsx      #   Admins: change an account's quota (QuotaFields: amount + unit)
-│   │   │   ├── VersionHistoryModal.jsx  # List and restore previous versions
-│   │   │   ├── PreviewModal.jsx    #   The preview dialog on the dashboard
-│   │   │   ├── FilePreview.jsx     #   Image, PDF and text previews, for the dialog and share pages
-│   │   │   ├── FileIcon.jsx        #   Folder and file-type icons
-│   │   │   ├── FileTable.jsx       #   File listing with search results, sorting, row actions
-│   │   │   ├── Breadcrumbs.jsx     #   Path navigation breadcrumbs
-│   │   │   ├── Navbar.jsx          #   Top bar with user info and logout
-│   │   │   ├── Sidebar.jsx         #   Navigation, and storage used against the quota
-│   │   │   ├── DemoBanner.jsx      #   The live demo's limits and next reset
-│   │   │   └── Logo.jsx, AnimatedLogo.jsx
+│   │   │   ├── Modal.tsx           #   Shared dialog shell: Escape, focus trap, focus restore
+│   │   │   ├── CreateFolderModal.tsx
+│   │   │   ├── DeleteConfirmationModal.tsx
+│   │   │   ├── ShareModal.tsx      #   Share-link creation and the active links
+│   │   │   ├── CopyLinkField.tsx   #   A link shown once, with copying that works over plain http
+│   │   │   ├── InviteModal.tsx     #   Admins: invite someone, with a role and a quota
+│   │   │   ├── QuotaModal.tsx      #   Admins: change an account's quota (QuotaFields: amount + unit)
+│   │   │   ├── VersionHistoryModal.tsx  # List and restore previous versions
+│   │   │   ├── PreviewModal.tsx    #   The preview dialog on the dashboard
+│   │   │   ├── FilePreview.tsx     #   Image, PDF and text previews, for the dialog and share pages
+│   │   │   ├── FileIcon.tsx        #   Folder and file-type icons
+│   │   │   ├── FileTable.tsx       #   File listing with search results, sorting, row actions
+│   │   │   ├── Breadcrumbs.tsx     #   Path navigation breadcrumbs
+│   │   │   ├── Navbar.tsx          #   Top bar with user info and logout
+│   │   │   ├── Sidebar.tsx         #   Navigation, and storage used against the quota
+│   │   │   ├── DemoBanner.tsx      #   The live demo's limits and next reset
+│   │   │   └── Logo.tsx, AnimatedLogo.tsx
+│   │   ├── contexts/ToastContext.tsx # Shows toasts; screens raise them with useToast
 │   │   ├── features/               # Redux slices and helpers
-│   │   │   ├── authSlice.js        #   Login/logout/session thunks + state, the role
-│   │   │   └── files.js            #   The file tree's helpers, and the endpoints linked to
+│   │   │   ├── authSlice.ts        #   Login/logout/session thunks + state, the role
+│   │   │   └── files.ts            #   The file tree's helpers, and the endpoints linked to
 │   │   ├── hooks/                  # useFileSearch (search as you type), useToast, useDemoInfo
-│   │   ├── layouts/MainLayout.jsx  # Auth-guarded layout wrapper
+│   │   ├── layouts/MainLayout.tsx  # Auth-guarded layout wrapper
 │   │   ├── pages/                  # Dashboard, Login, Setup, Admin (accounts), Shared (a share
 │   │   │                           #   link's public page), AccountLink (invitation and reset pages)
-│   │   ├── services/api.js         # Axios instance: CSRF priming, 401 handler hook
+│   │   ├── redux/                  # The store (store.ts), and typed hooks and thunks (withTypes.ts)
+│   │   ├── services/api.ts         # Axios instance: CSRF priming, 401 handler hook
 │   │   ├── services/apiSchema.ts   # API types, generated from openapi.json (npm run api:types)
 │   │   ├── services/generatedApi.ts # RTK Query endpoints, generated too (npm run api:client)
 │   │   ├── services/apiSlice.ts    #   Their cache tags and hooks, and the folder upload the spec can't describe
-│   │   ├── services/baseQuery.ts   #   Sends them through api.js, each body as its endpoint takes it
+│   │   ├── services/baseQuery.ts   #   Sends them through api.ts, each body as its endpoint takes it
 │   │   ├── services/baseApi.ts     #   The empty slice the endpoints are generated into
 │   │   ├── services/requestBodies.ts # How each endpoint takes its body, generated (npm run api:client)
-│   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard
-│   │   ├── App.jsx                 # Route definitions
-│   │   └── main.jsx                # Entry point; registers the 401 handler
+│   │   ├── utils/                  # date, errors (readableError), format (formatSize), quota, clipboard,
+│   │   │                           #   droppedFiles (reading a drop), names, passwords
+│   │   ├── test/                   # Test helpers: focus indicators, posted forms
+│   │   ├── App.tsx                 # Route definitions
+│   │   └── main.tsx                # Entry point; registers the 401 handler
 │   ├── vite.config.js              # Dev proxy to Spring Boot backend
 │   ├── openapi-config.cjs          # What npm run api:client generates (scripts/request-bodies.mjs too)
-│   ├── tsconfig.json               # Strict type check; allowJs while the frontend moves to TypeScript
+│   ├── tsconfig.json               # Strict type check of src, which is all TypeScript
 │   ├── openapi.json                # The API spec, written from the controllers (./gradlew openApiSpec)
 │   └── package.json
 ├── src/main/java/
@@ -128,12 +145,14 @@ JavaDropbox/
 │   │   │   ├── SecurityConfig.java      # Filter chain, CORS, form login, SPA routes
 │   │   │   ├── SetupFilter.java         # First-run redirect filter
 │   │   │   ├── SessionConfig.java       # Sessions in PostgreSQL: unreadable ones sign out, not fail
-│   │   │   ├── LoginAttemptLimiter.java # Failed sign-in counting per address
+│   │   │   ├── LoginAttemptLimiter.java # Failed sign-ins and setup codes per address, in the database
 │   │   │   ├── LoginThrottleFilter.java # 429 for locked-out addresses
+│   │   │   ├── EscapedValuesConverter.java # Escapes line breaks in logged values (logback-spring.xml)
 │   │   │   ├── SpaFallbackFilter.java   # App shell for pages the server has no route for
 │   │   │   ├── StartupBanner.java       # Logs the bound port and where files are stored
 │   │   │   ├── StorageConfig.java       # The file store: the serving directory, or an S3 bucket
 │   │   │   ├── SearchConfig.java        # Which search index: Lucene inside the app, or Elasticsearch
+│   │   │   ├── SearchHealthIndicator.java # search in /actuator/health: DEGRADED, never DOWN
 │   │   │   ├── UploadSpoolConfig.java   # Uploads arrive in .javadropbox/uploads, not java.io.tmpdir
 │   │   │   ├── DemoResetFilter.java     # Live demo: runs the daily reset when it falls due
 │   │   │   ├── RetiredShareKey.java     # Refuses the old share-link secret, deletes the old key file
@@ -153,7 +172,7 @@ JavaDropbox/
 │   │   │   ├── DownloadResponses.java   # File/zip/preview responses, Content-Disposition, CSP
 │   │   │   └── ApiExceptionHandler.java # Exceptions -> {"message"} with the right status
 │   │   ├── dto/                    # FileTreeNode, FileVersionDto, FileHistoryDto, HistoryPage, Download, Preview, ShareLinkDto, SharedItemDto, SearchResults, SearchResult, Snippet, AccountDto, InviteDto, AccountLinkInfo, ImportResult
-│   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409)
+│   │   ├── exception/              # BadRequest (400), Forbidden (403), NotFound (404), Conflict (409), ServiceUnavailable (503)
 │   │   ├── model/                  # JPA entities: User, FileMetadata, FileVersion, FileHistory, ShareLink, AccountLink; PreviewType
 │   │   ├── repository/             # Spring Data repositories
 │   │   └── service/
@@ -187,6 +206,7 @@ JavaDropbox/
 │   │       ├── BlobStore.java           # Each distinct content kept once, under its SHA-256 in .blobs/
 │   │       ├── FileRows.java            # Rows for items already stored, counted as they are added
 │   │       ├── DemoService.java         # Live demo: shared account, daily reset, sample files
+│   │       ├── DatabaseLocks.java       # Advisory locks in PostgreSQL, for work one server does at a time
 │   │       ├── Credentials.java, Roles.java, Tokens.java  # Username and password rules, role names, link tokens
 │   │       └── AuthService.java         # Current user, setup state
 │   └── db/migration/
@@ -195,11 +215,12 @@ JavaDropbox/
 │   ├── db/migration/               # Flyway SQL migrations (V1 to V9)
 │   ├── demo/                       # The live demo's sample files
 │   ├── application.properties      # Production defaults
+│   ├── logback-spring.xml          # Spring Boot's console logging, logged values escaped
 │   ├── application-dev.properties  # Local development (bootRun)
 │   └── application-demo.properties # The live demo: shared account, small limits
 ├── src/test/                       # See testing.md
 ├── build.gradle                    # Dependencies, Spring Boot plugin, Spotless, JaCoCo, -PbundleFrontend
-├── compose.yaml                    # PostgreSQL, plus the app itself behind the "app" profile
+├── compose.yaml                    # PostgreSQL, the app behind the "app" profile, Elasticsearch behind "elasticsearch"
 ├── Dockerfile                      # Multi-stage: frontend bundle -> Gradle build -> JRE runtime
 ├── fly.toml                        # The live demo on Fly.io
 ├── package.json                    # Root: `concurrently` wrapper used by start.sh
@@ -225,7 +246,7 @@ A migration that disables accounts, changes their role or their password also ha
 
 **Existing installs.** Databases created before Flyway was introduced were built by Hibernate's `ddl-auto=update` and have no migration history. `spring.flyway.baseline-on-migrate=true` stamps them as version 1 instead of re-running the baseline, and `V1__baseline.sql` reproduces that Hibernate-generated schema exactly, constraint names included, so old and new databases converge on the same schema.
 
-**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`). `V7` gives each account its own files: everything stored so far goes to the first account (made an admin), paths become unique per account, `users` gains `enabled`, `quota_bytes` and `session_version`, and `account_links` holds invitations and password resets. `V8` drops `file_metadata.last_accessed`, which downloads and previews wrote and nothing read. `V9` adds Spring Session's tables (`spring_session`, `spring_session_attributes`), so sessions survive a restart; `spring.session.jdbc.initialize-schema=never` keeps Spring Session from creating them itself. `V10` adds `one_time_steps`, where the app records work it must do only once, such as giving an upgraded install's files to the first account. `V11` gives a row to every folder that had none, which uploads made on the way before folders got rows of their own, so the file tree, which lists rows, still shows them. `V12` adds `users.used_bytes`, the running total of what each account stores, started from its rows and their versions. `V13` adds `content_hash` to files and versions: the SHA-256 of what an upload stored, computed as it is written, carried to the version when the file is replaced and back when a version is restored, only while the stored content still has its size and hasn't been modified since; null where the app never read the content as it stored it. A hash on content that isn't a blob yet is a hint: content changed outside the app, or by a release from before V13 run against the same database, doesn't match it, so it is checked before anything is keyed by it. `V14` adds `blobs`: one row per distinct content, its size and how many files and versions point at it, which nothing does yet.
+**What's there.** `V1` is the baseline. `V2` adds the constraints the app relies on (one metadata row per path, one account per username, cascading deletes for versions, history that outlives its file), cleaning up any duplicates the pre-V2 code could have created first. `V3` stores timestamps as `timestamptz`. `V4` allows one row per version number of a file, dropping duplicates left by concurrent replaces first. `V5` indexes `file_history.file_id`, so deleting files doesn't scan the whole history. `V6` stores share links on the server (`share_links`). `V7` gives each account its own files: everything stored so far goes to the first account (made an admin), paths become unique per account, `users` gains `enabled`, `quota_bytes` and `session_version`, and `account_links` holds invitations and password resets. `V8` drops `file_metadata.last_accessed`, which downloads and previews wrote and nothing read. `V9` adds Spring Session's tables (`spring_session`, `spring_session_attributes`), so sessions survive a restart; `spring.session.jdbc.initialize-schema=never` keeps Spring Session from creating them itself. `V10` adds `one_time_steps`, where the app records work it must do only once, such as giving an upgraded install's files to the first account. `V11` gives a row to every folder that had none, which uploads made on the way before folders got rows of their own, so the file tree, which lists rows, still shows them. `V12` adds `users.used_bytes`, the running total of what each account stores, started from its rows and their versions. `V13` adds `content_hash` to files and versions: the SHA-256 of what an upload stored, computed as it is written, carried to the version when the file is replaced and back when a version is restored, only while the stored content still has its size and hasn't been modified since; null where the app never read the content as it stored it. A hash on content that isn't a blob yet is a hint: content changed outside the app, or by a release from before V13 run against the same database, doesn't match it, so it is checked before anything is keyed by it. `V14` adds `blobs`: one row per distinct content, its size and how many files and versions point at it, which nothing does yet. `V15` adds `login_attempts`, the failed sign-ins and setup codes per address, kept in the database so that every server shares the count. `V16` adds `setup_code`, the generated setup code, kept until the first account exists so that every server prints and takes the same one. `V17` adds `demo_reset`, when the public demo's files were last reset, which was a file's modification time on one server's disk before.
 
 **Tests.** Every test runs on the schema the migrations build. Each Spring context gets an empty database of its own in one Testcontainers PostgreSQL shared by the whole run, which Flyway migrates and Hibernate validates with the production settings unchanged (`TestDatabaseEnvironment`): the tests read `application.properties` as it is, and `src/test/resources/config/application.properties` only adds what they change. The migration tests take a database of their own in the same container, to begin from an older schema, through `PostgresTestSupport`.
 
@@ -253,13 +274,15 @@ Every Java file under `src/` is checked. The codebase was reformatted in one com
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-ESLint checks every frontend file, JavaScript and TypeScript, with the same hooks rules. The TypeScript compiler, with `strict` on, checks the TypeScript files. CI runs both:
+ESLint checks the app with typescript-eslint's rules and the React hooks rules, and the build's config files and scripts with its core rules. The TypeScript compiler, with `strict` on, checks the app, unreachable code included. CI runs both:
 
 ```bash
 cd frontend && npm run lint && npm run typecheck
 ```
 
-The frontend is moving from JavaScript to TypeScript a part at a time ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)). Until that's done, `allowJs` lets TypeScript files import the JavaScript ones. Those aren't type-checked themselves, but TypeScript infers types from them, and those types count. A component's destructured props without a default become required, for example, so a `.tsx` page that leaves one out fails until that component is converted and says which props are optional. Converting the files that others import first, components before the pages that use them, avoids that. Once a file has been converted, keep it TypeScript.
+The frontend is TypeScript, with `strict` on and `allowJs` off ([#206](https://github.com/mevcaus/JavaDropbox/issues/206)), so a JavaScript file in `src` can't be imported. Only the build's config files and scripts are JavaScript, and ESLint checks them with its core rules. Data whose shape isn't certain, such as what was thrown or a body the server sent, is read through a guard (`fieldsOf`, `statusOf` and `readableError` in `utils/errors.ts`) rather than cast; the types of what the API sends come from the generated spec, re-exported by `services/apiSlice.ts`. In tests, mock `services/api` with `vi.mocked`, and read a posted body through `test/forms.ts`, which checks it's a form or a multipart body before it's read.
+
+In TypeScript, read the store with `useAppSelector` and `useAppDispatch` from `redux/withTypes.ts` rather than react-redux's own hooks, and make a thunk with `createAppAsyncThunk`, so the store's state, its dispatch and a thunk's rejection message (a readable string) are typed without spelling them out. `redux/store.ts` exports `RootState`, `AppDispatch` and `AppStore`. A thunk is typed with the whole app's state, so a test dispatches it on a store from `makeStore()`, not one made with only its own slice.
 
 TypeScript stays on 5.x for now (`~5.9.3`, and Dependabot skips its majors). `openapi-typescript` takes only 5.x, `typescript-eslint` nothing past 6.0, and TypeScript 7, the native compiler, has no JavaScript API for either.
 
@@ -282,7 +305,7 @@ Do the same when updating springdoc, `openapi-typescript` or `@rtk-query/codegen
 
 `./gradlew build` fails while `openapi.json` doesn't match the controllers (`OpenApiSpecTests`), and the frontend CI fails while the generated files don't match `openapi.json`.
 
-**Loading data.** Read and change server data through the RTK Query hooks `apiSlice.ts` exports, not by calling `api.js` yourself ([#334](https://github.com/mevcaus/JavaDropbox/issues/334) moves the rest of the screens over). `@rtk-query/codegen-openapi` generates the endpoints into `generatedApi.ts`, named after the operation ids. `apiSlice.ts` adds their cache tags, and requests the spec can't describe, such as uploading a folder one subfolder at a time. A change invalidates the tag of what it changed, which refetches it, failed changes included, since a failure can leave part of the change stored. `baseQuery.ts` sends every request through the axios client in `api.js`, so it keeps its CSRF priming and its sign-out on a 401. It encodes each body as a form or multipart, as `requestBodies.ts`, generated from the spec, says the endpoint takes it. The five GETs that serve a file are left out of the generated endpoints, because the app links to them rather than loading them. Lint refuses an import of `generatedApi` outside `services/`, since its endpoints have no tags; re-export from `apiSlice.ts` any generated type a screen needs. A change that fails with an error from the server refetches what it tagged, but one that fails on a bug in the app (a thrown exception, which RTK logs) refetches nothing. The store (`redux/store.js`, `makeStore()` for tests) drops everything cached when a session ends or starts. The dashboard lists the files again each time it opens, and the version and share dialogs their lists, so a change made elsewhere shows up. Besides `Files`, the tags are `Versions`, by file id, and `ShareLinks`, by item path: an upload (a folder upload too) refreshes versions, a delete versions and links, a restore the tree and that file's versions, a new link its item's links, and a revoke every item's, since a link's id doesn't say whose item it is. A revoke also drops the link from the cached lists at once (`onQueryStarted` with `updateQueryData`), but a listing already in flight can bring it back until the next one answers, so the share dialog offers no Revoke while its list loads. Read `currentData` rather than `data` where a screen switches between items, so it never shows the last item's answer while the next one's loads.
+**Loading data.** Read and change server data through the RTK Query hooks `apiSlice.ts` exports, not by calling `api.ts` yourself. Two things still do, on purpose: `FilePreview`'s text preview, which reads a file's contents like a download, and file contents don't belong in the cache; and `authSlice`'s sign-in and sign-out, which Spring Security answers, so they aren't in the spec. `@rtk-query/codegen-openapi` generates the endpoints into `generatedApi.ts`, named after the operation ids. `apiSlice.ts` adds their cache tags, and requests the spec can't describe, such as uploading a folder one subfolder at a time. A change invalidates the tag of what it changed, which refetches it, failed changes included, since a failure can leave part of the change stored. `baseQuery.ts` sends every request through the axios client in `api.ts`, so it keeps its CSRF priming and its sign-out on a 401. It encodes each body as a form or multipart, as `requestBodies.ts`, generated from the spec, says the endpoint takes it. The five GETs that serve a file are left out of the generated endpoints, because the app links to them rather than loading them. Lint refuses an import of `generatedApi` outside `services/`, since its endpoints have no tags; re-export from `apiSlice.ts` any generated type a screen needs. A change that fails with an error from the server refetches what it tagged, but one that fails on a bug in the app (a thrown exception, which RTK logs) refetches nothing. The store (`redux/store.ts`, `makeStore()` for tests) drops everything cached when a session ends or starts. The dashboard lists the files again each time it opens, and the version and share dialogs their lists, so a change made elsewhere shows up. Besides `Files`, the tags are `Versions`, by file id, and `ShareLinks`, by item path: an upload (a folder upload too) refreshes versions, a delete versions and links, a restore the tree and that file's versions, a new link its item's links, and a revoke every item's, since a link's id doesn't say whose item it is. A revoke also drops the link from the cached lists at once (`onQueryStarted` with `updateQueryData`), but a listing already in flight can bring it back until the next one answers, so the share dialog offers no Revoke while its list loads. The admin page's lists have `Accounts` and `Invites`: a role, quota or enabled change refreshes the accounts, disabling an account the invitations too, an import the accounts and files, and making or withdrawing an invitation, failed or not, the invitations. RTK holds a change's refetch back while another request is in flight, so the admin page's buttons wait while either of its lists is loading. `Storage` is the signed-in account's storage use. Each listing of the file tree asks for it again, so the meter follows the files whatever changed them (a change here, another tab, the demo's daily reset); an import or a quota change, made on the admin page where no tree is listed, asks for it directly. A search's answers carry `Files`, so a change asks again once (after any search already on its way has answered); a search also asks again whenever it starts, even for words searched before, and each search is a cache entry of its own, so an older answer never shows as the current one's. A change that finishes while no file list is on screen (an upload still going when you open the admin page) refreshes the meter the next time the files are listed. The demo's limits are kept until the session changes, since signing in or out drops the cache; an ordinary install's 404 counts as no demo rather than a failure to retry, while any other failure is asked again. A token from the address bar is passed to an endpoint encoded (`encodeURIComponent`), since the generated endpoints put it into the URL as it is. Read `currentData` rather than `data` where a screen switches between items, so it never shows the last item's answer while the next one's loads.
 
 **Null in responses.** Jackson writes every field of a response, nulls included, so every field is required in the spec. Whether a field can be null comes from JSpecify's annotations, which `ResponseFieldsConverter` puts in the spec:
 
