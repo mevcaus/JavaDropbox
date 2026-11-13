@@ -226,7 +226,7 @@ Nothing is downloaded until the visitor asks: a browser opening the link gets a 
 
 ### Searching
 
-The stored files stay the source of truth: the index only mirrors them, so it can be deleted at any time and is rebuilt from what is stored. One background thread does all the writing, so an upload never waits for a PDF to be read.
+The database's rows stay the source of truth: the index only mirrors what the file list shows, so it can be deleted at any time and is rebuilt from the rows, reading each file's text from the store. One background thread does all the writing, so an upload never waits for a PDF to be read.
 
 ```mermaid
 sequenceDiagram
@@ -238,24 +238,25 @@ sequenceDiagram
     B->>F: upload, delete, create a folder or restore
     F->>F: commit the change
     F-)I: changed(path), once the transaction has finished
-    I->>D: read the item and everything below it again
+    I->>I: list the item and everything below it from its rows again
+    I->>D: read each file's text
     I->>I: index each name and the text of text files, PDFs and .docx
-    Note over I,D: at startup and every 10 minutes, compare each file's<br/>size and modification time with the index, for changes made outside the app
+    Note over I,D: at startup and every 10 minutes, compare each row's<br/>size and time with the index, for changes another server made
     B->>I: GET /api/search?q=quarterly budget&path=Reports
     I-->>B: matches below Reports, best first, each with the passage that matched
 ```
 
-Every word has to appear in the item's name or in its text. Case and accents don't matter (`cafe` finds `Café`), and the last word also matches the start of a longer one, so results come up while it is still being typed. A match in the name ranks an item ahead of anything matched by its text alone, and the words appearing together rank a file ahead of the same words scattered through it. Each result is checked against the store before it is returned, so a file deleted behind the app's back is never offered, and the index is told to drop it.
+Every word has to appear in the item's name or in its text. Case and accents don't matter (`cafe` finds `Café`), and the last word also matches the start of a longer one, so results come up while it is still being typed. A match in the name ranks an item ahead of anything matched by its text alone, and the words appearing together rank a file ahead of the same words scattered through it. Each result is checked against its row before it is returned, so an item deleted since it was indexed is never offered, and the index is told to drop it.
 
 ## Design decisions
 
 ### Why does the database list what exists, and the store hold blobs?
 File contents go on the **filesystem** or in **S3**, not into PostgreSQL, where large objects would swell the database and its backups. Everything else lives in PostgreSQL: accounts, metadata, versions, history and share links. The two are moving to separate jobs, in steps that are still being built ([#228], [#198]):
 
-- **The database is the list of what exists.** Every file, folder and version has a row. The file tree and the storage an account uses come from rows, not from walking the store ([#258], [#259]), and search will too ([#260]).
+- **The database is the list of what exists.** Every file, folder and version has a row. The file tree, the storage an account uses, folder zips and search all come from rows, not from walking the store ([#258], [#259], [#394]).
 - **The store will only hold bytes**, each distinct content once, as a blob named by its SHA-256. A file or a version becomes a row that points at a blob, and a blob is removed once nothing points at it ([#316], [#317], [#318]).
 
-Until those land, files are stored at their paths in `.users/<id>/`, and search walks the store, as the rest of this README describes.
+Until those land, files are stored at their paths in `.users/<id>/`, as the rest of this README describes.
 
 The other option was to keep each account's files laid out as folders in the store and use blobs for versions only ([#340]). Blobs for everything won:
 
@@ -264,7 +265,7 @@ The other option was to keep each account's files laid out as folders in the sto
 - **Identical content is stored once**, whether it is two uploads of the same file, an unchanged re-upload or a restored version.
 - **Client paths stop reaching the store** on every request, so the symlink checks only guard the import.
 
-What self-hosters lose is a store that looks like their files. The serving directory or bucket will hold blobs named by hash, so browsing it with ordinary tools shows nothing useful. Each account keeps a folder there only as a drop folder: files copied into it by hand no longer show up by themselves, but come in when an admin runs an import job, which stores them as blobs ([#256]). A backup has to take the database and the store together, with the app stopped, so that they agree. That import job also runs once after an upgrade, taking in the files of an install from before accounts had folders of their own ([#257]), and search catches up against the database instead of walking the store every ten minutes ([#260]).
+What self-hosters lose is a store that looks like their files. The serving directory or bucket will hold blobs named by hash, so browsing it with ordinary tools shows nothing useful. Each account keeps a folder there only as a drop folder: files copied into it by hand no longer show up by themselves, but come in when an admin runs an import job, which stores them as blobs ([#256]). A backup has to take the database and the store together, with the app stopped, so that they agree. That import job also runs once after an upgrade, taking in the files of an install from before accounts had folders of their own ([#257]), and search lists what to index from the database instead of walking the store ([#394]); [#260] then drops the ten-minute reconcile it still does.
 
 Blobs are shared between accounts, so nothing may reveal that content exists outside the account asking. What a request can reach is decided by the rows it owns, never by a hash. Each account's storage counts the full size of every file and version it holds, however many accounts hold the same content ([#259]). And the server never tells an account that it already has some content unless that account holds it itself.
 
@@ -283,7 +284,7 @@ The local store keeps everything the disk gives: atomic renames, case-insensitiv
 ### Why an embedded Lucene index rather than Elasticsearch?
 Elasticsearch is Lucene with a cluster around it. Its indexing, BM25 relevance, analyzers and highlighter are Lucene's; what it adds is distribution, with shards and replicas behind a network API that many app servers can share. JavaDropbox runs as one server over one owner's files, which a single Lucene index handles with room to spare. So it uses the engine without the cluster: the same relevance, no network hop between a change and the index, and no second service to deploy, secure, upgrade and back up. That also keeps the app in one container, and the live demo within its 512 MB machine, where Elasticsearch alone would want a gigabyte or more.
 
-Elasticsearch becomes the better choice once the app runs as several servers behind a load balancer: an embedded index belongs to one server, and Lucene over a network filesystem is unreliable. So there's a second implementation of the `SearchIndex` interface, picked with `javadropbox.search.backend=elasticsearch` ([#222](https://github.com/mevcaus/JavaDropbox/issues/222)). It finds and shows what the Lucene one does. Its index has the same fields analysed the same way, its query is Lucene's clause for clause, and its snippets are cut from each hit's stored text by Lucene's own highlighter. What is indexed, and keeping it up with the store, is shared between the two (`IndexableItems`, `BackgroundSearchIndex`), so the walk that keeps accounts apart exists once.
+Elasticsearch becomes the better choice once the app runs as several servers behind a load balancer: an embedded index belongs to one server, and Lucene over a network filesystem is unreliable. So there's a second implementation of the `SearchIndex` interface, picked with `javadropbox.search.backend=elasticsearch` ([#222](https://github.com/mevcaus/JavaDropbox/issues/222)). It finds and shows what the Lucene one does. Its index has the same fields analysed the same way, its query is Lucene's clause for clause, and its snippets are cut from each hit's stored text by Lucene's own highlighter. What is indexed, and keeping it up with the store, is shared between the two (`IndexableItems`, `BackgroundSearchIndex`), so the listing that keeps accounts apart exists once.
 
 PostgreSQL's full-text search was the other candidate, but it would put the text of every file into the database.
 
@@ -483,6 +484,7 @@ What a sync client needs from the server comes first, so that each step is usefu
 [#258]: https://github.com/mevcaus/JavaDropbox/issues/258
 [#259]: https://github.com/mevcaus/JavaDropbox/issues/259
 [#260]: https://github.com/mevcaus/JavaDropbox/issues/260
+[#394]: https://github.com/mevcaus/JavaDropbox/issues/394
 [#316]: https://github.com/mevcaus/JavaDropbox/issues/316
 [#317]: https://github.com/mevcaus/JavaDropbox/issues/317
 [#318]: https://github.com/mevcaus/JavaDropbox/issues/318

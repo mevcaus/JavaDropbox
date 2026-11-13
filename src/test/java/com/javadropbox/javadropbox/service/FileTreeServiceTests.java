@@ -12,6 +12,7 @@ import com.javadropbox.javadropbox.model.FileMetadata;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.ListedRow;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -85,6 +86,26 @@ class FileTreeServiceTests {
     assertThat(old.getLastModified()).isEqualTo(MAR);
     assertThat(old.getChildren().get(0).getRelativePath()).isEqualTo("Old/Deep");
     assertThat(old.getChildren().get(0).getChildren().get(0).getName()).isEqualTo("x.txt");
+  }
+
+  @Test
+  @DisplayName("a file row with rows further below it is one folder, as zips and search list it")
+  void fileRowWithRowsBelowIsOneFolder() {
+    // No row for f/g: f has rows below it, but none directly in it.
+    List<ListedRow> listed =
+        List.of(new ListedRow("f", false, 9L, JAN), new ListedRow("f/g/h.txt", false, 3L, MAR));
+    when(files.findAllOf(7L)).thenReturn(List.of(file("f", 9, JAN), file("f/g/h.txt", 3, MAR)));
+
+    List<FileTreeNode> nodes = tree.tree(ada);
+
+    assertThat(nodes).singleElement().satisfies(f -> assertThat(f.getIsDirectory()).isTrue());
+    assertThat(nodes.get(0).getChildren().get(0).getRelativePath()).isEqualTo("f/g");
+    assertThat(ListedItems.below("", listed))
+        .extracting(ListedItems.Item::path, ListedItems.Item::folder)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("f", true),
+            org.assertj.core.groups.Tuple.tuple("f/g", true),
+            org.assertj.core.groups.Tuple.tuple("f/g/h.txt", false));
   }
 
   @Test

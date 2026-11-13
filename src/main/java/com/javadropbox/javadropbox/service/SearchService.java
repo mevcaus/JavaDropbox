@@ -6,13 +6,16 @@ import com.javadropbox.javadropbox.exception.BadRequestException;
 import com.javadropbox.javadropbox.exception.NotFoundException;
 import com.javadropbox.javadropbox.model.PreviewType;
 import com.javadropbox.javadropbox.model.User;
-import com.javadropbox.javadropbox.service.FileStore.Entry;
+import com.javadropbox.javadropbox.repository.FileMetadataRepository;
+import com.javadropbox.javadropbox.repository.ListedRow;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
-import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 /**
@@ -26,14 +29,17 @@ public class SearchService {
   public static final int MAX_RESULTS = 200;
 
   private final StoragePaths storagePaths;
-  private final FileStore store;
+  private final FileMetadataRepository files;
   private final SearchIndex index;
   private final AuthService authService;
 
   public SearchService(
-      StoragePaths storagePaths, FileStore store, SearchIndex index, AuthService authService) {
+      StoragePaths storagePaths,
+      FileMetadataRepository files,
+      SearchIndex index,
+      AuthService authService) {
     this.storagePaths = storagePaths;
-    this.store = store;
+    this.files = files;
     this.index = index;
     this.authService = authService;
   }
@@ -61,14 +67,15 @@ public class SearchService {
     User user = authService.requireCurrentUser();
     Home home = storagePaths.home(user);
     StoragePath folder = home.resolve(folderPath);
-    if (!store.stat(folder.storeKey()).map(Entry::isDirectory).orElse(false)) {
+    if (!isFolder(folder)) {
       throw new NotFoundException("Folder not found: " + folder.key());
     }
 
     SearchIndex.Hits hits = index.search(home, folder.key(), text, limit);
+    Map<String, ListedRow> rows = rowsOf(home, hits.hits());
     List<SearchResult> results = new ArrayList<>(hits.hits().size());
     for (SearchIndex.Hit hit : hits.hits()) {
-      SearchResult result = result(home, hit);
+      SearchResult result = result(home, hit, rows.get(hit.path()));
       if (result != null) {
         results.add(result);
       }
@@ -76,25 +83,55 @@ public class SearchService {
     return new SearchResults(results, hits.total(), !hits.complete());
   }
 
-  // The hit as it is stored now. One that has gone since it was indexed, or can now only be
-  // reached through a symlink, is left out, and the index told to drop it.
-  private SearchResult result(Home home, SearchIndex.Hit hit) {
+  // A folder as the file list shows it: the root, a row that is one, or one that rows are below.
+  private boolean isFolder(StoragePath folder) {
+    if (folder.isRoot()) {
+      return true;
+    }
+    long owner = folder.home().userId();
+    return files
+            .findByPath(owner, folder.key())
+            .map(row -> Boolean.TRUE.equals(row.getIsDirectory()))
+            .orElse(false)
+        || files.existsBelow(owner, FileMetadataRepository.below(folder.key()));
+  }
+
+  // The rows of the hits, in one query, by path.
+  private Map<String, ListedRow> rowsOf(Home home, List<SearchIndex.Hit> hits) {
+    if (hits.isEmpty()) {
+      return Map.of();
+    }
+    List<String> paths = hits.stream().map(SearchIndex.Hit::path).distinct().toList();
+    return files.listAt(home.userId(), paths).stream()
+        .collect(Collectors.toMap(ListedRow::path, Function.identity()));
+  }
+
+  // The hit as the file list shows it now, from its row. One that has gone since it was indexed,
+  // or that the file list would not show, is left out, and the index told to look at it again.
+  private SearchResult result(Home home, SearchIndex.Hit hit, ListedRow row) {
     StoragePath item;
-    Entry entry;
     try {
       item = home.resolveItem(hit.path());
-      entry = store.stat(item.storeKey()).orElseThrow(() -> new NoSuchFileException(hit.path()));
-    } catch (BadRequestException | IOException e) {
+    } catch (BadRequestException e) {
       index.changed(home, hit.path());
       return null;
     }
-    boolean isDirectory = entry.isDirectory();
+    boolean listed = ListedItems.isListable(item.key());
+    if (listed && row == null) {
+      // A folder with no row of its own is still listed while rows are below it.
+      listed = files.existsBelow(home.userId(), FileMetadataRepository.below(item.key()));
+    }
+    if (!listed) {
+      index.changed(home, hit.path());
+      return null;
+    }
+    boolean isDirectory = row == null || Boolean.TRUE.equals(row.isDirectory());
     return new SearchResult(
         item.name(),
         item.key(),
         isDirectory,
-        isDirectory ? null : entry.size(),
-        entry.modified(),
+        isDirectory ? null : (row.size() == null ? 0L : row.size()),
+        row == null ? null : row.updatedAt(),
         isDirectory ? null : PreviewType.of(item.name()).orElse(null),
         hit.snippet());
   }

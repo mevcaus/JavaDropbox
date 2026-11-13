@@ -246,6 +246,8 @@ public class ImportService {
                   }));
       if (removed) {
         gone.add(candidate);
+        // Indexed once its batch committed; search lists rows, so it goes from the index too.
+        searchIndex.changed(home, candidate.item().key());
       }
     }
     return gone;

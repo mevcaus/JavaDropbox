@@ -26,9 +26,9 @@ import java.util.Optional;
  * BackgroundSearchIndex does this, and schedules the reconciles, for every implementation.
  *
  * <p>Items are keyed by their account and their path in its folder, and an implementation must only
- * ever index what is inside an account's folder: not the accounts' folders themselves, not files
- * beside them, not the app's own folder, hidden names or anything behind a symbolic link.
- * IndexableItems walks the store that way for every implementation. Each implementation is checked
+ * ever index what the file list shows in an account's folder: not the accounts' folders themselves,
+ * nor hidden names. IndexableItems lists items that way, from the accounts' rows, for every
+ * implementation, and reads each file's text through FileContents. Each implementation is checked
  * by the tests in SearchIndexContractTests, and by SearchIntegrationTests run against it, which
  * cover what is hidden and what a search returns.
  */
@@ -41,8 +41,8 @@ public interface SearchIndex {
   record Hit(String path, Snippet snippet) {}
 
   /**
-   * The best hits, how many items matched in all, and whether the index had caught up with the
-   * store since the server started.
+   * The best hits, how many items matched in all, and whether the index had caught up with the file
+   * list since the server started.
    */
   record Hits(List<Hit> hits, long total, boolean complete) {}
 
@@ -52,10 +52,10 @@ public interface SearchIndex {
   }
 
   /**
-   * Reads the item at {@code key} in an account's folder, and everything below it, from the store
-   * again: what is there now is indexed afresh and what is gone is dropped. Called inside a
-   * transaction, this waits for the transaction to finish, whichever way it does: a rollback puts
-   * the store back, and the index then matches that.
+   * Lists the item at {@code key} in an account's folder, and everything below it, again: what is
+   * there now is indexed afresh and what is gone is dropped. Called inside a transaction, this
+   * waits for the transaction to finish, whichever way it does: a rollback puts the store back, and
+   * the index then matches that.
    *
    * <p>{@code key} may no longer resolve to anything: SearchService reports hits it could not
    * resolve, which may be gone or behind a symbolic link by now. Whatever the index has under it is
@@ -67,8 +67,8 @@ public interface SearchIndex {
   void changedEverywhere();
 
   /**
-   * Brings the whole index in step with the store, reading again only the files that changed since
-   * they were indexed.
+   * Brings the whole index in step with the file list, reading again only the files that changed
+   * since they were indexed.
    */
   void reconcile();
 

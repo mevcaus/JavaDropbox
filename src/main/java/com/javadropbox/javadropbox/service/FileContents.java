@@ -4,6 +4,7 @@ import com.javadropbox.javadropbox.model.FileVersion;
 import com.javadropbox.javadropbox.service.FileStore.Entry;
 import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Optional;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -11,13 +12,13 @@ import org.springframework.stereotype.Component;
 /**
  * Where a file's or a version's content is in the {@link FileStore}: the one place readers ask, so
  * that reading it doesn't depend on how it is kept. Download, preview, share links and restores
- * read through here. Today a file's content is at its path in its account's folder and a version's
- * under {@code .versions/}; once files are blobs (#316), {@link #of} looks up the item's row (by
- * the account its path is in) and returns the blob it points at, and {@link #ofVersion} does the
- * same with the version's row. Folders stay at their paths.
+ * read through here, and so do folder zips and search, each file in turn. Today a file's content is
+ * at its path in its account's folder and a version's under {@code .versions/}; once files are
+ * blobs (#316), {@link #of} looks up the item's row (by the account its path is in) and returns the
+ * blob it points at, and {@link #ofVersion} does the same with the version's row. Folders stay at
+ * their paths.
  *
- * <p>Not yet here: checks made before a write (whether something is at a path), and search's text
- * and hits, which #394 moves onto rows.
+ * <p>Not yet here: checks made before a write (whether something is at a path).
  */
 @Component
 public class FileContents {
@@ -39,6 +40,24 @@ public class FileContents {
   /** A version's stored copy, or empty if it isn't there. */
   public Optional<Entry> ofVersion(FileVersion version) throws IOException {
     return store.stat(versionKey(version.getStoredFilename()));
+  }
+
+  /**
+   * Content found here, to read; see {@link FileStore#open}.
+   *
+   * @param content as {@link #of} or {@link #ofVersion} found it
+   */
+  public InputStream open(Entry content) throws IOException {
+    return store.open(content.key());
+  }
+
+  /**
+   * Content found here, read as a local file; see {@link FileStore#readLocally}.
+   *
+   * @param content as {@link #of} or {@link #ofVersion} found it
+   */
+  public <T> T readLocally(Entry content, FileStore.LocalReader<T> reader) throws IOException {
+    return store.readLocally(content.key(), reader);
   }
 
   /**

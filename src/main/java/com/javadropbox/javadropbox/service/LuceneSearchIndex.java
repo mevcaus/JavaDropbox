@@ -2,7 +2,7 @@ package com.javadropbox.javadropbox.service;
 
 import com.javadropbox.javadropbox.config.SearchConfig;
 import com.javadropbox.javadropbox.dto.Snippet;
-import com.javadropbox.javadropbox.service.FileStore.Entry;
+import com.javadropbox.javadropbox.service.IndexableItems.Item;
 import com.javadropbox.javadropbox.service.IndexableItems.Stamp;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
@@ -378,7 +378,7 @@ public class LuceneSearchIndex extends BackgroundSearchIndex {
         });
   }
 
-  private Document document(String key, Entry entry) {
+  private Document document(String key, Item entry) {
     String name = entry.name();
     Document document = new Document();
     document.add(new StringField(PATH, key, Field.Store.YES));

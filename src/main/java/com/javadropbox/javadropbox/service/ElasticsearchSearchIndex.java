@@ -24,7 +24,7 @@ import co.elastic.clients.util.ObjectBuilder;
 import com.javadropbox.javadropbox.config.SearchConfig;
 import com.javadropbox.javadropbox.dto.Snippet;
 import com.javadropbox.javadropbox.exception.ServiceUnavailableException;
-import com.javadropbox.javadropbox.service.FileStore.Entry;
+import com.javadropbox.javadropbox.service.IndexableItems.Item;
 import com.javadropbox.javadropbox.service.IndexableItems.Stamp;
 import com.javadropbox.javadropbox.service.StoragePaths.Home;
 import java.io.IOException;
@@ -838,7 +838,7 @@ public class ElasticsearchSearchIndex extends BackgroundSearchIndex {
     int indexed;
     int removed;
 
-    void index(String key, Entry entry) throws IOException {
+    void index(String key, Item entry) throws IOException {
       Document document =
           entry.isDirectory()
               ? new Document(key, LuceneSearchIndex.fold(entry.name()), null, true, null, null)
