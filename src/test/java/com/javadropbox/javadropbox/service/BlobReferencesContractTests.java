@@ -132,7 +132,7 @@ abstract class BlobReferencesContractTests {
                       references.remove(prepared.hash());
                     }))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("which has none");
+        .hasMessageContaining("than they have");
   }
 
   @Test
