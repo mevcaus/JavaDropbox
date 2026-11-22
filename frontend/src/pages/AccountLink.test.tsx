@@ -181,10 +181,29 @@ describe('AccountLink', () => {
 
     // The token comes from the address bar, and the generated endpoints put it into the URL as it is.
     it('keeps a crafted token inside the link\'s own route', async () => {
+        const user = userEvent.setup();
         api.get.mockResolvedValue({ data: { username: 'carol', expiresAt: '2026-10-08T09:00:00Z' } });
+        api.post.mockResolvedValue({ data: {} });
         renderAt('/invite/..%2Fadmin%2Fusers');
 
         await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
         expect(api.get.mock.calls[0][0]).toBe('/api/invite/..%2Fadmin%2Fusers');
+
+        // And when the form is sent, which doesn't go through the generated endpoints.
+        await choose(user, 'long enough');
+        await user.click(screen.getByRole('button', { name: 'Create account' }));
+        expect(api.post.mock.calls[0][0]).toBe('/api/invite/..%2Fadmin%2Fusers');
+    });
+
+    it('keeps a crafted token inside a reset link\'s own route when the password is sent', async () => {
+        const user = userEvent.setup();
+        api.get.mockResolvedValue({ data: { username: 'bob', expiresAt: '2026-10-08T09:00:00Z' } });
+        api.post.mockResolvedValue({ data: {} });
+        renderAt('/reset-password/..%2Fadmin%2Fusers');
+
+        await choose(user, 'long enough');
+        await user.click(screen.getByRole('button', { name: 'Set password' }));
+
+        expect(api.post.mock.calls[0][0]).toBe('/api/reset-password/..%2Fadmin%2Fusers');
     });
 });

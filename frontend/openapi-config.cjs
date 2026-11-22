@@ -1,7 +1,10 @@
 // Generates src/services/generatedApi.ts, the RTK Query endpoints, from the API spec
 // (npm run api:client). The GETs that return a file are left out: the app links to them
-// rather than loading them into the store.
+// rather than loading them into the store. So are the requests that carry a password, the setup
+// code or a link's token, since RTK Query would keep them in the store and on its actions; the
+// app sends those from src/services/accountRequests.ts.
 const FILES = new Set(['downloadItem', 'previewFile', 'openSharedItem', 'downloadSharedItem', 'previewSharedFile']);
+const SECRETS = new Set(['completeSetup', 'acceptInvite', 'resetPassword']);
 
 /** @type {import('@rtk-query/codegen-openapi').ConfigFile} */
 module.exports = {
@@ -11,5 +14,5 @@ module.exports = {
     outputFile: './src/services/generatedApi.ts',
     exportName: 'generatedApi',
     hooks: true,
-    filterEndpoints: (name) => !FILES.has(name),
+    filterEndpoints: (name) => !FILES.has(name) && !SECRETS.has(name),
 };

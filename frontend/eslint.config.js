@@ -28,6 +28,8 @@ export default defineConfig([
     },
   },
   // Hooks come from apiSlice.ts, which adds the cache tags; the generated endpoints alone have none.
+  // Requests go through those hooks too, not baseQuery's sendRequest, which only accountRequests.ts
+  // uses, for the requests that carry a secret.
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/services/**'],
@@ -37,6 +39,10 @@ export default defineConfig([
         {
           patterns: [
             { group: ['**/generatedApi', '**/generatedApi.*'], message: 'Import from services/apiSlice instead.' },
+            {
+              group: ['**/baseQuery', '**/baseQuery.*'],
+              message: 'Use the hooks from services/apiSlice, or services/accountRequests for a request carrying a secret.',
+            },
           ],
         },
       ],

@@ -226,7 +226,4 @@ export const {
     useDescribeSharedItemQuery,
     useDescribeInviteQuery,
     useDescribePasswordResetQuery,
-    useAcceptInviteMutation,
-    useResetPasswordMutation,
-    useCompleteSetupMutation,
 } = apiSlice;
