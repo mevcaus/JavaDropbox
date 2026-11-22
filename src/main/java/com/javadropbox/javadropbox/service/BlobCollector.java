@@ -30,10 +30,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * to zero is caught up with later.
  *
  * <p>Each blob is deleted in a transaction of its own, under its lock (see {@link
- * BlobReferences#lock}), after checking again that nothing points at it. A blob whose content was
- * put in place within the grace period is kept: an upload puts its content in place before it takes
- * the lock, and may be about to point at it. The row goes before the content, so a reference the
- * count missed, which the foreign keys catch, stops the delete before anything is lost.
+ * BlobReferences#lock}), after checking again that nothing points at it and that it was released
+ * longer ago than the grace period. An upload claims a blob under the same lock before it puts its
+ * content in place, which marks it released just now, so the job never deletes a blob an upload is
+ * about to point at. The row goes before the content, so a reference the count missed, which the
+ * foreign keys catch, stops the delete before anything is lost.
  */
 @Component
 public class BlobCollector {
@@ -50,6 +51,9 @@ public class BlobCollector {
   private final Duration grace;
   private final Clock clock;
   private final ScheduledThreadPoolExecutor worker;
+  // Run with the lock held, once a blob is found due and before it is deleted: for tests that
+  // hold a delete there while something else tries to reach the blob.
+  private Runnable afterDecided = () -> {};
 
   @Autowired
   public BlobCollector(
@@ -94,6 +98,10 @@ public class BlobCollector {
   public void start() {
     long every = Math.max(1, grace.toMillis() / 4);
     worker.scheduleWithFixedDelay(this::collectLogged, 0, every, TimeUnit.MILLISECONDS);
+  }
+
+  void afterDecided(Runnable hook) {
+    this.afterDecided = hook;
   }
 
   @PreDestroy
@@ -152,17 +160,12 @@ public class BlobCollector {
             Timestamp.from(before),
             hash);
     if (!Boolean.TRUE.equals(due)) {
-      // Referenced again, or gone, since it was listed.
+      // Referenced again, claimed by an upload, or gone, since it was listed.
       return false;
     }
+    afterDecided.run();
     try {
       Optional<Entry> content = blobs.stat(hash);
-      if (content.isPresent()
-          && content.get().modified() != null
-          && content.get().modified().isAfter(before)) {
-        // Put in place lately, for an upload that may be about to point at it.
-        return false;
-      }
       jdbc.update("DELETE FROM blobs WHERE hash = ?", hash);
       if (content.isPresent()) {
         blobs.delete(hash);

@@ -35,8 +35,11 @@ class FlywayBlobsMigrationTests {
   @Test
   @DisplayName("a blob is one row per hash, with a hash, size and count that make sense")
   void blobsAreChecked() throws SQLException {
+    // Released, as V19 requires of a blob nothing points at.
     DATABASE.execute(
-        "INSERT INTO blobs (hash, size, created_at) VALUES ('" + HASH + "', 3, now())");
+        "INSERT INTO blobs (hash, size, created_at, released_at) VALUES ('"
+            + HASH
+            + "', 3, now(), now())");
     try {
       assertThat(DATABASE.column("SELECT reference_count FROM blobs")).containsExactly("0");
 

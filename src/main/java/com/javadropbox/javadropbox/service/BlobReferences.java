@@ -9,10 +9,12 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Counts the files and versions that point at each blob (#316), so that a blob is kept while any do
@@ -25,9 +27,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *   <li>{@link #prepare}, outside any transaction, stages the content and hashes it. Unless the
  *       uploading account already holds that content, it puts it in place as its blob, with the
  *       same copy whether or not another account holds it, so how long an upload takes says nothing
- *       about anyone else's files (decided on #316, as for sync in #202). It also makes sure the
- *       blob has a row, so the blob is found and deleted later if the upload fails before taking a
- *       reference.
+ *       about anyone else's files (decided on #316, as for sync in #202). Before that, it claims
+ *       the blob under its lock for a moment, so it isn't deleted meanwhile (see {@link #claim}).
  *   <li>In the transaction, {@link #lock} takes the lock of every blob it will add or remove a
  *       reference to, before touching any row.
  *   <li>{@link #add} checks again, under the lock, whether the account holds the content, puts the
@@ -36,8 +37,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * </ol>
  *
  * <p>A blob whose count falls to zero is deleted by {@link BlobCollector}, under the same lock,
- * once it has stayed at zero for the grace period. Whoever puts a blob in place and whoever deletes
- * one take that lock first, so a blob can't be deleted under a new reference.
+ * once it has stayed at zero for the grace period. Whoever is about to put a blob in place claims
+ * it under that lock first, and whoever deletes one takes it too, so a blob can't be deleted under
+ * a new reference.
  */
 @Service
 public class BlobReferences {
@@ -50,10 +52,13 @@ public class BlobReferences {
 
   private final BlobStore blobs;
   private final JdbcTemplate jdbc;
+  private final TransactionTemplate transactions;
 
-  public BlobReferences(BlobStore blobs, JdbcTemplate jdbc) {
+  public BlobReferences(
+      BlobStore blobs, JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
     this.blobs = blobs;
     this.jdbc = jdbc;
+    this.transactions = new TransactionTemplate(transactionManager);
   }
 
   /** Content staged for a reference, and whether it has been put in place as its blob. */
@@ -98,13 +103,7 @@ public class BlobReferences {
     }
     Staged staged = blobs.stage(content, length);
     try {
-      // Before the blob is put in place, so that one placed for an upload that fails before taking
-      // a reference is in the deleting job's queue. Released now, as if its count had just fallen.
-      jdbc.update(
-          "INSERT INTO blobs (hash, size, reference_count, created_at, released_at)"
-              + " VALUES (?, ?, 0, now(), now()) ON CONFLICT (hash) DO NOTHING",
-          staged.hash(),
-          staged.size());
+      claim(staged);
       // Only a hint without the lock; add() asks again under it.
       boolean holds = holds(staged.hash(), ownerId);
       if (!holds) {
@@ -115,6 +114,28 @@ public class BlobReferences {
       blobs.discard(staged);
       throw e;
     }
+  }
+
+  /**
+   * Keeps the blob from being deleted for the grace period, before its content is put in place: in
+   * a short transaction of its own, under the blob's lock, gives it a row if it has none, and marks
+   * one nothing points at as released just now. {@link BlobCollector} deletes only a blob released
+   * longer ago, under the same lock, so a delete either finished before this, and this makes the
+   * row again, or doesn't happen until the grace period has passed. That covers the upload putting
+   * its content in place, which takes no lock, and {@link #add} after it. A blob placed for an
+   * upload that then fails is in the job's queue all the same.
+   */
+  private void claim(Staged staged) {
+    transactions.executeWithoutResult(
+        status -> {
+          lock(Set.of(staged.hash()));
+          jdbc.update(
+              "INSERT INTO blobs (hash, size, reference_count, created_at, released_at)"
+                  + " VALUES (?, ?, 0, now(), now()) ON CONFLICT (hash) DO UPDATE SET"
+                  + " released_at = CASE WHEN blobs.reference_count = 0 THEN now() END",
+              staged.hash(),
+              staged.size());
+        });
   }
 
   /**
@@ -171,8 +192,7 @@ public class BlobReferences {
       }
     } else if (blobs.stat(hash).isEmpty()) {
       // Put in place in prepare(), then deleted before this took the lock: only possible when
-      // this waited longer than the grace period between the two, and nothing is left to put
-      // back.
+      // more than the grace period passed between the two, and nothing is left to put back.
       throw new IOException("Blob " + hash + " went before it was referenced; try again");
     }
     // Normally made by prepare(); again here should its row have been deleted with its blob.
