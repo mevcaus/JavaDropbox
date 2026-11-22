@@ -15,6 +15,7 @@ import java.util.Map;
 import org.apache.catalina.connector.ClientAbortException;
 import org.apache.tomcat.util.http.fileupload.FileUploadException;
 import org.apache.tomcat.util.http.fileupload.MultipartStream.MalformedStreamException;
+import org.apache.tomcat.util.http.fileupload.impl.FileCountLimitExceededException;
 import org.apache.tomcat.util.http.fileupload.impl.SizeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,8 +113,15 @@ public class ApiExceptionHandler {
     return message(HttpStatus.INTERNAL_SERVER_ERROR, OPERATION_FAILED);
   }
 
+  // Spring reports Tomcat's limit on parts as a size limit too, since its message says the count
+  // "exceeds" the maximum, so both handlers look for it first.
   @ExceptionHandler(MaxUploadSizeExceededException.class)
   public ResponseEntity<Map<String, String>> handleMaxSize(MaxUploadSizeExceededException ex) {
+    for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+      if (cause instanceof FileCountLimitExceededException tooMany) {
+        return tooManyParts(tooMany);
+      }
+    }
     return message(HttpStatus.PAYLOAD_TOO_LARGE, TOO_LARGE);
   }
 
@@ -121,6 +129,9 @@ public class ApiExceptionHandler {
   public ResponseEntity<Map<String, String>> handleMultipart(MultipartException ex) {
     Throwable root = ex;
     for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+      if (cause instanceof FileCountLimitExceededException tooMany) {
+        return tooManyParts(tooMany);
+      }
       // Tomcat reports its own size limits as a SizeException somewhere in the cause chain.
       if (cause instanceof SizeException) {
         return message(HttpStatus.PAYLOAD_TOO_LARGE, TOO_LARGE);
@@ -135,6 +146,16 @@ public class ApiExceptionHandler {
       return message(HttpStatus.INTERNAL_SERVER_ERROR, OPERATION_FAILED);
     }
     return message(HttpStatus.BAD_REQUEST, "Invalid multipart request.");
+  }
+
+  // More parts than server.tomcat.max-part-count. An upload's parts are its files and its path,
+  // so it takes one file fewer than the limit. GET /api/files/upload-limits says the same.
+  private static ResponseEntity<Map<String, String>> tooManyParts(
+      FileCountLimitExceededException ex) {
+    long files = Math.max(1, ex.getLimit() - 1);
+    return message(
+        HttpStatus.PAYLOAD_TOO_LARGE,
+        "Too many files in one upload: send at most " + files + " files at a time.");
   }
 
   private static boolean isClientFault(Throwable cause) {

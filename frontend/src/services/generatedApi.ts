@@ -87,6 +87,12 @@ const injectedRtkApi = api.injectEndpoints({
         body: queryArg.body,
       }),
     }),
+    getUploadLimits: build.query<
+      GetUploadLimitsApiResponse,
+      GetUploadLimitsApiArg
+    >({
+      query: () => ({ url: `/api/files/upload-limits` }),
+    }),
     listFileVersions: build.query<
       ListFileVersionsApiResponse,
       ListFileVersionsApiArg
@@ -282,6 +288,8 @@ export type UploadFilesApiArg = {
     path?: string;
   };
 };
+export type GetUploadLimitsApiResponse = /** status 200 OK */ UploadLimits;
+export type GetUploadLimitsApiArg = void;
 export type ListFileVersionsApiResponse = /** status 200 OK */ FileVersionDto[];
 export type ListFileVersionsApiArg = {
   fileId: number;
@@ -415,6 +423,11 @@ export type FileTreeNode = {
   relativePath: string;
   size: number;
 };
+export type UploadLimits = {
+  maxFileBytes: number | null;
+  maxFilesPerRequest: number | null;
+  maxRequestBytes: number | null;
+};
 export type FileVersionDto = {
   createdAt: string | null;
   createdBy: string;
@@ -514,6 +527,7 @@ export const {
   useDeleteItemMutation,
   useGetFileTreeQuery,
   useUploadFilesMutation,
+  useGetUploadLimitsQuery,
   useListFileVersionsQuery,
   useRestoreVersionMutation,
   useCreateFolderMutation,

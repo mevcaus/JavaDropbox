@@ -146,6 +146,8 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.search.elasticsearch.username` / `.password` | none | With `elasticsearch`: the account to use, if the service asks for one |
 | `javadropbox.search.elasticsearch.index` | `javadropbox` | With `elasticsearch`: the index's name, which has to be different for each app that shares one service |
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
+| `spring.servlet.multipart.max-request-size` | `1024MB` | Largest upload request, all its files together. The app sends more than this in several requests, so it limits one request, not one upload; a file larger than this can't be uploaded at all |
+| `server.tomcat.max-part-count` | `50` | Most parts one upload request may have: its files, and one for the folder they go into. The app sends more files than this in several requests. Each part costs the server memory while the request is read, which is why there's a limit |
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
 | `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute), besides at each sign-in, up to 1,000 at a time; `-` turns the schedule off, as the demo does |
