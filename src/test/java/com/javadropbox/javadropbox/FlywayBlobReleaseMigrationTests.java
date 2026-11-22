@@ -18,12 +18,31 @@ class FlywayBlobReleaseMigrationTests {
   private static final String HASH =
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
+  // What V19 made of blobs from before it: one nothing pointed at, one something did.
+  private static java.util.List<String> upgraded;
+
   @BeforeAll
   static void migrate() throws SQLException {
     DATABASE.migrateTo("18");
     DATABASE.execute(
         "INSERT INTO users (username, password, role) VALUES ('ada', 'h', 'ROLE_ADMIN')");
+    DATABASE.execute(
+        "INSERT INTO blobs (hash, size, reference_count, created_at) VALUES ('"
+            + "a".repeat(64)
+            + "', 1, 0, now()), ('"
+            + "b".repeat(64)
+            + "', 1, 1, now())");
     DATABASE.migrateTo("latest");
+    upgraded =
+        DATABASE.column(
+            "SELECT reference_count || ':' || (released_at IS NOT NULL) FROM blobs ORDER BY hash");
+    DATABASE.execute("DELETE FROM blobs");
+  }
+
+  @Test
+  @DisplayName("an upgraded blob nothing points at is released, and one something does isn't")
+  void upgradedBlobsAreReleasedOrNot() {
+    assertThat(upgraded).containsExactly("0:true", "1:false");
   }
 
   @AfterEach

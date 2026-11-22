@@ -313,6 +313,55 @@ abstract class BlobReferencesContractTests {
   }
 
   @Test
+  @DisplayName("references come off at least one at a time, and in one go per transaction")
+  void removeAllRefusesBadCountsAndSecondCalls() throws IOException {
+    Prepared prepared = prepare("counted", ada);
+    add(prepared);
+
+    for (int bad : new int[] {0, -1}) {
+      assertThatThrownBy(
+              () -> inTransaction(() -> references.removeAll(Map.of(prepared.hash(), bad))))
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+    assertThatThrownBy(
+            () ->
+                inTransaction(
+                    () -> {
+                      references.lock(List.of(prepared.hash()));
+                      references.removeAll(Map.of(prepared.hash(), 1));
+                    }))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(count(prepared.hash())).isOne();
+    assertThat(released(prepared.hash())).isFalse();
+  }
+
+  @Test
+  @DisplayName("a transaction started inside another doesn't have the outer one's blob locks")
+  void innerTransactionHasNoOuterLocks() throws IOException {
+    Prepared prepared = prepare("outer", ada);
+    TransactionTemplate inner = new TransactionTemplate(transactionManager);
+    inner.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+
+    inTransaction(
+        () -> {
+          references.lock(List.of(prepared.hash()));
+          assertThatThrownBy(
+                  () ->
+                      inner.executeWithoutResult(
+                          status -> {
+                            try {
+                              references.add(prepared);
+                            } catch (IOException e) {
+                              throw new java.io.UncheckedIOException(e);
+                            }
+                          }))
+              .isInstanceOf(IllegalStateException.class)
+              .hasMessageContaining("without its lock");
+        });
+    assertThat(count(prepared.hash())).isZero();
+  }
+
+  @Test
   @DisplayName("content is staged and put in place only outside a transaction")
   void prepareRefusesATransaction() {
     assertThatThrownBy(() -> inTransaction(() -> prepare("too late", ada)))

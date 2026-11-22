@@ -63,6 +63,32 @@ class LocalBlobReferencesTests extends BlobReferencesContractTests {
   }
 
   @Test
+  @DisplayName("the job skips a blob whose lock someone holds, and deletes it once they're done")
+  void jobSkipsAHeldBlob() throws Exception {
+    Prepared old = prepare("held by another", ada);
+    releasedAgo(old.hash(), Duration.ofHours(2));
+    CountDownLatch holding = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CompletableFuture<Void> holder =
+        CompletableFuture.runAsync(
+            () ->
+                transactions.executeWithoutResult(
+                    status -> {
+                      references.lock(List.of(old.hash()));
+                      holding.countDown();
+                      await(release);
+                    }));
+    await(holding);
+
+    assertThat(collector().collect()).isZero();
+    assertThat(blobs.stat(old.hash())).isPresent();
+
+    release.countDown();
+    holder.get(WAIT.toSeconds(), TimeUnit.SECONDS);
+    assertThat(collector().collect()).isOne();
+  }
+
+  @Test
   @DisplayName("a transaction takes its blob locks in one order, however it lists them")
   void locksAreTakenInOneOrder() throws Exception {
     // Lock keys 0x11111111 and 0x77777777: the first sorts first.
