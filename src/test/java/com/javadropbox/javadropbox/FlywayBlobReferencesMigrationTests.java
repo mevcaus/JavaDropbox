@@ -101,6 +101,17 @@ class FlywayBlobReferencesMigrationTests {
   }
 
   @Test
+  @DisplayName("a blob's references are indexed, a file's with its owner")
+  void referencesAreIndexed() throws SQLException {
+    assertThat(
+            DATABASE.column(
+                "SELECT tablename || ': ' || substring(indexdef from '\\((.*)\\)') FROM pg_indexes"
+                    + " WHERE indexname IN ('idx_file_metadata_blob_hash',"
+                    + " 'idx_file_versions_blob_hash') ORDER BY tablename"))
+        .containsExactly("file_metadata: blob_hash, user_id", "file_versions: blob_hash");
+  }
+
+  @Test
   @DisplayName("a folder can't point at a blob")
   void folderHasNoBlob() throws SQLException {
     DATABASE.execute(
