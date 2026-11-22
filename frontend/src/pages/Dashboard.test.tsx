@@ -383,7 +383,7 @@ describe('Dashboard', () => {
             expect(api.post).not.toHaveBeenCalled();
         });
 
-        it('says so when the dropped files cannot be read, and is ready again afterwards', async () => {
+        it('names a dropped file it cannot read, and is ready again afterwards', async () => {
             api.get.mockResolvedValue({ data: TREE });
             renderDashboard();
             const row = await screen.findByRole('button', { name: 'Download report.pdf' });
@@ -391,9 +391,42 @@ describe('Dashboard', () => {
 
             fireEvent.drop(row, { dataTransfer: filesDrag(unreadable) });
 
-            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Could not read the dropped files.', 'error'));
+            await waitFor(() =>
+                expect(addToast).toHaveBeenCalledWith('locked.txt could not be read, so it was not uploaded.', 'error'),
+            );
             expect(screen.getByLabelText('Upload')).toBeEnabled();
             expect(api.post).not.toHaveBeenCalled();
+        });
+
+        it('uploads the rest of a drop when one file in it cannot be read', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            const broken = { name: 'broken-link', isFile: true, isDirectory: false, file: (_: unknown, reject: (error: Error) => void) => reject(new Error('gone')) };
+            const fine = new File(['x'], 'fine.txt');
+            const folder = {
+                name: 'Photos',
+                isFile: false,
+                isDirectory: true,
+                createReader: () => {
+                    let read = false;
+                    return {
+                        readEntries: (resolve: (entries: unknown[]) => void) => {
+                            resolve(read ? [] : [broken, { name: 'fine.txt', isFile: true, isDirectory: false, file: (done: (file: File) => void) => done(fine) }]);
+                            read = true;
+                        },
+                    };
+                },
+            };
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(folder) });
+
+            await waitFor(() =>
+                expect(addToast).toHaveBeenCalledWith('Photos/broken-link could not be read, so it was not uploaded.', 'error'),
+            );
+            await waitFor(() => expect(addToast).toHaveBeenCalledWith('Uploaded folder "Photos" (1 file) successfully.', 'success'));
+            expect(api.post).toHaveBeenCalledTimes(1);
         });
 
         it('leaves drags without files to the browser', async () => {
@@ -455,14 +488,18 @@ describe('Dashboard', () => {
         await waitFor(() => expect(addToast).toHaveBeenCalledWith('Failed to upload files.', 'error'));
     });
 
-    // #350: more files than one request takes go in batches.
-    it('uploads a large selection in batches', async () => {
+    // #350: more files than one request takes go in batches, and the button counts them.
+    it('uploads a large selection in batches and shows how far it has got', async () => {
         api.get.mockImplementation(async (url: string) =>
             url === '/api/files/upload-limits'
                 ? { data: { maxFileBytes: null, maxRequestBytes: null, maxFilesPerRequest: 49 } }
                 : { data: TREE },
         );
-        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        let finishSecond: (value: unknown) => void = () => {};
+        api.post
+            .mockResolvedValueOnce({ data: { message: 'Uploaded' } })
+            .mockReturnValueOnce(new Promise((resolve) => (finishSecond = resolve)))
+            .mockResolvedValue({ data: { message: 'Uploaded' } });
         const user = userEvent.setup();
         renderDashboard();
         await screen.findByRole('button', { name: 'Download report.pdf' });
@@ -470,6 +507,8 @@ describe('Dashboard', () => {
 
         await user.upload(screen.getByLabelText('Upload'), files);
 
+        expect(await screen.findByText('Uploading 49 of 120 files…')).toBeInTheDocument();
+        finishSecond({ data: { message: 'Uploaded' } });
         await waitFor(() => expect(addToast).toHaveBeenCalledWith('Uploaded 120 files successfully.', 'success'));
         expect(api.post).toHaveBeenCalledTimes(3);
         expect(screen.getByText('Upload')).toBeInTheDocument();
