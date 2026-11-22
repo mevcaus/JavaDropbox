@@ -47,7 +47,7 @@ const encode = (body: Record<string, unknown>, type: BodyType): FormData | URLSe
 
 // By method, as the rest of the app calls the client (and as its tests mock it). The API takes no
 // other methods, and sending an unknown one as something else would hide the mistake.
-const send = (request: Request, endpoint: string, type: BodyType | undefined, signal: AbortSignal) => {
+const send = (request: Request, endpoint: string, type: BodyType | undefined, signal?: AbortSignal) => {
     const data = request.body === undefined || type === undefined ? undefined : encode(request.body, type);
     const config = { params: request.params, signal };
     const method = (request.method ?? 'GET').toUpperCase();
@@ -66,10 +66,15 @@ const send = (request: Request, endpoint: string, type: BodyType | undefined, si
 };
 
 /**
- * Sends the API slice's requests through the app's axios client, so they keep its CSRF priming and
- * its sign-out on a 401 (see api.ts), and sends each body the way its endpoint takes it.
+ * Sends a request through the app's axios client, so it keeps its CSRF priming and its sign-out on
+ * a 401 (see api.ts), with its body the way the endpoint (an operation id) takes it. Answers as a
+ * base query does, with the data or the error.
  */
-export const baseQuery: BaseQueryFn<Request, unknown, RequestError> = async (request, { endpoint, signal }) => {
+export const sendRequest = async (
+    request: Request,
+    endpoint: string,
+    signal?: AbortSignal,
+): Promise<{ data: unknown } | { error: RequestError }> => {
     const type = request.bodyType ?? REQUEST_BODIES[endpoint];
     if (request.body !== undefined && type === undefined) {
         // Every endpoint with a body takes a form or an upload, so this is a mistake in the slice.
@@ -92,3 +97,7 @@ export const baseQuery: BaseQueryFn<Request, unknown, RequestError> = async (req
         throw failure;
     }
 };
+
+/** Sends the API slice's requests, as sendRequest does. */
+export const baseQuery: BaseQueryFn<Request, unknown, RequestError> = (request, { endpoint, signal }) =>
+    sendRequest(request, endpoint, signal);

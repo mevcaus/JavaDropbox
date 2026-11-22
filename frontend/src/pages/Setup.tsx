@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useAppDispatch } from '../redux/withTypes';
 import { useNavigate, Link } from 'react-router-dom';
-import { useCompleteSetupMutation } from '../services/apiSlice';
+import { completeSetup } from '../services/accountRequests';
 import { setupCompleted } from '../features/authSlice';
 import { readableError } from '../utils/errors';
 import { MIN_PASSWORD_LENGTH } from '../utils/passwords';
@@ -17,7 +17,6 @@ const Setup = () => {
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
     const dispatch = useAppDispatch();
-    const [completeSetup] = useCompleteSetupMutation();
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -34,7 +33,7 @@ const Setup = () => {
 
         setLoading(true);
         try {
-            await completeSetup({ body: { code, username, password } }).unwrap();
+            await completeSetup({ code, username, password });
 
             // Account created — send the user to the login screen, which stops offering setup.
             dispatch(setupCompleted());
