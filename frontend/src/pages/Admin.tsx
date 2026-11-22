@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { useAppSelector } from '../redux/withTypes';
+import { useAppDispatch, useAppSelector } from '../redux/withTypes';
 import { Navigate } from 'react-router-dom';
 import { KeyRound, Loader2, ShieldCheck, UserMinus, UserPlus, UserX } from 'lucide-react';
+import { createPasswordResetLink, type NewLink } from '../services/accountRequests';
 import {
-    useCreatePasswordResetLinkMutation,
     useImportFilesMutation,
     useListAccountsQuery,
     useListInvitesQuery,
@@ -13,7 +13,6 @@ import {
     type AccountDto,
     type ImportResult,
     type InviteDto,
-    type NewLink,
 } from '../services/apiSlice';
 import { selectIsAdmin } from '../features/authSlice';
 import { useToast } from '../hooks/useToast';
@@ -157,7 +156,7 @@ const AccountsPage = () => {
     const listsLoading = listed.isFetching || open.isFetching;
     const [setAccountEnabled] = useSetAccountEnabledMutation();
     const [setAccountRole] = useSetAccountRoleMutation();
-    const [createPasswordResetLink] = useCreatePasswordResetLinkMutation();
+    const dispatch = useAppDispatch();
     const [importAccountFiles] = useImportFilesMutation();
     const [revokeInvite] = useRevokeInviteMutation();
     // The account an action is running for. Every row's buttons wait until it is done and the lists
@@ -221,7 +220,8 @@ const AccountsPage = () => {
     const resetPassword = async (account: AccountDto) => {
         setBusy(account.id);
         try {
-            const link = await createPasswordResetLink({ id: account.id }).unwrap();
+            // Not through the API slice, which would keep the link in the store.
+            const link = await createPasswordResetLink(dispatch, account.id);
             setResetLink({ username: account.username, ...link });
         } catch (err) {
             addToast(readableError(err, 'Could not make a reset link.'), 'error');

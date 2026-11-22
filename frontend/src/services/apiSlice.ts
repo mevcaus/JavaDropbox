@@ -11,7 +11,6 @@ export type {
     FileTreeNode,
     ImportResult,
     InviteDto,
-    NewLink,
     SearchResult,
     SearchResults,
     ShareLinkDto,
@@ -83,10 +82,8 @@ export const apiSlice = generatedApi
             restoreVersion: {
                 invalidatesTags: (_result, _error, { fileId }) => ['Files', { type: 'Versions', id: fileId }],
             },
+            // A new link asks for its item's list again from accountRequests.ts, which sends it.
             listShareLinks: { providesTags: (_result, _error, { path }) => [{ type: 'ShareLinks', id: path }] },
-            createShareLink: {
-                invalidatesTags: (_result, _error, { body }) => [{ type: 'ShareLinks', id: body.path }],
-            },
             // A link's id doesn't say whose item it shares, so every list of links is asked again. Until
             // that answers, the revoked link is taken out of each list already. (A listing already in
             // flight can still bring it back for a moment; the dialog disables Revoke while it loads.)
@@ -120,7 +117,8 @@ export const apiSlice = generatedApi
             // the admin's own account.
             // Storage too: the admin page lists no files, so no listing would ask for it.
             importFiles: { invalidatesTags: ['Accounts', 'Files', 'Storage'] },
-            createInvite: { invalidatesTags: ['Invites'] },
+            // (A new invitation asks for the list again from accountRequests.ts, which sends it.)
+
             // Failed or not: a failure is most often an invitation used or expired meanwhile, which
             // shouldn't stay listed.
             revokeInvite: { invalidatesTags: ['Invites'] },
@@ -235,16 +233,13 @@ export const {
     useListFileVersionsQuery,
     useRestoreVersionMutation,
     useListShareLinksQuery,
-    useCreateShareLinkMutation,
     useRevokeShareLinkMutation,
     useListAccountsQuery,
     useListInvitesQuery,
     useSetAccountEnabledMutation,
     useSetAccountRoleMutation,
     useSetAccountQuotaMutation,
-    useCreatePasswordResetLinkMutation,
     useImportFilesMutation,
-    useCreateInviteMutation,
     useRevokeInviteMutation,
     useGetStorageUsageQuery,
     useSearchFilesQuery,

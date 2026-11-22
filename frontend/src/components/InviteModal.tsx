@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { Loader2, UserPlus } from 'lucide-react';
-import { useCreateInviteMutation, type NewLink } from '../services/apiSlice';
+import { createInvite, type NewLink } from '../services/accountRequests';
+import { useAppDispatch } from '../redux/withTypes';
 import { readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
 import { QUOTA_ERROR, formToQuota } from '../utils/quota';
@@ -12,13 +13,13 @@ import { primaryButton, secondaryButton } from './modalStyles';
 /**
  * Invites someone: the admin picks a username, a role and a quota, and gets a one-time link to hand
  * over, at which the invitee chooses a password. Making it refreshes the page's list of invitations
- * through its cache tag.
+ * (see createInvite in accountRequests.ts).
  */
 const InviteModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
     isOpen ? <InviteDialog onClose={onClose} /> : null;
 
 const InviteDialog = ({ onClose }: { onClose: () => void }) => {
-    const [createInvite] = useCreateInviteMutation();
+    const dispatch = useAppDispatch();
     const [username, setUsername] = useState('');
     const [role, setRole] = useState('USER');
     const [amount, setAmount] = useState('');
@@ -40,8 +41,9 @@ const InviteDialog = ({ onClose }: { onClose: () => void }) => {
         setSending(true);
         setError(null);
         try {
-            // The invitations list refreshes through its tag.
-            setLink(await createInvite({ body: { username: username.trim(), role, quota } }).unwrap());
+            // Not through the API slice, which would keep the link in the store. The invitations
+            // list is asked for again all the same.
+            setLink(await createInvite(dispatch, { username: username.trim(), role, quota }));
         } catch (err) {
             setError(readableError(err, 'Could not create the invitation.'));
             usernameRef.current?.focus();
