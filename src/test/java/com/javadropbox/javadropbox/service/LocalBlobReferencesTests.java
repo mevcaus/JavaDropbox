@@ -25,10 +25,48 @@ class LocalBlobReferencesTests extends BlobReferencesContractTests {
   private static final Duration WAIT = Duration.ofSeconds(10);
 
   @Test
-  @DisplayName("an upload's claim waits for whoever holds the blob's lock, as a delete would")
-  void claimWaitsForTheLock() throws Exception {
-    Prepared first = prepare("held while claimed", ada);
-    String hash = first.hash();
+  @DisplayName("an upload of content being deleted waits, then puts it back and counts it")
+  void uploadWaitsForADeleteUnderWay() throws Exception {
+    Prepared old = prepare("deleted while reused", ada);
+    String hash = old.hash();
+    jdbc.update("UPDATE blobs SET released_at = now() - interval '2 hours' WHERE hash = ?", hash);
+    CountDownLatch decided = new CountDownLatch(1);
+    CountDownLatch carryOn = new CountDownLatch(1);
+    BlobCollector collector = collector();
+    collector.afterDecided(
+        () -> {
+          decided.countDown();
+          await(carryOn);
+        });
+
+    CompletableFuture<Integer> deleting = CompletableFuture.supplyAsync(collector::collect);
+    await(decided);
+    CompletableFuture<Prepared> uploading =
+        CompletableFuture.supplyAsync(
+            () -> {
+              try {
+                return prepare("deleted while reused", bob);
+              } catch (Exception e) {
+                throw new IllegalStateException(e);
+              }
+            });
+    // The upload's claim waits for the delete's lock.
+    eventually(() -> waitingForLock(hash));
+    assertThat(uploading).isNotDone();
+    carryOn.countDown();
+
+    assertThat(deleting.get(WAIT.toSeconds(), TimeUnit.SECONDS)).isOne();
+    Prepared again = uploading.get(WAIT.toSeconds(), TimeUnit.SECONDS);
+    add(again);
+    assertThat(blobs.stat(hash)).isPresent();
+    assertThat(count(hash)).isOne();
+  }
+
+  @Test
+  @DisplayName("the job skips a blob whose lock someone holds, and deletes it once they're done")
+  void jobSkipsAHeldBlob() throws Exception {
+    Prepared old = prepare("held by another", ada);
+    releasedAgo(old.hash(), Duration.ofHours(2));
     CountDownLatch holding = new CountDownLatch(1);
     CountDownLatch release = new CountDownLatch(1);
     CompletableFuture<Void> holder =
@@ -36,29 +74,18 @@ class LocalBlobReferencesTests extends BlobReferencesContractTests {
             () ->
                 transactions.executeWithoutResult(
                     status -> {
-                      references.lock(List.of(hash));
+                      references.lock(List.of(old.hash()));
                       holding.countDown();
                       await(release);
                     }));
     await(holding);
 
-    CompletableFuture<Prepared> uploading =
-        CompletableFuture.supplyAsync(
-            () -> {
-              try {
-                return prepare("held while claimed", bob);
-              } catch (Exception e) {
-                throw new IllegalStateException(e);
-              }
-            });
-    eventually(() -> waitingForLock(hash));
-    assertThat(uploading).isNotDone();
-    release.countDown();
+    assertThat(collector().collect()).isZero();
+    assertThat(blobs.stat(old.hash())).isPresent();
 
+    release.countDown();
     holder.get(WAIT.toSeconds(), TimeUnit.SECONDS);
-    add(uploading.get(WAIT.toSeconds(), TimeUnit.SECONDS));
-    assertThat(blobs.stat(hash)).isPresent();
-    assertThat(count(hash)).isOne();
+    assertThat(collector().collect()).isOne();
   }
 
   @Test

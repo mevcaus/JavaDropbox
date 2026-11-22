@@ -42,11 +42,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>Afterwards, {@link #discard} drops what was staged and not used.
  * </ol>
  *
- * <p>A blob whose count falls to zero is deleted by a background job (BlobCollector, the next part
- * of #316), under the same lock, once it has stayed at zero for the grace period. Whoever is about
- * to put a blob in place claims it under that lock first, and whoever deletes one takes it too, so
- * a blob can't be deleted under a new reference. Taking a reference off needs no advisory lock: it
- * can't make a blob be deleted any sooner than the grace period after.
+ * <p>A blob whose count falls to zero is deleted by {@link BlobCollector}, under the same lock,
+ * once it has stayed at zero for the grace period. Whoever is about to put a blob in place claims
+ * it under that lock first, and whoever deletes one takes it too, so a blob can't be deleted under
+ * a new reference. Taking a reference off needs no advisory lock: it can't make a blob be deleted
+ * any sooner than the grace period after.
  *
  * <p>Locks on {@code blobs} rows are always taken in the order of their hashes, all at once, by
  * {@link #lock} and {@link #removeAll}, so two transactions never wait on each other's rows.
@@ -127,7 +127,7 @@ public class BlobReferences {
   /**
    * Keeps the blob from being deleted for the grace period, before its content is put in place: in
    * a short transaction of its own, under the blob's lock, gives it a row if it has none, and marks
-   * one nothing points at as released just now. The deleting job deletes only a blob released
+   * one nothing points at as released just now. {@link BlobCollector} deletes only a blob released
    * longer ago, under the same lock, so a delete either finished before this, and this makes the
    * row again, or doesn't happen until the grace period has passed. That covers the upload putting
    * its content in place, which takes no lock, and {@link #add} after it. A blob placed for an
