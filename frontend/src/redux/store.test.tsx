@@ -7,9 +7,14 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loginUser, setupCompleted } from '../features/authSlice';
 import AccountLink from '../pages/AccountLink';
+import Admin from '../pages/Admin';
 import Setup from '../pages/Setup';
+import ShareModal from '../components/ShareModal';
 import mockedApi from '../services/api';
 import { makeStore } from './store';
+
+// The admin page and the share dialog toast; the toasts aren't what these tests look at.
+vi.mock('../hooks/useToast', () => ({ useToast: () => ({ addToast: vi.fn() }) }));
 
 vi.mock('../services/api');
 const api = vi.mocked(mockedApi);
@@ -199,5 +204,80 @@ describe('store', () => {
             expect(action).toMatchObject({ meta: { arg: { endpointName: 'describePasswordReset' } } });
         }
         expect(store.getState().api.mutations).toEqual({});
+    });
+
+    describe('links an admin or an owner makes (#436)', () => {
+        // Opens the admin page, signed in as an admin, on a store the DevTools watch.
+        const openAdmin = () => {
+            vi.stubEnv('DEV', true);
+            const { seen } = installDevTools();
+            const store = makeStore();
+            store.dispatch(loginUser.fulfilled({ username: 'ada', role: 'ADMIN' }, 'seed', 'ada'));
+            api.get.mockImplementation(async (url: string) => ({
+                data:
+                    url === '/api/admin/users'
+                        ? [{ id: 2, username: 'bob', role: 'USER', enabled: true, quotaBytes: null, usedBytes: 0 }]
+                        : [],
+            }));
+            render(
+                <Provider store={store}>
+                    <MemoryRouter initialEntries={['/admin']}>
+                        <Routes>
+                            <Route path="/admin" element={<Admin />} />
+                        </Routes>
+                    </MemoryRouter>
+                </Provider>,
+            );
+            return { seen, store };
+        };
+        const invitesAsked = () => api.get.mock.calls.filter(([url]) => url === '/api/admin/invites').length;
+
+        it('shows the Redux DevTools no invitation link, and still lists the invitations again', async () => {
+            const { seen, store } = openAdmin();
+            api.post.mockResolvedValue({ data: { url: 'http://localhost/invite/invite-link-secret', expiresAt: '2026-12-01T00:00:00Z' } });
+            const user = userEvent.setup();
+            await user.click(await screen.findByRole('button', { name: 'Invite someone' }));
+            await user.type(screen.getByLabelText('Username'), 'dave');
+            const before = invitesAsked();
+
+            await user.click(screen.getByRole('button', { name: 'Create invitation' }));
+
+            expect(await screen.findByLabelText('Invitation link')).toHaveValue('http://localhost/invite/invite-link-secret');
+            expect(everythingShown(seen, store.getState())).not.toContain('invite-link-secret');
+            await waitFor(() => expect(invitesAsked()).toBe(before + 1));
+        });
+
+        it('shows the Redux DevTools no password reset link', async () => {
+            const { seen, store } = openAdmin();
+            api.post.mockResolvedValue({ data: { url: 'http://localhost/reset-password/reset-link-secret', expiresAt: '2026-12-01T00:00:00Z' } });
+            const user = userEvent.setup();
+
+            await user.click(await screen.findByRole('button', { name: 'Reset password for bob' }));
+
+            expect(await screen.findByLabelText('Password reset link')).toHaveValue('http://localhost/reset-password/reset-link-secret');
+            expect(everythingShown(seen, store.getState())).not.toContain('reset-link-secret');
+        });
+
+        it('shows the Redux DevTools no share link, and still lists the item\'s links again', async () => {
+            vi.stubEnv('DEV', true);
+            const { seen } = installDevTools();
+            const store = makeStore();
+            api.get.mockResolvedValue({ data: [] });
+            api.post.mockResolvedValue({ data: { url: 'http://localhost/share/share-link-secret', expiresAt: '2026-12-01T00:00:00Z' } });
+            const sharesAsked = () => api.get.mock.calls.filter(([url]) => url === '/api/share').length;
+            const user = userEvent.setup();
+            render(
+                <Provider store={store}>
+                    <ShareModal isOpen onClose={() => {}} item={{ name: 'a.txt', path: 'docs/a.txt', isDirectory: false }} />
+                </Provider>,
+            );
+            await waitFor(() => expect(sharesAsked()).toBe(1));
+
+            await user.click(screen.getByRole('button', { name: 'Generate link' }));
+
+            expect(await screen.findByLabelText('Share link')).toHaveValue('http://localhost/share/share-link-secret');
+            expect(everythingShown(seen, store.getState())).not.toContain('share-link-secret');
+            await waitFor(() => expect(sharesAsked()).toBe(2));
+        });
     });
 });
