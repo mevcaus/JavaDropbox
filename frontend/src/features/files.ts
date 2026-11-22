@@ -31,6 +31,13 @@ const PART_OVERHEAD = 1024;
 const REQUEST_OVERHEAD = 1024;
 
 /**
+ * The largest file the server takes, alone in a request with its framing, or Infinity for no
+ * limit.
+ */
+export const largestUpload = ({ maxFileBytes, maxRequestBytes }: UploadLimits): number =>
+    Math.min(maxFileBytes ?? Infinity, maxRequestBytes == null ? Infinity : maxRequestBytes - REQUEST_OVERHEAD - PART_OVERHEAD);
+
+/**
  * The files bound for one folder split into requests the server takes: none with more files or
  * more bytes than limits allow, as GET /api/files/upload-limits answers them. A file too large
  * for a request of its own still gets one, for the server to refuse with its own message.

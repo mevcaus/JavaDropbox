@@ -505,6 +505,38 @@ describe('uploadFolder', () => {
         expect(onProgress).not.toHaveBeenCalled();
     });
 
+    it('uploads as before to a server that publishes no limits', async () => {
+        api.get.mockImplementation(async (url: string) => {
+            if (url === '/api/files/upload-limits') throw { response: { status: 404, data: '' } };
+            return { data: [] };
+        });
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const files = Array.from({ length: 60 }, (_, i) => pickedFile(`${i}.txt`));
+
+        const result = await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '' }));
+
+        expect(result.error).toBeUndefined();
+        expect(api.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a file too large for any request before sending anything', async () => {
+        api.get.mockImplementation(async (url: string) =>
+            url === '/api/files/upload-limits'
+                ? { data: { maxFileBytes: 5 * 1024 * 1024, maxRequestBytes: 10 * 1024 * 1024, maxFilesPerRequest: 49 } }
+                : { data: [] },
+        );
+        const big = { file: new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'big.iso'), relativePath: 'Trip/big.iso' };
+        const files = [pickedFile('Trip/a.txt'), big, pickedFile('Trip/b.txt')];
+
+        const result = await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '' }));
+
+        expect(result.error).toEqual({
+            status: 413,
+            data: { message: '"Trip/big.iso" is too large to upload: the most a file can be is 5 MB. Nothing was uploaded.' },
+        });
+        expect(api.post).not.toHaveBeenCalled();
+    });
+
     it('uploads nothing when it cannot learn the limits', async () => {
         api.get.mockImplementation(async (url: string) => {
             if (url === '/api/files/upload-limits') throw { response: { status: 503, data: { message: 'Down' } } };

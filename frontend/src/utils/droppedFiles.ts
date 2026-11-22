@@ -50,6 +50,29 @@ const readAll = async (reader: ReturnType<DroppedFolderEntry['createReader']>): 
 
 const fileOf = (entry: DroppedFileEntry): Promise<File> => new Promise((resolve, reject) => entry.file(resolve, reject));
 
+// The most reads of a drop under way at once. Enough to keep a large drop moving, few enough that
+// a drop of thousands of files doesn't ask the browser for all of them at the same moment, which
+// could make reads fail that would otherwise work.
+const READS_AT_ONCE = 16;
+
+// Runs read when one of READS_AT_ONCE slots is free. Only the reads themselves take a slot, not
+// the walk around them, so a folder waiting on its children never holds one.
+const readSlots = () => {
+    let free = READS_AT_ONCE;
+    const waiting: (() => void)[] = [];
+    return async <T>(read: () => Promise<T>): Promise<T> => {
+        if (free > 0) free -= 1;
+        else await new Promise<void>((resolve) => waiting.push(resolve));
+        try {
+            return await read();
+        } finally {
+            const next = waiting.shift();
+            if (next) next();
+            else free += 1;
+        }
+    };
+};
+
 /**
  * The files dropped on the page, each with its path inside what was dropped: "notes.txt" for a
  * loose file, "Trip/Day 1/a.jpg" for one inside a dropped folder. That is the shape uploadFolder
@@ -63,8 +86,8 @@ const fileOf = (entry: DroppedFileEntry): Promise<File> => new Promise((resolve,
  * locked, is left out too, and its path inside the drop is named in unreadable. Everything else
  * is still uploaded.
  *
- * The folders are read side by side, which a large drop needs, and the files come back in the
- * order the browser listed them.
+ * The folders are read side by side, up to READS_AT_ONCE reads at a time, which a large drop
+ * needs, and the files come back in the order the browser listed them.
  *
  * Reads the drop's items before the first await, since the browser empties them once the drop
  * event has been handled.
@@ -78,6 +101,7 @@ export const readDrop = async (dataTransfer: {
 
     const skipped = new Set<string>();
     const unreadable: string[] = [];
+    const inSlot = readSlots();
 
     const walk = async (entry: DroppedEntry | File, folder: string): Promise<PickedFile[]> => {
         if (startsWithDot(entry.name)) {
@@ -90,10 +114,10 @@ export const readDrop = async (dataTransfer: {
                 return [{ file: entry, relativePath }];
             }
             if (isFileEntry(entry)) {
-                return [{ file: await fileOf(entry), relativePath }];
+                return [{ file: await inSlot(() => fileOf(entry)), relativePath }];
             }
             if (isFolderEntry(entry)) {
-                const children = await readAll(entry.createReader());
+                const children = await inSlot(() => readAll(entry.createReader()));
                 return (await Promise.all(children.map((child) => walk(child, relativePath)))).flat();
             }
         } catch {

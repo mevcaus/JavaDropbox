@@ -84,6 +84,33 @@ describe('readDrop', () => {
         expect(result.unreadable).toEqual(['Trip/Locked', 'Trip/broken-link']);
     });
 
+    it('reads at most 16 files at once, however many folders it walks', async () => {
+        let reading = 0;
+        let most = 0;
+        const slowFile = (name: string) => ({
+            name,
+            isFile: true,
+            isDirectory: false,
+            file: (resolve: (file: File) => void) => {
+                reading += 1;
+                most = Math.max(most, reading);
+                setTimeout(() => {
+                    reading -= 1;
+                    resolve(new File(['x'], name));
+                }, 1);
+            },
+        });
+        const folders = Array.from({ length: 10 }, (_, f) =>
+            folderEntry(`F${f}`, Array.from({ length: 20 }, (_, i) => slowFile(`${i}.txt`))),
+        );
+
+        const result = await readDrop(drop(...folders.map(droppedItem)));
+
+        expect(result.files).toHaveLength(200);
+        expect(most).toBeGreaterThan(1);
+        expect(most).toBeLessThanOrEqual(16);
+    });
+
     it('keeps the order the browser listed even when a later folder is read first', async () => {
         // The first folder's reader answers last.
         const slow = folderEntry('A', [fileEntry('1.txt')]);

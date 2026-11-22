@@ -514,6 +514,30 @@ describe('Dashboard', () => {
         expect(screen.getByText('Upload')).toBeInTheDocument();
     });
 
+    it('says how many files were stored when a later batch fails', async () => {
+        api.get.mockImplementation(async (url: string) =>
+            url === '/api/files/upload-limits'
+                ? { data: { maxFileBytes: null, maxRequestBytes: null, maxFilesPerRequest: 49 } }
+                : { data: TREE },
+        );
+        api.post
+            .mockResolvedValueOnce({ data: { message: 'Uploaded' } })
+            .mockRejectedValueOnce({ response: { status: 507, data: { message: 'Not enough storage left.' } } });
+        const user = userEvent.setup();
+        renderDashboard();
+        await screen.findByRole('button', { name: 'Download report.pdf' });
+
+        await user.upload(screen.getByLabelText('Upload'), Array.from({ length: 120 }, (_, i) => new File(['a'], `${i}.txt`)));
+
+        await waitFor(() =>
+            expect(addToast).toHaveBeenCalledWith(
+                'Not enough storage left. 49 of 120 files were uploaded before it stopped.',
+                'error',
+            ),
+        );
+        expect(api.post).toHaveBeenCalledTimes(2);
+    });
+
     // A failed refresh is reported, but not while the next listing, which may well work, is on its way.
     it('shows a failed refresh only until the next listing starts', async () => {
         api.get.mockResolvedValueOnce({ data: TREE });

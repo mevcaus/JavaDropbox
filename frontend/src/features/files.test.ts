@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filesByFolder, filesIn, totalSize, uploadBatches } from './files';
+import { filesByFolder, filesIn, largestUpload, totalSize, uploadBatches } from './files';
 import type { FileTreeNode } from '../services/apiSlice';
 
 // An item of the tree as getFileTree answers it, with only what these tests read chosen.
@@ -82,6 +82,13 @@ describe('uploadBatches', () => {
             ['huge'],
             ['after'],
         ]);
+    });
+
+    it('takes the largest file to be the smaller of the file limit and a request less its framing', () => {
+        expect(largestUpload(NO_LIMITS)).toBe(Infinity);
+        expect(largestUpload({ ...NO_LIMITS, maxFileBytes: 5000 })).toBe(5000);
+        expect(largestUpload({ ...NO_LIMITS, maxRequestBytes: 10_000 })).toBe(10_000 - 2048);
+        expect(largestUpload({ maxFileBytes: 9000, maxRequestBytes: 10_000, maxFilesPerRequest: 49 })).toBe(10_000 - 2048);
     });
 
     it('sends nothing for no files', () => {

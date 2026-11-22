@@ -1,7 +1,8 @@
 import { generatedApi } from './generatedApi';
 import type { DemoInfo, Message, UploadLimits } from './generatedApi';
-import { filesByFolder, uploadBatches } from '../features/files';
+import { filesByFolder, largestUpload, uploadBatches } from '../features/files';
 import { REQUEST_BODIES } from './requestBodies';
+import { formatSize } from '../utils/format';
 
 // The generated types the rest of the app reads, re-exported so they're imported from here.
 export type {
@@ -163,10 +164,26 @@ export const apiSlice = generatedApi
             >({
                 async queryFn({ files, path, onProgress }, _api, _extra, baseQuery) {
                     const answer = await baseQuery({ url: '/api/files/upload-limits' });
-                    if (answer.error) {
+                    // A server from before the limits were published has no such path: upload as
+                    // it took uploads then, a folder's files at once.
+                    if (answer.error && answer.error.status !== 404) {
                         return { error: answer.error };
                     }
-                    const limits = limitsFrom(answer.data);
+                    const limits = limitsFrom(answer.error ? null : answer.data);
+                    // Refused here rather than by the server halfway through, after the batches
+                    // before it are stored.
+                    const largest = largestUpload(limits);
+                    const tooLarge = files.find(({ file }) => file.size > largest);
+                    if (tooLarge) {
+                        return {
+                            error: {
+                                status: 413,
+                                data: {
+                                    message: `"${tooLarge.relativePath}" is too large to upload: the most a file can be is ${formatSize(largest)}. Nothing was uploaded.`,
+                                },
+                            },
+                        };
+                    }
                     const requests = filesByFolder(files, path).flatMap(([folder, group]) =>
                         uploadBatches(group, folder, limits).map((batch) => ({ folder, batch })),
                     );
@@ -202,7 +219,8 @@ export const apiSlice = generatedApi
 
 export const {
     useGetFileTreeQuery,
-    useUploadFilesMutation,
+    // Not useUploadFilesMutation: one request takes only so many files, so every upload goes
+    // through uploadFolder, which sends them in batches that fit.
     useUploadFolderMutation,
     useDeleteItemMutation,
     useCreateFolderMutation,
