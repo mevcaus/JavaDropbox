@@ -55,42 +55,56 @@ const fileOf = (entry: DroppedFileEntry): Promise<File> => new Promise((resolve,
  * loose file, "Trip/Day 1/a.jpg" for one inside a dropped folder. That is the shape uploadFolder
  * takes, so a drop and the folder picker upload the same way.
  *
- * Dot-named files and folders are left out and named in skipped, each name once. A dot-named
+ * Dot-named files and folders are left out and named in skipped, each name once, sorted. A dot-named
  * folder is not walked into at all: .git or node_modules/.cache can hold thousands of files.
  * Empty folders are not reported, as with the folder picker.
+ *
+ * A file or folder the browser can't read, such as a broken link or a file another program has
+ * locked, is left out too, and its path inside the drop is named in unreadable. Everything else
+ * is still uploaded.
+ *
+ * The folders are read side by side, which a large drop needs, and the files come back in the
+ * order the browser listed them.
  *
  * Reads the drop's items before the first await, since the browser empties them once the drop
  * event has been handled.
  */
 export const readDrop = async (dataTransfer: {
     items?: ArrayLike<DroppedItem> | null;
-}): Promise<{ files: PickedFile[]; skipped: string[] }> => {
+}): Promise<{ files: PickedFile[]; skipped: string[]; unreadable: string[] }> => {
     const items = Array.from(dataTransfer.items ?? []).filter((item) => item.kind === 'file');
     // A browser without entries, or an item that has none, still hands over the file itself.
     const roots = items.map((item) => item.webkitGetAsEntry?.() ?? item.getAsFile());
 
-    const files: PickedFile[] = [];
     const skipped = new Set<string>();
+    const unreadable: string[] = [];
 
-    const walk = async (entry: DroppedEntry | File, folder: string): Promise<void> => {
+    const walk = async (entry: DroppedEntry | File, folder: string): Promise<PickedFile[]> => {
         if (startsWithDot(entry.name)) {
             skipped.add(entry.name);
-            return;
+            return [];
         }
         const relativePath = folder ? `${folder}/${entry.name}` : entry.name;
-        if (entry instanceof File) {
-            files.push({ file: entry, relativePath });
-        } else if (isFileEntry(entry)) {
-            files.push({ file: await fileOf(entry), relativePath });
-        } else if (isFolderEntry(entry)) {
-            for (const child of await readAll(entry.createReader())) {
-                await walk(child, relativePath);
+        try {
+            if (entry instanceof File) {
+                return [{ file: entry, relativePath }];
             }
+            if (isFileEntry(entry)) {
+                return [{ file: await fileOf(entry), relativePath }];
+            }
+            if (isFolderEntry(entry)) {
+                const children = await readAll(entry.createReader());
+                return (await Promise.all(children.map((child) => walk(child, relativePath)))).flat();
+            }
+        } catch {
+            // The browser says only that it failed (NotFoundError, NotReadableError), so the
+            // path is all there is to tell.
+            unreadable.push(relativePath);
         }
+        return [];
     };
 
-    for (const root of roots) {
-        if (root) await walk(root, '');
-    }
-    return { files, skipped: [...skipped] };
+    const found = await Promise.all(roots.map((root) => (root ? walk(root, '') : [])));
+    // Sorted, since the folders finish in whatever order they do.
+    return { files: found.flat(), skipped: [...skipped].sort(), unreadable: unreadable.sort() };
 };

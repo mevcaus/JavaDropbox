@@ -1,6 +1,6 @@
 import { generatedApi } from './generatedApi';
-import type { DemoInfo, Message } from './generatedApi';
-import { filesByFolder } from '../features/files';
+import type { DemoInfo, Message, UploadLimits } from './generatedApi';
+import { filesByFolder, uploadBatches } from '../features/files';
 import { REQUEST_BODIES } from './requestBodies';
 
 // The generated types the rest of the app reads, re-exported so they're imported from here.
@@ -16,10 +16,27 @@ export type {
     ShareLinkDto,
     SharedEntry,
     SharedItemDto,
+    UploadLimits,
 } from './generatedApi';
 
 /** A file with its place inside a folder being uploaded, e.g. "Trip/Day 1/a.jpg". */
 export type PickedFile = { file: File; relativePath: string };
+
+/** How far an upload has got: the files stored so far, of all of them. */
+export type UploadProgress = { sent: number; total: number };
+
+// The limits as the server answered them. Anything that isn't a number, such as the app's HTML
+// from a request that never reached the API, counts as no limit, which sends a folder's files in
+// one request as before.
+const limitsFrom = (data: unknown): UploadLimits => {
+    const fields = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+    const number = (value: unknown) => (typeof value === 'number' && value > 0 ? value : null);
+    return {
+        maxFileBytes: number(fields.maxFileBytes),
+        maxRequestBytes: number(fields.maxRequestBytes),
+        maxFilesPerRequest: number(fields.maxFilesPerRequest),
+    };
+};
 
 /**
  * The API slice with its cache tags, plus the requests the spec can't describe. Import the hooks
@@ -130,15 +147,37 @@ export const apiSlice = generatedApi
             /**
              * Uploads files into the folder at path, each into the subfolder its relativePath
              * names, so a folder from the folder picker or dropped on the page keeps its structure.
-             * The endpoint stores files in one folder per request, so this sends a request per
-             * folder, parents first and one after another, and stops at the first that fails. The
-             * tree is refreshed once at the end, not after every folder. Empty folders aren't
-             * uploaded: neither the picker nor a drop reports them.
+             * Loose files, from Upload, are the same with only a name. The endpoint stores files in
+             * one folder per request, and takes only so many files and bytes in one (see
+             * uploadBatches), so this sends each folder's files in as many requests as that takes,
+             * parents first and one after another, and stops at the first that fails. What was
+             * sent before it stays stored. The tree is refreshed once at the end, not after every
+             * request. Empty folders aren't uploaded: neither the picker nor a drop reports them.
+             *
+             * onProgress hears how many files are stored, at the start and after each request,
+             * when there's more than one request.
              */
-            uploadFolder: build.mutation<Message, { files: PickedFile[]; path: string }>({
-                async queryFn({ files, path }, _api, _extra, baseQuery) {
+            uploadFolder: build.mutation<
+                Message,
+                { files: PickedFile[]; path: string; onProgress?: (progress: UploadProgress) => void }
+            >({
+                async queryFn({ files, path, onProgress }, _api, _extra, baseQuery) {
+                    const answer = await baseQuery({ url: '/api/files/upload-limits' });
+                    if (answer.error) {
+                        return { error: answer.error };
+                    }
+                    const limits = limitsFrom(answer.data);
+                    const requests = filesByFolder(files, path).flatMap(([folder, group]) =>
+                        uploadBatches(group, folder, limits).map((batch) => ({ folder, batch })),
+                    );
+                    const total = files.length;
+                    let sent = 0;
+                    const report = () => {
+                        if (requests.length > 1) onProgress?.({ sent, total });
+                    };
+                    report();
                     let last: Message = { message: '' };
-                    for (const [folder, batch] of filesByFolder(files, path)) {
+                    for (const { folder, batch } of requests) {
                         const result = await baseQuery({
                             url: '/api/files',
                             method: 'POST',
@@ -150,6 +189,8 @@ export const apiSlice = generatedApi
                             return { error: result.error };
                         }
                         last = result.data as Message;
+                        sent += batch.length;
+                        report();
                     }
                     return { data: last };
                 },

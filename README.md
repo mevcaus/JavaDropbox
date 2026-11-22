@@ -320,7 +320,7 @@ What the app reads from the server goes through RTK Query, which ships with Redu
 ## Features
 
 **Files**
-- Multi-file upload, and whole folders uploaded with their subfolders, from the picker or by dragging them onto the file list; folder creation, recursive delete (with the metadata and versions of everything inside)
+- Multi-file upload, and whole folders uploaded with their subfolders, from the picker or by dragging them onto the file list, sent in batches the server takes however many files there are; folder creation, recursive delete (with the metadata and versions of everything inside)
 - Downloads with MIME detection and HTTP range support; folders download as streamed ZIPs
 - In-browser previews of images, PDFs and text or source files; text previews fetch only the first 256 KB by range request
 - Full-text search across the open folder and everything beneath it, of names and of the text in text and source files, PDFs and Word documents, ranked by relevance with the matching words highlighted in a passage of each file

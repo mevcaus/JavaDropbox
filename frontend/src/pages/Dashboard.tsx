@@ -5,9 +5,9 @@ import {
     useCreateFolderMutation,
     useDeleteItemMutation,
     useGetFileTreeQuery,
-    useUploadFilesMutation,
     useUploadFolderMutation,
     type PickedFile,
+    type UploadProgress,
 } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import FileTable, { type FileRow } from '../components/FileTable';
@@ -35,12 +35,15 @@ const UploadButton = ({
     icon: Icon,
     label,
     busy,
+    progress,
     disabled,
     ...inputProps
 }: {
     icon: LucideIcon;
     label: string;
     busy: boolean;
+    // How far the upload has got, when it takes more than one request.
+    progress: UploadProgress | null;
     disabled: boolean;
     // Picks a folder rather than files. Every browser has it, but React's types don't list it.
     webkitdirectory?: string;
@@ -55,7 +58,10 @@ const UploadButton = ({
         ) : (
             <Icon className="h-4 w-4 mr-2" aria-hidden="true" />
         )}
-        {busy ? 'Uploading…' : label}
+        {/* Read out as it changes, so a long upload is heard moving along too. */}
+        <span aria-live="polite">
+            {busy ? (progress ? `Uploading ${progress.sent} of ${progress.total} files…` : 'Uploading…') : label}
+        </span>
         <input type="file" className="sr-only" multiple disabled={disabled} {...inputProps} />
     </label>
 );
@@ -74,7 +80,6 @@ const Dashboard = () => {
     });
     const files = useMemo(() => filesIn(tree, currentPath), [tree, currentPath]);
     const [createFolder] = useCreateFolderMutation();
-    const [uploadFiles] = useUploadFilesMutation();
     const [uploadFolder] = useUploadFolderMutation();
     const [deleteItem] = useDeleteItemMutation();
     const { addToast } = useToast();
@@ -87,6 +92,8 @@ const Dashboard = () => {
     const [previewItem, setPreviewItem] = useState<(FileRow & { path: string }) | null>(null);
     // What is being uploaded, while an upload is running: one upload at a time.
     const [uploading, setUploading] = useState<'files' | 'folder' | 'drop' | null>(null);
+    // How far it has got, once it takes more than one request.
+    const [progress, setProgress] = useState<UploadProgress | null>(null);
     // Whether files are being dragged over the table.
     const [draggingOver, setDraggingOver] = useState(false);
     // How many of the table's elements the drag has entered and not yet left. Every move onto a
@@ -156,12 +163,15 @@ const Dashboard = () => {
 
         setUploading('files');
         try {
-            await uploadFiles({ body: { files: selected, path: currentPath } }).unwrap();
+            // Through uploadFolder, with only their names, so a large selection goes in batches.
+            const files = selected.map((file) => ({ file, relativePath: file.name }));
+            await uploadFolder({ files, path: currentPath, onProgress: setProgress }).unwrap();
             addToast(`Uploaded ${selected.length} ${selected.length === 1 ? 'file' : 'files'} successfully.`, 'success');
         } catch (err) {
             addToast(readableError(err, 'Failed to upload files.'), 'error');
         } finally {
             setUploading(null);
+            setProgress(null);
         }
     };
 
@@ -180,13 +190,15 @@ const Dashboard = () => {
         const folderName = tops.size === 1 && files[0].relativePath.includes('/') ? [...tops][0] : null;
         const count = `${files.length} ${files.length === 1 ? 'file' : 'files'}`;
         try {
-            await uploadFolder({ files, path: currentPath }).unwrap();
+            await uploadFolder({ files, path: currentPath, onProgress: setProgress }).unwrap();
             addToast(
                 folderName ? `Uploaded folder "${folderName}" (${count}) successfully.` : `Uploaded ${count} successfully.`,
                 'success',
             );
         } catch (err) {
             addToast(readableError(err, 'Failed to upload the folder.'), 'error');
+        } finally {
+            setProgress(null);
         }
     };
 
@@ -251,7 +263,14 @@ const Dashboard = () => {
                 addToast('Could not read the dropped files.', 'error');
                 return;
             }
-            if (dropped.files.length === 0 && dropped.skipped.length === 0) {
+            if (dropped.unreadable.length > 0) {
+                const names = dropped.unreadable;
+                addToast(
+                    `${names.join(', ')} could not be read, so ${names.length === 1 ? 'it was' : 'they were'} not uploaded.`,
+                    'error',
+                );
+            }
+            if (dropped.files.length === 0 && dropped.skipped.length === 0 && dropped.unreadable.length === 0) {
                 addToast('Nothing was uploaded: empty folders are left out.', 'info');
                 return;
             }
@@ -319,6 +338,7 @@ const Dashboard = () => {
                         icon={UploadIcon}
                         label="Upload"
                         busy={uploading === 'files' || uploading === 'drop'}
+                        progress={progress}
                         disabled={uploading !== null}
                         onChange={handleFileUpload}
                     />
@@ -327,6 +347,7 @@ const Dashboard = () => {
                         icon={FolderUp}
                         label="Upload folder"
                         busy={uploading === 'folder'}
+                        progress={progress}
                         disabled={uploading !== null}
                         onChange={handleFolderUpload}
                         webkitdirectory=""
