@@ -58,7 +58,11 @@ abstract class SearchIndexContractTests {
    */
   IndexableItems items() {
     return new IndexableItems(
-        new RowsFromStore(store), storagePaths, new FileContents(store), extractor);
+        new RowsFromStore(store),
+        storagePaths,
+        // No rows, so every file is at its own path.
+        new FileContents(store, (ownerId, path) -> Optional.empty()),
+        extractor);
   }
 
   /** Closes an index {@link #create} made, as the app does at shutdown. */

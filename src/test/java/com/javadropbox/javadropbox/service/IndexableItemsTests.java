@@ -70,7 +70,8 @@ class IndexableItemsTests {
         new IndexableItems(
             source,
             storagePaths,
-            new FileContents(store),
+            // No rows, so every file is at its own path.
+            new FileContents(store, (ownerId, path) -> Optional.empty()),
             new TextExtractor("50MB", Path.of(System.getProperty("java.io.tmpdir"))) {
               @Override
               public Optional<String> extract(Path file, String name, long size)
@@ -233,7 +234,8 @@ class IndexableItemsTests {
     Files.writeString(outside.resolve("secret.txt"), "secret words");
     Files.createSymbolicLink(mine.resolve("link"), outside);
 
-    assertThat(items.text("1/link/secret.txt", new Item("secret.txt", false, 12, T))).isEmpty();
+    assertThat(items.text("1/link/secret.txt", new Item("secret.txt", false, 12, T, null)))
+        .isEmpty();
     assertThat(extracted).isZero();
   }
 
@@ -259,10 +261,10 @@ class IndexableItemsTests {
   @Test
   @DisplayName("a file is stamped with its row's size and time, -1 for none, a folder with nothing")
   void stamps() {
-    assertThat(Stamp.of(new Item("k", false, 5, T)))
+    assertThat(Stamp.of(new Item("k", false, 5, T, null)))
         .isEqualTo(new Stamp(false, 5, T.toEpochMilli()));
-    assertThat(Stamp.of(new Item("k", false, 5, null))).isEqualTo(new Stamp(false, 5, -1));
-    assertThat(Stamp.of(new Item("k", true, 0, T))).isEqualTo(Stamp.FOLDER);
+    assertThat(Stamp.of(new Item("k", false, 5, null, null))).isEqualTo(new Stamp(false, 5, -1));
+    assertThat(Stamp.of(new Item("k", true, 0, T, null))).isEqualTo(Stamp.FOLDER);
   }
 
   private record Reported(List<String> changed, List<String> gone) {}
@@ -290,6 +292,6 @@ class IndexableItemsTests {
   }
 
   private static Item item(String name, Path file) throws IOException {
-    return new Item(name, false, Files.size(file), T);
+    return new Item(name, false, Files.size(file), T, null);
   }
 }

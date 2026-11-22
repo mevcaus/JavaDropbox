@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -67,7 +68,11 @@ class SymlinkSwapTests {
 
     ByteArrayOutputStream zip = new ByteArrayOutputStream();
     FolderArchive.write(
-        new FileContents(store), checked, ListedItems.below("dir", rows), "dir", zip);
+        new FileContents(store, (ownerId, path) -> Optional.empty()),
+        checked,
+        ListedItems.below("dir", rows),
+        "dir",
+        zip);
 
     assertThat(zip.toString()).doesNotContain("outside secret").doesNotContain("precious");
     assertThat(names(zip.toByteArray())).containsExactly("dir/", "dir/secret.txt", "dir/sub/");

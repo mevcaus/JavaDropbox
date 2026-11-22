@@ -21,6 +21,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -178,7 +179,8 @@ class FolderArchiveTests {
 
   private void write(OutputStream out) throws IOException {
     FolderArchive.write(
-        new FileContents(store),
+        // Rows listed here name no blobs, so every file is at its own path.
+        new FileContents(store, (ownerId, path) -> Optional.empty()),
         home.resolveItem("project"),
         ListedItems.below("project", rows),
         "project",

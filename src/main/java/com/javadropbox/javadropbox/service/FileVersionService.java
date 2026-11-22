@@ -125,7 +125,8 @@ public class FileVersionService {
   /**
    * One version's stored copy.
    *
-   * @param key where it is in the store
+   * @param key where it is in the store, to read or copy from only: it may be a blob, which other
+   *     files and versions share
    * @param contentHash its SHA-256, or null where it isn't known or the copy looks changed since
    */
   public record StoredCopy(String key, String contentHash) {}

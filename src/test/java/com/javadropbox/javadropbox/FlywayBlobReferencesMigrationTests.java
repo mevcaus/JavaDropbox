@@ -40,8 +40,16 @@ class FlywayBlobReferencesMigrationTests {
   @AfterEach
   void pointAtNothing() throws SQLException {
     DATABASE.execute("UPDATE file_metadata SET blob_hash = NULL");
-    DATABASE.execute("UPDATE file_versions SET blob_hash = NULL");
+    DATABASE.execute("UPDATE file_versions SET blob_hash = NULL, owner_id = NULL");
     DATABASE.execute("DELETE FROM blobs");
+  }
+
+  // Points the version at the blob, owned by its file's account, as a blob version has to be.
+  private static void versionInBlob() throws SQLException {
+    DATABASE.execute(
+        "UPDATE file_versions v SET blob_hash = '"
+            + HASH
+            + "', owner_id = m.user_id FROM file_metadata m WHERE m.id = v.file_id");
   }
 
   @Test
@@ -55,8 +63,8 @@ class FlywayBlobReferencesMigrationTests {
     assertThat(
             DATABASE.column(
                 "SELECT concat_ws(',', version, stored_filename IS NOT NULL, size,"
-                    + " coalesce(blob_hash, '-')) FROM file_versions"))
-        .containsExactly("1,t,3,-");
+                    + " coalesce(blob_hash, '-'), coalesce(owner_id::text, '-')) FROM file_versions"))
+        .containsExactly("1,t,3,-,-");
   }
 
   @Test
@@ -69,8 +77,7 @@ class FlywayBlobReferencesMigrationTests {
                         + HASH
                         + "' WHERE path = 'docs/a.txt'"))
         .isInstanceOf(SQLException.class);
-    assertThatThrownBy(
-            () -> DATABASE.execute("UPDATE file_versions SET blob_hash = '" + HASH + "'"))
+    assertThatThrownBy(FlywayBlobReferencesMigrationTests::versionInBlob)
         .isInstanceOf(SQLException.class);
 
     DATABASE.execute(
@@ -80,9 +87,26 @@ class FlywayBlobReferencesMigrationTests {
             + "', 5, 2, now())");
     DATABASE.execute(
         "UPDATE file_metadata SET blob_hash = '" + HASH + "' WHERE path = 'docs/a.txt'");
-    DATABASE.execute("UPDATE file_versions SET blob_hash = '" + HASH + "'");
+    versionInBlob();
     assertThat(DATABASE.column("SELECT blob_hash FROM file_metadata WHERE path = 'docs/a.txt'"))
         .containsExactly(HASH);
+  }
+
+  @Test
+  @DisplayName("a version kept as a blob says whose it is")
+  void blobVersionHasAnOwner() throws SQLException {
+    DATABASE.execute(
+        "INSERT INTO blobs (hash, size, reference_count, created_at)"
+            + " VALUES ('"
+            + HASH
+            + "', 3, 1, now())");
+
+    assertThatThrownBy(
+            () -> DATABASE.execute("UPDATE file_versions SET blob_hash = '" + HASH + "'"))
+        .isInstanceOf(SQLException.class);
+    versionInBlob();
+    assertThat(DATABASE.column("SELECT owner_id = (SELECT id FROM users) FROM file_versions"))
+        .containsExactly("t");
   }
 
   @Test
@@ -93,22 +117,34 @@ class FlywayBlobReferencesMigrationTests {
             + " VALUES ('"
             + HASH
             + "', 5, 0, now())");
-    DATABASE.execute("UPDATE file_versions SET blob_hash = '" + HASH + "'");
 
+    // Pointed at by a version, then by the file instead.
+    versionInBlob();
+    assertThatThrownBy(() -> DATABASE.execute("DELETE FROM blobs"))
+        .isInstanceOf(SQLException.class);
+    DATABASE.execute("UPDATE file_versions SET blob_hash = NULL, owner_id = NULL");
+    DATABASE.execute(
+        "UPDATE file_metadata SET blob_hash = '" + HASH + "' WHERE path = 'docs/a.txt'");
     assertThatThrownBy(() -> DATABASE.execute("DELETE FROM blobs"))
         .isInstanceOf(SQLException.class);
     assertThat(DATABASE.column("SELECT hash FROM blobs")).containsExactly(HASH);
   }
 
   @Test
-  @DisplayName("a blob's references are indexed, a file's with its owner")
+  @DisplayName("a blob's references are indexed with their owner, and only those that exist")
   void referencesAreIndexed() throws SQLException {
     assertThat(
             DATABASE.column(
-                "SELECT tablename || ': ' || substring(indexdef from '\\((.*)\\)') FROM pg_indexes"
-                    + " WHERE indexname IN ('idx_file_metadata_blob_hash',"
-                    + " 'idx_file_versions_blob_hash') ORDER BY tablename"))
-        .containsExactly("file_metadata: blob_hash, user_id", "file_versions: blob_hash");
+                "SELECT indexdef FROM pg_indexes WHERE indexname IN"
+                    + " ('idx_file_metadata_blob_hash', 'idx_file_versions_blob_hash')"
+                    + " ORDER BY tablename"))
+        .satisfiesExactly(
+            files ->
+                assertThat(files)
+                    .contains("file_metadata", "(blob_hash, user_id)", "blob_hash IS NOT NULL"),
+            versions ->
+                assertThat(versions)
+                    .contains("file_versions", "(blob_hash, owner_id)", "blob_hash IS NOT NULL"));
   }
 
   @Test

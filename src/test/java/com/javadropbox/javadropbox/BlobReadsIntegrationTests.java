@@ -14,11 +14,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javadropbox.javadropbox.model.User;
 import com.javadropbox.javadropbox.repository.UserRepository;
 import com.javadropbox.javadropbox.service.FileStore;
+import com.javadropbox.javadropbox.service.SearchIndex;
 import com.javadropbox.javadropbox.service.StoragePaths;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
@@ -57,6 +59,7 @@ class BlobReadsIntegrationTests {
   @Autowired private StoragePaths storagePaths;
   @Autowired private FileStore store;
   @Autowired private ObjectMapper json;
+  @Autowired private SearchIndex searchIndex;
 
   private User owner;
 
@@ -72,7 +75,10 @@ class BlobReadsIntegrationTests {
     store.delete(storagePaths.home(owner).key() + "/docs/a.txt");
 
     String first = keepAsBlob(FIRST);
-    jdbc.update("UPDATE file_versions SET blob_hash = ? WHERE version = 1", first);
+    jdbc.update(
+        "UPDATE file_versions SET blob_hash = ?, owner_id = ? WHERE version = 1",
+        first,
+        owner.getId());
     store.delete(
         StoragePaths.VERSIONS_DIR
             + "/"
@@ -151,6 +157,55 @@ class BlobReadsIntegrationTests {
         .perform(signedIn(get("/api/files/download").param("path", "docs/a_v1.txt")))
         .andExpect(status().isOk())
         .andExpect(content().string(FIRST));
+  }
+
+  @Test
+  @DisplayName("search reads the text of the blob")
+  void searchReadsTheBlob() throws Exception {
+    // Changed as the row sees it, so the search index reads the file again.
+    jdbc.update(
+        "UPDATE file_metadata SET size = ?, updated_at = now() WHERE path = 'docs/a.txt'",
+        LIVE.length());
+    searchIndex.reconcile();
+    searchIndex.awaitIdle(Duration.ofSeconds(30));
+
+    String body =
+        mockMvc
+            .perform(signedIn(get("/api/search").param("q", "blob")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat(json.readTree(body).get("results").findValuesAsText("relativePath"))
+        .containsExactly("docs/a.txt");
+  }
+
+  @Test
+  @DisplayName("each account reads its own file at a path, and only its own row's blob")
+  void lookupIsPerAccount() throws Exception {
+    users.save(new User("other", "unused", "ROLE_USER"));
+    mockMvc
+        .perform(
+            multipart("/api/files")
+                .file(
+                    new MockMultipartFile(
+                        "files",
+                        "a.txt",
+                        "text/plain",
+                        "the other account's own".getBytes(StandardCharsets.UTF_8)))
+                .param("path", "docs")
+                .with(user("other"))
+                .with(csrf().asHeader()))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/files/download").param("path", "docs/a.txt").with(user("other")).with(csrf()))
+        .andExpect(status().isOk())
+        .andExpect(content().string("the other account's own"));
+    mockMvc
+        .perform(signedIn(get("/api/files/download").param("path", "docs/a.txt")))
+        .andExpect(content().string(LIVE));
   }
 
   @Test

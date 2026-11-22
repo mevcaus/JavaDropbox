@@ -60,11 +60,14 @@ class IndexableItems {
    *
    * @param size in bytes; 0 for a folder
    * @param modified when its content last changed, as its row says; null for a folder
+   * @param blobHash the blob its content is kept as, as its row says, or null where it's at its own
+   *     path, so reading the text of every file needs no query for each
    */
-  record Item(String name, boolean isDirectory, long size, Instant modified) {
+  record Item(String name, boolean isDirectory, long size, Instant modified, String blobHash) {
 
     static Item of(ListedItems.Item listed) {
-      return new Item(listed.name(), listed.folder(), listed.size(), listed.modified());
+      return new Item(
+          listed.name(), listed.folder(), listed.size(), listed.modified(), listed.blobHash());
     }
   }
 
@@ -204,7 +207,8 @@ class IndexableItems {
               .of(
                   storagePaths
                       .home(Long.parseLong(key.substring(0, slash)))
-                      .resolveItem(key.substring(slash + 1)))
+                      .resolveItem(key.substring(slash + 1)),
+                  file.blobHash())
               .filter(entry -> !entry.isDirectory());
       if (content.isEmpty()) {
         throw new NoSuchFileException(key);

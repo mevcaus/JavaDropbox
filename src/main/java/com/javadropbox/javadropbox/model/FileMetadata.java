@@ -50,7 +50,10 @@ public class FileMetadata {
   /**
    * The blob the live content is kept as (#316), or null where it is at the file's own path, and
    * for a folder. Read-only here: it changes only together with the blob's reference count, in a
-   * statement of its own, so saving this entity can never point it back at an older blob.
+   * statement of its own, so saving this entity can never point it back at an older blob. Such a
+   * statement leaves an entity already loaded in its transaction (one locked to be replaced, say)
+   * with the old value, so it has to clear or refresh them, as {@code @Modifying(clearAutomatically
+   * = true)} does.
    */
   @Column(length = 64, insertable = false, updatable = false)
   private String blobHash;

@@ -7,6 +7,8 @@ import com.javadropbox.javadropbox.service.StoragePaths.StoragePath;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -21,11 +23,16 @@ import org.springframework.stereotype.Component;
  * So does a file with no row, copied in by hand and not imported yet. Folders are always at their
  * paths. Nothing makes a row name a blob yet; uploads switch to blobs in the last part of #316.
  *
+ * <p>What this finds is for reading only. A blob is shared by every file and version that has the
+ * same content, so an entry found here is never moved, replaced or deleted: copy it instead.
+ *
  * <p>Not yet here: checks made before a write (whether something is at a path), which change with
  * the writes.
  */
 @Component
 public class FileContents {
+
+  private static final Logger log = LoggerFactory.getLogger(FileContents.class);
 
   /** Finds the blob an account's file at a path is kept as; see {@link #of(StoragePath)}. */
   @FunctionalInterface
@@ -41,11 +48,6 @@ public class FileContents {
     this(store, files::findBlobHash);
   }
 
-  /** For readers' tests whose files have no rows, so are all at their own paths. */
-  FileContents(FileStore store) {
-    this(store, (ownerId, path) -> Optional.empty());
-  }
-
   FileContents(FileStore store, BlobLookup rows) {
     this.store = store;
     this.rows = rows;
@@ -56,7 +58,8 @@ public class FileContents {
    * if nothing is there, including a blob its row names that has gone from the store.
    */
   public Optional<Entry> of(StoragePath item) throws IOException {
-    // The account's root has no row of its own.
+    // The account's root has no row of its own. The row is looked up by the account the item is
+    // in, so a path never finds another account's file.
     Optional<String> blob =
         item.isRoot() ? Optional.empty() : rows.blobHash(item.home().userId(), item.key());
     return of(item, blob.orElse(null));
@@ -66,17 +69,33 @@ public class FileContents {
    * Like {@link #of(StoragePath)}, with the blob the item's row names already known, as a listing
    * of rows has it, so reading many files needs no query for each.
    *
-   * @param blobHash as the item's row has it: null where its content is at its own path
+   * @param blobHash as {@code item}'s own row has it, never from anywhere else: null where its
+   *     content is at its own path
    */
-  public Optional<Entry> of(StoragePath item, String blobHash) throws IOException {
-    return store.stat(blobHash != null ? BlobStore.key(blobHash) : item.storeKey());
+  Optional<Entry> of(StoragePath item, String blobHash) throws IOException {
+    if (blobHash == null) {
+      return store.stat(item.storeKey());
+    }
+    return blob(blobHash, item.storeKey());
   }
 
   /** A version's stored copy, wherever its row says it is kept, or empty if it isn't there. */
   public Optional<Entry> ofVersion(FileVersion version) throws IOException {
     String blobHash = version.getBlobHash();
-    return store.stat(
-        blobHash != null ? BlobStore.key(blobHash) : versionKey(version.getStoredFilename()));
+    if (blobHash == null) {
+      return store.stat(versionKey(version.getStoredFilename()));
+    }
+    return blob(blobHash, "version " + version.getId());
+  }
+
+  // A blob a row names that has gone is a bug or a race with deleting it, never the user's doing,
+  // and it would otherwise only show as a 404 or a file missing from a zip.
+  private Optional<Entry> blob(String hash, String whose) throws IOException {
+    Optional<Entry> blob = store.stat(BlobStore.key(hash));
+    if (blob.isEmpty()) {
+      log.warn("Blob {} of {} is missing from the store", hash, whose);
+    }
+    return blob;
   }
 
   /**
