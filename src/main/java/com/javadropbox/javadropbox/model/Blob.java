@@ -28,6 +28,9 @@ public class Blob {
   @Column(nullable = false)
   private Instant createdAt;
 
+  /** When the count last fell to zero, or an upload last claimed the blob; null while counted. */
+  private Instant releasedAt;
+
   // Rows are only ever made and counted with single statements (#316), never built here and saved,
   // which could set a live count back.
   protected Blob() {}
@@ -46,5 +49,9 @@ public class Blob {
 
   public Instant getCreatedAt() {
     return createdAt;
+  }
+
+  public Instant getReleasedAt() {
+    return releasedAt;
   }
 }

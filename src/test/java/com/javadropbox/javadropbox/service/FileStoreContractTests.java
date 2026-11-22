@@ -34,6 +34,16 @@ abstract class FileStoreContractTests {
   // --- reading ---------------------------------------------------------------------------------
 
   @Test
+  @DisplayName("a file written can be synced, and keeps its content")
+  void writtenFileCanBeSynced() throws IOException {
+    write("docs/a.txt", "alpha");
+
+    store().sync("docs/a.txt");
+
+    assertThat(read("docs/a.txt")).isEqualTo("alpha");
+  }
+
+  @Test
   @DisplayName("a file written is there with its content, size and modification time")
   void writtenFileIsThere() throws IOException {
     Instant before = Instant.now().minusSeconds(5);

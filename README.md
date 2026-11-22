@@ -139,6 +139,7 @@ erDiagram
         varchar hash PK "SHA-256 of the content"
         bigint size
         int reference_count "files and versions pointing at it"
+        timestamptz released_at "when nothing pointed at it any more"
     }
     file_history {
         bigint id PK

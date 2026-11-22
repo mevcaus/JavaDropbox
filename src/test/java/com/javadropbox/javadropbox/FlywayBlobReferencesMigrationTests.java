@@ -113,10 +113,10 @@ class FlywayBlobReferencesMigrationTests {
   @DisplayName("a blob's row can't go while a file or version points at it, whatever its count")
   void referencedBlobKeepsItsRow() throws SQLException {
     DATABASE.execute(
-        "INSERT INTO blobs (hash, size, reference_count, created_at)"
+        "INSERT INTO blobs (hash, size, reference_count, created_at, released_at)"
             + " VALUES ('"
             + HASH
-            + "', 5, 0, now())");
+            + "', 5, 0, now(), now())");
 
     // Pointed at by a version, then by the file instead.
     versionInBlob();

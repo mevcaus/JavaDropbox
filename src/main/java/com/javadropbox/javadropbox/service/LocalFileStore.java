@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
@@ -13,6 +14,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
@@ -280,6 +282,15 @@ public class LocalFileStore implements FileStore {
           source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     } catch (AtomicMoveNotSupportedException e) {
       Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  // Opened for reading: flushing needs no write access, and a file the app may not write is still
+  // one it can flush.
+  @Override
+  public void sync(String key) throws IOException {
+    try (FileChannel channel = FileChannel.open(recheck(path(key)), StandardOpenOption.READ)) {
+      channel.force(true);
     }
   }
 

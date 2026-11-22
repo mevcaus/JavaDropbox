@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
  * <p>Writing is in two steps: {@link #stage} writes the content to a scratch file and hashes it,
  * and {@link #place} puts it in place as its blob if no blob with that hash is there, so that the
  * code counting references (#316) can put a blob back in place under the same lock as the code
- * deleting it. A staged file that wasn't needed is dropped with {@link #discard}. Nothing calls
- * this yet.
+ * deleting it. A staged file that wasn't needed is dropped with {@link #discard}. {@link
+ * BlobReferences} decides which, and counts who points at each blob; nothing calls either yet.
  */
 @Component
 public class BlobStore {
@@ -79,6 +79,9 @@ public class BlobStore {
         throw new IllegalStateException(
             "Hashed " + in.count() + " bytes of content the store wrote " + size + " of");
       }
+      // A blob may take the place of one other files share, so it is made to last first. Here,
+      // outside any transaction, rather than where it is moved into place.
+      store.sync(scratch);
       return new Staged(in.hex(), size, scratch);
     } catch (IOException | RuntimeException e) {
       discard(scratch);
@@ -90,7 +93,7 @@ public class BlobStore {
    * Makes {@code staged} its blob, unless a blob with its hash and size is already there; either
    * way the blob is there afterwards. Two contents with one hash are the same bytes, so a blob put
    * in place meanwhile by someone else is as good as this one. One of another size was left torn by
-   * a crash, since the local disk isn't synced, and is replaced.
+   * a crash, by a release from before blobs were synced as they were staged, and is replaced.
    */
   void place(Staged staged) throws IOException {
     String key = key(staged.hash());
@@ -98,6 +101,18 @@ public class BlobStore {
     if (existing.isPresent() && existing.get().size() == staged.size()) {
       return;
     }
+    store.createFolders(key.substring(0, key.lastIndexOf('/')));
+    store.replace(staged.scratch(), key);
+  }
+
+  /**
+   * Makes {@code staged} its blob whether or not one is there already, with the same store calls a
+   * new blob takes. A blob already there is replaced by the same bytes. Used where skipping the
+   * copy would show, by how long the upload took, that someone else already stores this content
+   * (see BlobReferences).
+   */
+  void placeAnyway(Staged staged) throws IOException {
+    String key = key(staged.hash());
     store.createFolders(key.substring(0, key.lastIndexOf('/')));
     store.replace(staged.scratch(), key);
   }

@@ -675,6 +675,10 @@ public class S3FileStore implements FileStore, AutoCloseable {
     }
   }
 
+  // An object S3 has acknowledged is already lasting.
+  @Override
+  public void sync(String key) {}
+
   // Every object S3 writes, copies included, is new.
   @Override
   public void touch(String key) {}
