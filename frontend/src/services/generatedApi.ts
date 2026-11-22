@@ -127,13 +127,6 @@ const injectedRtkApi = api.injectEndpoints({
     >({
       query: (queryArg) => ({ url: `/api/invite/${queryArg.token}` }),
     }),
-    acceptInvite: build.mutation<AcceptInviteApiResponse, AcceptInviteApiArg>({
-      query: (queryArg) => ({
-        url: `/api/invite/${queryArg.token}`,
-        method: "POST",
-        body: queryArg.body,
-      }),
-    }),
     getCurrentUser: build.query<
       GetCurrentUserApiResponse,
       GetCurrentUserApiArg
@@ -145,16 +138,6 @@ const injectedRtkApi = api.injectEndpoints({
       DescribePasswordResetApiArg
     >({
       query: (queryArg) => ({ url: `/api/reset-password/${queryArg.token}` }),
-    }),
-    resetPassword: build.mutation<
-      ResetPasswordApiResponse,
-      ResetPasswordApiArg
-    >({
-      query: (queryArg) => ({
-        url: `/api/reset-password/${queryArg.token}`,
-        method: "POST",
-        body: queryArg.body,
-      }),
     }),
     searchFiles: build.query<SearchFilesApiResponse, SearchFilesApiArg>({
       query: (queryArg) => ({
@@ -201,16 +184,6 @@ const injectedRtkApi = api.injectEndpoints({
       GetStorageUsageApiArg
     >({
       query: () => ({ url: `/api/storage` }),
-    }),
-    completeSetup: build.mutation<
-      CompleteSetupApiResponse,
-      CompleteSetupApiArg
-    >({
-      query: (queryArg) => ({
-        url: `/setup`,
-        method: "POST",
-        body: queryArg.body,
-      }),
     }),
     describeSharedItem: build.query<
       DescribeSharedItemApiResponse,
@@ -308,26 +281,12 @@ export type DescribeInviteApiResponse = /** status 200 OK */ AccountLinkInfo;
 export type DescribeInviteApiArg = {
   token: string;
 };
-export type AcceptInviteApiResponse = /** status 200 OK */ Message;
-export type AcceptInviteApiArg = {
-  token: string;
-  body: {
-    password?: string;
-  };
-};
 export type GetCurrentUserApiResponse = /** status 200 OK */ CurrentUser;
 export type GetCurrentUserApiArg = void;
 export type DescribePasswordResetApiResponse =
   /** status 200 OK */ AccountLinkInfo;
 export type DescribePasswordResetApiArg = {
   token: string;
-};
-export type ResetPasswordApiResponse = /** status 200 OK */ Message;
-export type ResetPasswordApiArg = {
-  token: string;
-  body: {
-    password?: string;
-  };
 };
 export type SearchFilesApiResponse = /** status 200 OK */ SearchResults;
 export type SearchFilesApiArg = {
@@ -352,14 +311,6 @@ export type RevokeShareLinkApiArg = {
 };
 export type GetStorageUsageApiResponse = /** status 200 OK */ Usage;
 export type GetStorageUsageApiArg = void;
-export type CompleteSetupApiResponse = /** status 200 OK */ Message;
-export type CompleteSetupApiArg = {
-  body: {
-    code?: string;
-    password?: string;
-    username?: string;
-  };
-};
 export type DescribeSharedItemApiResponse = /** status 200 OK */ SharedItemDto;
 export type DescribeSharedItemApiArg = {
   token: string;
@@ -519,15 +470,12 @@ export const {
   useCreateFolderMutation,
   useGetHistoryQuery,
   useDescribeInviteQuery,
-  useAcceptInviteMutation,
   useGetCurrentUserQuery,
   useDescribePasswordResetQuery,
-  useResetPasswordMutation,
   useSearchFilesQuery,
   useListShareLinksQuery,
   useCreateShareLinkMutation,
   useRevokeShareLinkMutation,
   useGetStorageUsageQuery,
-  useCompleteSetupMutation,
   useDescribeSharedItemQuery,
 } = injectedRtkApi;
