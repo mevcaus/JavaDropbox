@@ -114,7 +114,7 @@ public interface FileMetadataRepository
   /** What listing needs of every row an account owns; see {@link ListedRow}. */
   @Query(
       "select new com.javadropbox.javadropbox.repository.ListedRow(m.path, m.isDirectory, m.size,"
-          + " m.updatedAt) from FileMetadata m where m.owner.id = :ownerId")
+          + " m.updatedAt, m.blobHash) from FileMetadata m where m.owner.id = :ownerId")
   List<ListedRow> listAllOf(Long ownerId);
 
   /**
@@ -122,15 +122,23 @@ public interface FileMetadataRepository
    */
   @Query(
       "select new com.javadropbox.javadropbox.repository.ListedRow(m.path, m.isDirectory, m.size,"
-          + " m.updatedAt) from FileMetadata m where m.owner.id = :ownerId"
+          + " m.updatedAt, m.blobHash) from FileMetadata m where m.owner.id = :ownerId"
           + " and (m.path = :path or m.path like :below escape '!')")
   List<ListedRow> listAtOrBelow(Long ownerId, String path, String below);
 
   /** Like {@link #listAllOf}, for the rows at {@code paths}. */
   @Query(
       "select new com.javadropbox.javadropbox.repository.ListedRow(m.path, m.isDirectory, m.size,"
-          + " m.updatedAt) from FileMetadata m where m.owner.id = :ownerId and m.path in :paths")
+          + " m.updatedAt, m.blobHash) from FileMetadata m where m.owner.id = :ownerId"
+          + " and m.path in :paths")
   List<ListedRow> listAt(Long ownerId, List<String> paths);
+
+  /**
+   * The blob the live content of the account's file at {@code path} is kept as; empty where the
+   * file's content is at its own path, and where there is no such row. See FileContents.
+   */
+  @Query("select m.blobHash from FileMetadata m where m.owner.id = :ownerId and m.path = :path")
+  Optional<String> findBlobHash(Long ownerId, String path);
 
   /** Whether the account has any row below the folder at a path; see {@link #below}. */
   @Query(

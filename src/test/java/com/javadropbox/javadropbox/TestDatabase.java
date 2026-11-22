@@ -38,6 +38,8 @@ final class TestDatabase {
     jdbc.execute("DELETE FROM file_history");
     jdbc.execute("DELETE FROM file_versions");
     jdbc.execute("DELETE FROM file_metadata");
+    // After the files and versions, whose rows may point at them.
+    jdbc.execute("DELETE FROM blobs");
     jdbc.execute("DELETE FROM users");
     jdbc.execute("DELETE FROM spring_session");
     jdbc.execute("DELETE FROM one_time_steps");

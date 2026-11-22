@@ -50,6 +50,14 @@ public class FileVersion {
   @Column(length = 64)
   private String contentHash;
 
+  /**
+   * The blob the version is kept as (#316), or null where it is at {@link #storedFilename} under
+   * the versions folder. Read-only here, like the file's: it changes only together with the blob's
+   * reference count.
+   */
+  @Column(length = 64, insertable = false, updatable = false)
+  private String blobHash;
+
   private Instant createdAt;
 
   @ManyToOne(fetch = FetchType.LAZY)
@@ -92,6 +100,10 @@ public class FileVersion {
 
   public String getStoredFilename() {
     return storedFilename;
+  }
+
+  public String getBlobHash() {
+    return blobHash;
   }
 
   public Long getSize() {

@@ -47,6 +47,14 @@ public class FileMetadata {
   @Column(length = 64)
   private String contentHash;
 
+  /**
+   * The blob the live content is kept as (#316), or null where it is at the file's own path, and
+   * for a folder. Read-only here: it changes only together with the blob's reference count, in a
+   * statement of its own, so saving this entity can never point it back at an older blob.
+   */
+  @Column(length = 64, insertable = false, updatable = false)
+  private String blobHash;
+
   @Column(nullable = false)
   private Boolean isDirectory;
 
@@ -97,6 +105,10 @@ public class FileMetadata {
 
   public void setContentHash(String contentHash) {
     this.contentHash = contentHash;
+  }
+
+  public String getBlobHash() {
+    return blobHash;
   }
 
   public void setSize(Long size) {
