@@ -113,8 +113,10 @@ public class ApiExceptionHandler {
     return message(HttpStatus.INTERNAL_SERVER_ERROR, OPERATION_FAILED);
   }
 
-  // Spring reports Tomcat's limit on parts as a size limit too, since its message says the count
-  // "exceeds" the maximum, so both handlers look for it first.
+  // Tomcat's limit on parts (server.tomcat.max-part-count) can reach either handler: Spring turns a
+  // parse failure into MaxUploadSizeExceededException when the messages in its cause chain read
+  // like a size limit, and into a plain MultipartException otherwise. On Tomcat 10.1.61 it arrives
+  // as the first, which answered "File too large!" before this, so both look for it first.
   @ExceptionHandler(MaxUploadSizeExceededException.class)
   public ResponseEntity<Map<String, String>> handleMaxSize(MaxUploadSizeExceededException ex) {
     for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
