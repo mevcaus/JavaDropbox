@@ -50,85 +50,47 @@ const readAll = async (reader: ReturnType<DroppedFolderEntry['createReader']>): 
 
 const fileOf = (entry: DroppedFileEntry): Promise<File> => new Promise((resolve, reject) => entry.file(resolve, reject));
 
-// The most reads of a drop under way at once. Enough to keep a large drop moving, few enough that
-// a drop of thousands of files doesn't ask the browser for all of them at the same moment, which
-// could make reads fail that would otherwise work.
-const READS_AT_ONCE = 16;
-
-// Runs read when one of READS_AT_ONCE slots is free. Only the reads themselves take a slot, not
-// the walk around them, so a folder waiting on its children never holds one.
-const readSlots = () => {
-    let free = READS_AT_ONCE;
-    const waiting: (() => void)[] = [];
-    return async <T>(read: () => Promise<T>): Promise<T> => {
-        if (free > 0) free -= 1;
-        else await new Promise<void>((resolve) => waiting.push(resolve));
-        try {
-            return await read();
-        } finally {
-            const next = waiting.shift();
-            if (next) next();
-            else free += 1;
-        }
-    };
-};
-
 /**
  * The files dropped on the page, each with its path inside what was dropped: "notes.txt" for a
  * loose file, "Trip/Day 1/a.jpg" for one inside a dropped folder. That is the shape uploadFolder
  * takes, so a drop and the folder picker upload the same way.
  *
- * Dot-named files and folders are left out and named in skipped, each name once, sorted. A dot-named
+ * Dot-named files and folders are left out and named in skipped, each name once. A dot-named
  * folder is not walked into at all: .git or node_modules/.cache can hold thousands of files.
  * Empty folders are not reported, as with the folder picker.
- *
- * A file or folder the browser can't read, such as a broken link or a file another program has
- * locked, is left out too, and its path inside the drop is named in unreadable. Everything else
- * is still uploaded.
- *
- * The folders are read side by side, up to READS_AT_ONCE reads at a time, which a large drop
- * needs, and the files come back in the order the browser listed them.
  *
  * Reads the drop's items before the first await, since the browser empties them once the drop
  * event has been handled.
  */
 export const readDrop = async (dataTransfer: {
     items?: ArrayLike<DroppedItem> | null;
-}): Promise<{ files: PickedFile[]; skipped: string[]; unreadable: string[] }> => {
+}): Promise<{ files: PickedFile[]; skipped: string[] }> => {
     const items = Array.from(dataTransfer.items ?? []).filter((item) => item.kind === 'file');
     // A browser without entries, or an item that has none, still hands over the file itself.
     const roots = items.map((item) => item.webkitGetAsEntry?.() ?? item.getAsFile());
 
+    const files: PickedFile[] = [];
     const skipped = new Set<string>();
-    const unreadable: string[] = [];
-    const inSlot = readSlots();
 
-    const walk = async (entry: DroppedEntry | File, folder: string): Promise<PickedFile[]> => {
+    const walk = async (entry: DroppedEntry | File, folder: string): Promise<void> => {
         if (startsWithDot(entry.name)) {
             skipped.add(entry.name);
-            return [];
+            return;
         }
         const relativePath = folder ? `${folder}/${entry.name}` : entry.name;
-        try {
-            if (entry instanceof File) {
-                return [{ file: entry, relativePath }];
+        if (entry instanceof File) {
+            files.push({ file: entry, relativePath });
+        } else if (isFileEntry(entry)) {
+            files.push({ file: await fileOf(entry), relativePath });
+        } else if (isFolderEntry(entry)) {
+            for (const child of await readAll(entry.createReader())) {
+                await walk(child, relativePath);
             }
-            if (isFileEntry(entry)) {
-                return [{ file: await inSlot(() => fileOf(entry)), relativePath }];
-            }
-            if (isFolderEntry(entry)) {
-                const children = await inSlot(() => readAll(entry.createReader()));
-                return (await Promise.all(children.map((child) => walk(child, relativePath)))).flat();
-            }
-        } catch {
-            // The browser says only that it failed (NotFoundError, NotReadableError), so the
-            // path is all there is to tell.
-            unreadable.push(relativePath);
         }
-        return [];
     };
 
-    const found = await Promise.all(roots.map((root) => (root ? walk(root, '') : [])));
-    // Sorted, since the folders finish in whatever order they do.
-    return { files: found.flat(), skipped: [...skipped].sort(), unreadable: unreadable.sort() };
+    for (const root of roots) {
+        if (root) await walk(root, '');
+    }
+    return { files, skipped: [...skipped] };
 };
