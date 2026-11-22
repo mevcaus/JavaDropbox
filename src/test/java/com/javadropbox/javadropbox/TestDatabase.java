@@ -8,7 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * context and so one database; each clears everything, children before parents, rather than only
  * the table it happened to write.
  */
-final class TestDatabase {
+public final class TestDatabase {
 
   private TestDatabase() {}
 
@@ -32,7 +32,7 @@ final class TestDatabase {
         .isEmpty();
   }
 
-  static void wipe(JdbcTemplate jdbc) {
+  public static void wipe(JdbcTemplate jdbc) {
     jdbc.execute("DELETE FROM account_links");
     jdbc.execute("DELETE FROM share_links");
     jdbc.execute("DELETE FROM file_history");
