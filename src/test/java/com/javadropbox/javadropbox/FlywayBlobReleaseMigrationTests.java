@@ -52,6 +52,9 @@ class FlywayBlobReleaseMigrationTests {
         .isInstanceOf(SQLException.class);
     DATABASE.execute("UPDATE blobs SET reference_count = 0, released_at = now()");
     assertThat(DATABASE.column("SELECT released_at IS NOT NULL FROM blobs")).containsExactly("t");
+    // And a blob something points at isn't released.
+    assertThatThrownBy(() -> DATABASE.execute("UPDATE blobs SET reference_count = 1"))
+        .isInstanceOf(SQLException.class);
   }
 
   @Test

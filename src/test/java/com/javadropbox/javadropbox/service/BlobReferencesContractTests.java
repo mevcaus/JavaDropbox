@@ -16,9 +16,9 @@ import com.javadropbox.javadropbox.service.BlobReferences.Prepared;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -196,9 +196,9 @@ abstract class BlobReferencesContractTests {
   @DisplayName("a blob released longer ago than the grace period is deleted, row and content")
   void releasedBlobIsDeleted() throws IOException {
     Prepared prepared = prepare("old", ada);
+    releasedAgo(prepared.hash(), Duration.ofHours(2));
 
-    // Two hours on, with an hour's grace.
-    assertThat(collector(Duration.ofHours(2)).collect()).isOne();
+    assertThat(collector().collect()).isOne();
 
     assertThat(jdbc.queryForList("SELECT hash FROM blobs", String.class)).isEmpty();
     assertThat(blobs.stat(prepared.hash())).isEmpty();
@@ -211,12 +211,14 @@ abstract class BlobReferencesContractTests {
     add(referenced);
     Prepared recent = prepare("recent", ada);
 
-    // Half an hour on, within the hour's grace: nothing goes.
-    assertThat(collector(Duration.ofMinutes(30)).collect()).isZero();
+    // Within the hour's grace: nothing goes.
+    releasedAgo(recent.hash(), Duration.ofMinutes(30));
+    assertThat(collector().collect()).isZero();
     assertThat(blobs.stat(recent.hash())).isPresent();
 
-    // Two hours on, only the unreferenced one goes.
-    assertThat(collector(Duration.ofHours(2)).collect()).isOne();
+    // Past it, only the unreferenced one goes.
+    releasedAgo(recent.hash(), Duration.ofHours(2));
+    assertThat(collector().collect()).isOne();
     assertThat(blobs.stat(referenced.hash())).isPresent();
     assertThat(blobs.stat(recent.hash())).isEmpty();
     assertThat(jdbc.queryForList("SELECT hash FROM blobs", String.class))
@@ -224,26 +226,110 @@ abstract class BlobReferencesContractTests {
   }
 
   @Test
-  @DisplayName("a blob something points at isn't deleted even when its count says nothing does")
-  void missedReferenceStopsTheDelete() throws IOException {
-    Prepared prepared = prepare("miscounted", ada);
-    pointFileAt(ada, "a.txt", prepared.hash());
+  @DisplayName("a blob an upload claims after the job listed it is kept")
+  void blobClaimedAfterListingIsKept() throws IOException {
+    Prepared old = prepare("claimed meanwhile", ada);
+    releasedAgo(old.hash(), Duration.ofHours(2));
+    BlobCollector collector = collector();
+    // Between the listing and the delete, an upload of the same content claims it.
+    collector.afterListed(
+        () -> {
+          try {
+            references.discard(prepare("claimed meanwhile", bob));
+          } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+          }
+        });
 
-    assertThat(collector(Duration.ofHours(2)).collect()).isZero();
+    assertThat(collector.collect()).isZero();
 
-    assertThat(blobs.stat(prepared.hash())).isPresent();
-    assertThat(count(prepared.hash())).isZero();
+    assertThat(blobs.stat(old.hash())).isPresent();
+    assertThat(released(old.hash())).isTrue();
   }
 
-  // The job, as it runs this far in the future, with an hour's grace.
-  BlobCollector collector(Duration ahead) {
+  @Test
+  @DisplayName(
+      "a blob something points at isn't deleted when its count says nothing does: it's recounted")
+  void missedReferenceIsRecounted() throws IOException {
+    Prepared prepared = prepare("miscounted", ada);
+    pointFileAt(ada, "a.txt", prepared.hash());
+    releasedAgo(prepared.hash(), Duration.ofHours(2));
+
+    assertThat(collector().collect()).isZero();
+
+    assertThat(blobs.stat(prepared.hash())).isPresent();
+    assertThat(count(prepared.hash())).isOne();
+    assertThat(released(prepared.hash())).isFalse();
+  }
+
+  @Test
+  @DisplayName("another reference to a stored blob is counted without copying it")
+  void storedBlobGetsAnotherReference() throws IOException {
+    Prepared prepared = prepare("restored", ada);
+    add(prepared);
+    clearInvocations(store);
+
+    inTransaction(
+        () -> {
+          references.lock(List.of(prepared.hash()));
+          references.add(prepared.hash());
+        });
+
+    assertThat(count(prepared.hash())).isEqualTo(2);
+    verify(store, never()).replace(anyString(), anyString());
+    blobs.delete(prepared.hash());
+    assertThatThrownBy(
+            () ->
+                inTransaction(
+                    () -> {
+                      references.lock(List.of(prepared.hash()));
+                      references.add(prepared.hash());
+                    }))
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("isn't stored");
+  }
+
+  @Test
+  @DisplayName("many references come off at once, or none when one blob has too few")
+  void manyReferencesComeOffAtOnce() throws IOException {
+    Prepared a = prepare("folder file a", ada);
+    Prepared b = prepare("folder file b", ada);
+    add(a);
+    add(a);
+    add(b);
+
+    assertThatThrownBy(
+            () -> inTransaction(() -> references.removeAll(Map.of(a.hash(), 1, b.hash(), 2))))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(count(a.hash())).isEqualTo(2);
+    assertThat(count(b.hash())).isOne();
+
+    inTransaction(() -> references.removeAll(Map.of(a.hash(), 1, b.hash(), 1)));
+
+    assertThat(count(a.hash())).isOne();
+    assertThat(released(a.hash())).isFalse();
+    assertThat(count(b.hash())).isZero();
+    assertThat(released(b.hash())).isTrue();
+  }
+
+  @Test
+  @DisplayName("content is staged and put in place only outside a transaction")
+  void prepareRefusesATransaction() {
+    assertThatThrownBy(() -> inTransaction(() -> prepare("too late", ada)))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  // The job, with an hour's grace, run by the test rather than on its schedule.
+  BlobCollector collector() {
     return new BlobCollector(
-        references,
-        blobs,
-        jdbc,
-        transactionManager,
-        Duration.ofHours(1),
-        Clock.offset(Clock.systemUTC(), ahead));
+        references, blobs, jdbc, transactionManager, Duration.ofHours(1), false);
+  }
+
+  void releasedAgo(String hash, Duration ago) {
+    jdbc.update(
+        "UPDATE blobs SET released_at = now() - make_interval(secs => ?) WHERE hash = ?",
+        ago.toSeconds(),
+        hash);
   }
 
   Prepared prepare(String content, long ownerId) throws IOException {

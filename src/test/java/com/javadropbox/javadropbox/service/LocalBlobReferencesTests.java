@@ -32,7 +32,7 @@ class LocalBlobReferencesTests extends BlobReferencesContractTests {
     jdbc.update("UPDATE blobs SET released_at = now() - interval '2 hours' WHERE hash = ?", hash);
     CountDownLatch decided = new CountDownLatch(1);
     CountDownLatch carryOn = new CountDownLatch(1);
-    BlobCollector collector = collector(Duration.ZERO);
+    BlobCollector collector = collector();
     collector.afterDecided(
         () -> {
           decided.countDown();

@@ -5,7 +5,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -21,7 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * and deleted once none do. Nothing calls this yet; uploads switch to blobs in the last part of
  * #316, which also points rows at blobs, in the same transaction as the count changes here.
  *
- * <p>How content becomes a reference:
+ * <p>How new content becomes a reference:
  *
  * <ol>
  *   <li>{@link #prepare}, outside any transaction, stages the content and hashes it. Unless the
@@ -29,17 +33,23 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       same copy whether or not another account holds it, so how long an upload takes says nothing
  *       about anyone else's files (decided on #316, as for sync in #202). Before that, it claims
  *       the blob under its lock for a moment, so it isn't deleted meanwhile (see {@link #claim}).
- *   <li>In the transaction, {@link #lock} takes the lock of every blob it will add or remove a
- *       reference to, before touching any row.
- *   <li>{@link #add} checks again, under the lock, whether the account holds the content, puts the
- *       blob back if it went meanwhile, and counts the reference. {@link #remove} takes one off.
+ *   <li>In the transaction, {@link #lock} takes the locks of every blob it will add or remove a
+ *       reference to, before touching any other row.
+ *   <li>{@link #add(Prepared)} checks, under the lock, that the blob is there, puts it back if it
+ *       went meanwhile, and counts the reference. {@link #add(String)} counts another reference to
+ *       a blob already stored, as a restore or an archived version takes, and {@link #remove} takes
+ *       one off. {@link #removeAll} takes many off at once, as deleting a folder does.
  *   <li>Afterwards, {@link #discard} drops what was staged and not used.
  * </ol>
  *
  * <p>A blob whose count falls to zero is deleted by {@link BlobCollector}, under the same lock,
  * once it has stayed at zero for the grace period. Whoever is about to put a blob in place claims
  * it under that lock first, and whoever deletes one takes it too, so a blob can't be deleted under
- * a new reference.
+ * a new reference. Taking a reference off needs no advisory lock: it can't make a blob be deleted
+ * any sooner than the grace period after.
+ *
+ * <p>Locks on {@code blobs} rows are always taken in the order of their hashes, all at once, by
+ * {@link #lock} and {@link #removeAll}, so two transactions never wait on each other's rows.
  */
 @Service
 public class BlobReferences {
@@ -65,12 +75,10 @@ public class BlobReferences {
   public static final class Prepared {
 
     private final Staged staged;
-    private final long ownerId;
     private boolean placed;
 
-    private Prepared(Staged staged, long ownerId, boolean placed) {
+    private Prepared(Staged staged, boolean placed) {
       this.staged = staged;
-      this.ownerId = ownerId;
       this.placed = placed;
     }
 
@@ -104,12 +112,13 @@ public class BlobReferences {
     Staged staged = blobs.stage(content, length);
     try {
       claim(staged);
-      // Only a hint without the lock; add() asks again under it.
+      // Whether to copy is decided here, from the account's own rows, and not again: the copy is
+      // what keeps the upload's timing the same whoever else holds the content.
       boolean holds = holds(staged.hash(), ownerId);
       if (!holds) {
         blobs.placeAnyway(staged);
       }
-      return new Prepared(staged, ownerId, !holds);
+      return new Prepared(staged, !holds);
     } catch (IOException | RuntimeException e) {
       blobs.discard(staged);
       throw e;
@@ -139,42 +148,66 @@ public class BlobReferences {
   }
 
   /**
-   * Takes the locks of these blobs, held until the transaction ends. Call it once in a transaction,
-   * with every blob it will add or remove a reference to, before touching any row: each transaction
-   * then takes its locks in one order, by their keys, and two can't each wait for a lock the other
-   * holds. A replace with the same content removes and adds a reference to one blob in one
-   * transaction, so the same hash may be given twice.
+   * Takes the locks of these blobs, held until the transaction ends: their advisory locks, ordered
+   * by key, then their rows, ordered by hash. Call it once in a transaction, with every blob it
+   * will add a reference to or remove one from, before touching any other row: each transaction
+   * then takes its locks in one order, and two can't each wait for a lock the other holds. A
+   * replace with the same content removes a reference to a blob and adds one in one transaction, so
+   * the same hash may be given twice.
+   *
+   * @throws IllegalStateException if the transaction already took its blob locks
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public void lock(Collection<String> hashes) {
-    if (TransactionSynchronizationManager.hasResource(this)) {
-      throw new IllegalStateException("A transaction takes all its blob locks at once");
-    }
-    Set<String> held = Set.copyOf(hashes);
-    TransactionSynchronizationManager.bindResource(this, held);
-    TransactionSynchronizationManager.registerSynchronization(
-        new TransactionSynchronization() {
-          @Override
-          public void afterCompletion(int status) {
-            TransactionSynchronizationManager.unbindResourceIfPossible(BlobReferences.this);
-          }
-        });
+    Set<String> wanted = Set.copyOf(hashes);
     // By the lock's key, not the hash: two hashes can share a key, and an order the keys don't
     // follow could still deadlock.
     Set<Integer> keys = new TreeSet<>();
-    for (String hash : held) {
+    for (String hash : wanted) {
       keys.add(lockKey(hash));
     }
+    HeldLocks.start(wanted);
     for (int key : keys) {
       jdbc.query("SELECT pg_advisory_xact_lock(?, ?)", row -> null, LOCK_SPACE, key);
     }
+    lockRows(wanted);
+  }
+
+  /**
+   * Takes the lock of one blob if no one else holds it, as {@link #lock} would; returns false
+   * without waiting otherwise. For work that can skip a blob and come back to it later.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  boolean tryLock(String hash) {
+    HeldLocks.start(Set.of(hash));
+    boolean got =
+        Boolean.TRUE.equals(
+            jdbc.queryForObject(
+                "SELECT pg_try_advisory_xact_lock(?, ?)",
+                Boolean.class,
+                LOCK_SPACE,
+                lockKey(hash)));
+    if (!got) {
+      HeldLocks.current().ifPresent(held -> held.hashes = Set.of());
+      return false;
+    }
+    lockRows(Set.of(hash));
+    return true;
+  }
+
+  // In the order of their hashes, as removeAll takes them too.
+  private void lockRows(Collection<String> hashes) {
+    jdbc.query(
+        "SELECT hash FROM blobs WHERE hash = ANY (?) ORDER BY hash FOR UPDATE",
+        row -> null,
+        (Object) hashes.toArray(String[]::new));
   }
 
   /**
    * Counts a reference to the prepared content's blob, for a file or version about to point at it
-   * in this transaction. Under {@link #lock}. Checks again whether the account holds the content:
-   * if it doesn't after all, the blob is put in place with the same copy as in {@link #prepare}; if
-   * it does but the blob has gone meanwhile, it is put back.
+   * in this transaction. Under {@link #lock}. If the blob went meanwhile, it is put back from what
+   * {@link #prepare} staged; if nothing was left to put it back from, this fails, and the
+   * transaction rolls back.
    *
    * @return the blob's hash
    */
@@ -182,18 +215,15 @@ public class BlobReferences {
   public String add(Prepared prepared) throws IOException {
     String hash = prepared.hash();
     requireLocked(hash);
-    if (!prepared.placed) {
-      if (!holds(hash, prepared.ownerId)) {
-        blobs.placeAnyway(prepared.staged);
-        prepared.placed = true;
-      } else if (blobs.stat(hash).isEmpty()) {
-        blobs.place(prepared.staged);
-        prepared.placed = true;
+    if (blobs.stat(hash).isEmpty()) {
+      if (prepared.placed) {
+        // Put in place in prepare(), then deleted before this took the lock: only possible when
+        // more than the grace period passed between the two, and nothing is left to put back.
+        throw new IOException("Blob " + hash + " went before it was referenced; try again");
       }
-    } else if (blobs.stat(hash).isEmpty()) {
-      // Put in place in prepare(), then deleted before this took the lock: only possible when
-      // more than the grace period passed between the two, and nothing is left to put back.
-      throw new IOException("Blob " + hash + " went before it was referenced; try again");
+      // Only a put back, never the copy prepare() decided against: the timing is settled.
+      blobs.place(prepared.staged);
+      prepared.placed = true;
     }
     // Normally made by prepare(); again here should its row have been deleted with its blob.
     jdbc.update(
@@ -201,44 +231,98 @@ public class BlobReferences {
             + " VALUES (?, ?, 0, now(), now()) ON CONFLICT (hash) DO NOTHING",
         hash,
         prepared.size());
+    count(hash, prepared.size());
+    return hash;
+  }
+
+  /**
+   * Counts another reference to a blob already stored, for a file or version about to point at it
+   * in this transaction: a restore, a restored copy, or the live content kept as a version. Under
+   * {@link #lock}. Nothing is copied.
+   *
+   * @throws IOException if the blob isn't there, in the store or in the table
+   */
+  @Transactional(propagation = Propagation.MANDATORY, rollbackFor = IOException.class)
+  public void add(String hash) throws IOException {
+    requireLocked(hash);
+    Long size =
+        jdbc.query(
+            "SELECT size FROM blobs WHERE hash = ?",
+            rows -> rows.next() ? rows.getLong(1) : null,
+            hash);
+    if (size == null || blobs.stat(hash).isEmpty()) {
+      throw new IOException("Blob " + hash + " isn't stored");
+    }
+    count(hash, size);
+  }
+
+  private void count(String hash, long size) {
     int counted =
         jdbc.update(
             "UPDATE blobs SET reference_count = reference_count + 1, released_at = NULL"
                 + " WHERE hash = ? AND size = ?",
             hash,
-            prepared.size());
+            size);
     if (counted != 1) {
       throw new IllegalStateException("Blob " + hash + " is recorded with another size");
     }
-    return hash;
   }
 
   /**
    * Takes a reference off a blob, for a file or version that stops pointing at it in this
-   * transaction. Under {@link #lock}. A blob whose count falls to zero is released, and deleted
-   * once the grace period has passed with nothing pointing at it again.
+   * transaction. Under {@link #lock}, which the blob's add may need in the same transaction. A blob
+   * whose count falls to zero is released, and deleted once the grace period has passed with
+   * nothing pointing at it again.
    *
    * @throws IllegalStateException if the blob has no reference to take off, which is a bug
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public void remove(String hash) {
     requireLocked(hash);
-    int counted =
-        jdbc.update(
-            "UPDATE blobs SET reference_count = reference_count - 1, released_at ="
-                + " CASE WHEN reference_count = 1 THEN now() ELSE NULL END"
-                + " WHERE hash = ? AND reference_count > 0",
-            hash);
-    if (counted != 1) {
-      throw new IllegalStateException("Took a reference off blob " + hash + ", which has none");
-    }
+    removeAll(Map.of(hash, 1));
   }
 
-  /** Drops what {@link #prepare} staged and didn't put in place. Never throws. */
-  public void discard(Prepared prepared) {
-    if (!prepared.placed) {
-      blobs.discard(prepared.staged);
+  /**
+   * Takes references off many blobs at once, as deleting a folder does: {@code counts} says how
+   * many from each. Needs no {@link #lock}, so it takes no advisory lock for each blob however many
+   * there are; it locks their rows, in the order of their hashes, then changes their counts.
+   *
+   * @throws IllegalStateException if a blob has fewer references than are taken off, which is a
+   *     bug, and nothing is changed
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void removeAll(Map<String, Integer> counts) {
+    if (counts.isEmpty()) {
+      return;
     }
+    Map<String, Integer> sorted = new TreeMap<>(counts);
+    String[] hashes = sorted.keySet().toArray(String[]::new);
+    Integer[] taken = sorted.values().toArray(Integer[]::new);
+    lockRows(sorted.keySet());
+    List<String> short_ =
+        jdbc.queryForList(
+            "SELECT t.hash FROM unnest(?::varchar[], ?::int[]) AS t (hash, taken)"
+                + " LEFT JOIN blobs b ON b.hash = t.hash"
+                + " WHERE b.hash IS NULL OR b.reference_count < t.taken",
+            String.class,
+            hashes,
+            taken);
+    if (!short_.isEmpty()) {
+      throw new IllegalStateException(
+          "Took more references off blobs " + short_ + " than they have");
+    }
+    jdbc.update(
+        "UPDATE blobs b SET reference_count = b.reference_count - t.taken, released_at ="
+            + " CASE WHEN b.reference_count = t.taken THEN now() END"
+            + " FROM unnest(?::varchar[], ?::int[]) AS t (hash, taken) WHERE b.hash = t.hash",
+        hashes,
+        taken);
+  }
+
+  /** Drops what {@link #prepare} staged, unless it became the blob. Never throws. */
+  public void discard(Prepared prepared) {
+    // Even when placed: a put back that found the blob already there leaves the staged file.
+    blobs.discard(prepared.staged);
   }
 
   /**
@@ -258,8 +342,7 @@ public class BlobReferences {
   }
 
   private void requireLocked(String hash) {
-    Object held = TransactionSynchronizationManager.getResource(this);
-    if (!(held instanceof Set<?> hashes) || !hashes.contains(hash)) {
+    if (HeldLocks.current().filter(held -> held.hashes.contains(hash)).isEmpty()) {
       throw new IllegalStateException("Blob " + hash + " is changed without its lock");
     }
   }
@@ -268,5 +351,36 @@ public class BlobReferences {
   static int lockKey(String hash) {
     BlobStore.key(hash);
     return HexFormat.fromHexDigits(hash, 0, 8);
+  }
+
+  /**
+   * The blob locks the current transaction holds. Kept as one of its synchronizations, which Spring
+   * sets aside along with the transaction when a new one starts inside it, so an inner transaction
+   * never takes the outer one's locks for its own.
+   */
+  private static final class HeldLocks implements TransactionSynchronization {
+
+    private Set<String> hashes;
+
+    private HeldLocks(Set<String> hashes) {
+      this.hashes = hashes;
+    }
+
+    static Optional<HeldLocks> current() {
+      if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+        return Optional.empty();
+      }
+      return TransactionSynchronizationManager.getSynchronizations().stream()
+          .filter(HeldLocks.class::isInstance)
+          .map(HeldLocks.class::cast)
+          .findFirst();
+    }
+
+    static void start(Set<String> hashes) {
+      if (current().isPresent()) {
+        throw new IllegalStateException("A transaction takes all its blob locks at once");
+      }
+      TransactionSynchronizationManager.registerSynchronization(new HeldLocks(hashes));
+    }
   }
 }

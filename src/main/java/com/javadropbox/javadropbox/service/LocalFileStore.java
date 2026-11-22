@@ -3,6 +3,7 @@ package com.javadropbox.javadropbox.service;
 import com.javadropbox.javadropbox.exception.BadRequestException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
@@ -13,6 +14,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
@@ -275,6 +277,13 @@ public class LocalFileStore implements FileStore {
     Path target = path(to);
     // A rename replaces a link at the target itself, but follows one along its folders.
     recheck(target.getParent());
+    // On the disk before it takes the place of what was there, which may be a blob other files
+    // share: a crash right after the rename must not leave torn content where good content was.
+    if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
+      try (FileChannel channel = FileChannel.open(source, StandardOpenOption.WRITE)) {
+        channel.force(true);
+      }
+    }
     try {
       Files.move(
           source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
