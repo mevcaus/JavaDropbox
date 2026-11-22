@@ -206,7 +206,6 @@ JavaDropbox/
 │   │       ├── StorageRecount.java      # Sets right at startup any total that drifted from the rows
 │   │       ├── BlobStore.java           # Each distinct content kept once, under its SHA-256 in .blobs/
 │   │       ├── BlobReferences.java      #   Counts who points at each blob, under per-blob locks
-│   │       ├── BlobCollector.java       #   Deletes blobs nothing has pointed at for the grace period
 │   │       ├── FileRows.java            # Rows for items already stored, counted as they are added
 │   │       ├── DemoService.java         # Live demo: shared account, daily reset, sample files
 │   │       ├── DatabaseLocks.java       # Advisory locks in PostgreSQL, for work one server does at a time
