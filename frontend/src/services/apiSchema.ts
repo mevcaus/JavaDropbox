@@ -253,6 +253,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/files/upload-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get upload limits
+         * @description The largest file, the largest request and the most files one upload request may carry, each null for no limit. Sizes are in bytes.
+         */
+        get: operations["getUploadLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/files/{fileId}/versions": {
         parameters: {
             query?: never;
@@ -764,6 +784,14 @@ export interface components {
             highlights: components["schemas"]["Highlight"][];
             text: string;
         };
+        UploadLimits: {
+            /** Format: int64 */
+            maxFileBytes: number | null;
+            /** Format: int32 */
+            maxFilesPerRequest: number | null;
+            /** Format: int64 */
+            maxRequestBytes: number | null;
+        };
         Usage: {
             /** Format: int64 */
             quotaBytes: number | null;
@@ -1130,6 +1158,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": string;
+                };
+            };
+        };
+    };
+    getUploadLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["UploadLimits"];
                 };
             };
         };

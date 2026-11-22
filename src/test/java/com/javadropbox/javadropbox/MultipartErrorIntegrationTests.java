@@ -87,7 +87,46 @@ class MultipartErrorIntegrationTests {
     assertThat(response.body()).contains("Invalid multipart request");
   }
 
+  @Test
+  @DisplayName("an upload with more parts than the server takes says how many it takes")
+  void tooManyPartsSaysTheLimit() throws Exception {
+    // 60 files and the path: more than the 50 parts application.properties allows.
+    HttpResponse<String> response = upload(multipartWithFiles(60));
+
+    assertThat(response.statusCode()).isEqualTo(413);
+    assertThat(response.body()).contains("at most 49 files");
+  }
+
+  @Test
+  @DisplayName("an upload with as many files as the limits say is stored")
+  void filesUpToTheLimitAreStored() throws Exception {
+    HttpResponse<String> response = upload(multipartWithFiles(49));
+
+    assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+    assertThat(response.body()).contains("Uploaded 49 files");
+  }
+
   private static final String BOUNDARY = "----boundary";
+
+  // count small files and the path part, as the frontend sends them.
+  private static String multipartWithFiles(int count) {
+    StringBuilder body = new StringBuilder();
+    for (int i = 0; i < count; i++) {
+      body.append("--")
+          .append(BOUNDARY)
+          .append("\r\nContent-Disposition: form-data; name=\"files\"; filename=\"f")
+          .append(i)
+          .append(".txt\"\r\nContent-Type: text/plain\r\n\r\ncontent ")
+          .append(i)
+          .append("\r\n");
+    }
+    return body.append("--")
+        .append(BOUNDARY)
+        .append("\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n\r\n--")
+        .append(BOUNDARY)
+        .append("--\r\n")
+        .toString();
+  }
 
   // Without the closing boundary the body ends in the middle of the part.
   private static String multipartBody(String name, String content, boolean complete) {

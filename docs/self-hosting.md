@@ -128,6 +128,8 @@ Leave out the `WHERE` to sign everyone out.
 
 Behind a reverse proxy that terminates TLS, forward `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, so the sign-in throttle sees each client's real address and share links carry your public `https://` address. The app only believes these headers from the proxies in `server.tomcat.remoteip.internal-proxies`, a regular expression matched against the connecting address; from anyone else they are ignored, so a client cannot choose its own address. It trusts loopback only by default, which suits a proxy on the same host. For a proxy anywhere else, such as another container, set `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES` to its address, e.g. `172\.18\.0\.2`. Don't widen it to a whole network that untrusted machines can connect from.
 
+A proxy may also limit the size of a request body (nginx's `client_max_body_size` is 1 MB unless set). Raise it to `spring.servlet.multipart.max-request-size`, or lower that setting to match the proxy, so the proxy doesn't refuse an upload the app would take. The second also caps the size of a single file.
+
 ## Configuration
 
 Every property can also be set as an environment variable (`javadropbox.serving.directory` → `JAVADROPBOX_SERVING_DIRECTORY`).
@@ -146,6 +148,8 @@ Every property can also be set as an environment variable (`javadropbox.serving.
 | `javadropbox.search.elasticsearch.username` / `.password` | none | With `elasticsearch`: the account to use, if the service asks for one |
 | `javadropbox.search.elasticsearch.index` | `javadropbox` | With `elasticsearch`: the index's name, which has to be different for each app that shares one service |
 | `spring.servlet.multipart.max-file-size` | `1024MB` | Largest file a single upload can carry |
+| `spring.servlet.multipart.max-request-size` | `1024MB` | Largest upload request, all its files together; a file larger than this can't be uploaded at all. `GET /api/files/upload-limits` tells clients, so they can send more in several requests |
+| `server.tomcat.max-part-count` | `50` | Most parts one upload request may have: its files, and one for the folder they go into, so at least `2`. A request with more is refused with a `413` that says how many files fit. The limit is there so a request can't make the server keep track of an unbounded number of parts |
 | `spring.servlet.multipart.location` | `.javadropbox/uploads` in the serving directory | Where an upload is kept while it arrives, before it is stored |
 | `server.servlet.session.timeout` | `30m` | How long a session lasts without a request before it signs out. A session keeps the timeout it started with, so a change applies from the next sign-in |
 | `spring.session.jdbc.cleanup-cron` | `0 * * * * *` | When expired sessions are deleted from the database (a Spring cron expression: every minute), besides at each sign-in, up to 1,000 at a time; `-` turns the schedule off, as the demo does |

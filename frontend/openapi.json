@@ -518,6 +518,26 @@
         "tags" : [ "Files" ]
       }
     },
+    "/api/files/upload-limits" : {
+      "get" : {
+        "description" : "The largest file, the largest request and the most files one upload request may carry, each null for no limit. Sizes are in bytes.",
+        "operationId" : "getUploadLimits",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/UploadLimits"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get upload limits",
+        "tags" : [ "Files" ]
+      }
+    },
     "/api/files/{fileId}/versions" : {
       "get" : {
         "description" : "Returns all versions of one of the signed-in user's files. Another account's file is a 404.",
@@ -1620,6 +1640,24 @@
           }
         },
         "required" : [ "highlights", "text" ]
+      },
+      "UploadLimits" : {
+        "type" : "object",
+        "properties" : {
+          "maxFileBytes" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          },
+          "maxFilesPerRequest" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          },
+          "maxRequestBytes" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          }
+        },
+        "required" : [ "maxFileBytes", "maxFilesPerRequest", "maxRequestBytes" ]
       },
       "Usage" : {
         "type" : "object",

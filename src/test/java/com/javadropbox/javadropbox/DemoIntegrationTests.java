@@ -140,6 +140,17 @@ class DemoIntegrationTests {
   }
 
   @Test
+  @DisplayName("the upload limits are the demo's own, so the app's batches fit them")
+  void uploadLimitsAreTheDemos() throws Exception {
+    mockMvc
+        .perform(get("/api/files/upload-limits").with(user("demo")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.maxFileBytes").value(5 * 1024 * 1024))
+        .andExpect(jsonPath("$.maxRequestBytes").value(10 * 1024 * 1024))
+        .andExpect(jsonPath("$.maxFilesPerRequest").value(49));
+  }
+
+  @Test
   @DisplayName("the sample files are stored, and the notes have two previous versions")
   void samplesAreStored() {
     assertThat(metadata.findAll())

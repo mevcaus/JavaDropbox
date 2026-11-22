@@ -208,6 +208,27 @@ class SecurityIntegrationTests {
     }
 
     @Test
+    @DisplayName("Unauthenticated user cannot see the upload limits")
+    void unauthenticatedUserCannotSeeUploadLimits() throws Exception {
+      mockMvc.perform(get("/api/files/upload-limits")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Authenticated user sees the upload limits application.properties sets")
+    @WithMockUser(
+        username = "testuser",
+        roles = {"USER"})
+    void authenticatedUserSeesUploadLimits() throws Exception {
+      mockMvc
+          .perform(get("/api/files/upload-limits"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.maxFileBytes").value(1024L * 1024 * 1024))
+          .andExpect(jsonPath("$.maxRequestBytes").value(1024L * 1024 * 1024))
+          // server.tomcat.max-part-count=50, less the path's part.
+          .andExpect(jsonPath("$.maxFilesPerRequest").value(49));
+    }
+
+    @Test
     @DisplayName("Authenticated user sees what they store and their quota, not the server's path")
     @WithMockUser(
         username = "testuser",
