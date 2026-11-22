@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { carriesFiles, readDrop, type DroppedEntry, type DroppedItem } from './droppedFiles';
 
 // FileSystemEntry stand-ins: jsdom has no drag and drop of its own.
@@ -62,7 +62,88 @@ describe('readDrop', () => {
         ));
 
         expect(result.files).toEqual([]);
-        expect(result.skipped).toEqual(['.DS_Store', '.git', '.env']);
+        expect(result.skipped).toEqual(['.DS_Store', '.env', '.git']);
+        // Walking into .git would have thrown, which now lands here.
+        expect(result.unreadable).toEqual([]);
+    });
+
+    it('names what it cannot read and keeps everything else', async () => {
+        const broken = { ...fileEntry('broken-link'), file: (_: unknown, reject: (error: DOMException) => void) => reject(new DOMException('gone', 'NotFoundError')) };
+        const locked = folderEntry('Locked', []);
+        locked.createReader = () => ({
+            readEntries: (_resolve: (entries: DroppedEntry[]) => void, reject?: (error: DOMException) => void) =>
+                reject?.(new DOMException('no', 'NotReadableError')),
+        });
+
+        const result = await readDrop(drop(
+            droppedItem(folderEntry('Trip', [fileEntry('a.jpg'), broken, locked, fileEntry('b.jpg')])),
+            droppedItem(fileEntry('notes.txt')),
+        ));
+
+        expect(paths(result)).toEqual(['Trip/a.jpg', 'Trip/b.jpg', 'notes.txt']);
+        expect(result.unreadable).toEqual(['Trip/Locked', 'Trip/broken-link']);
+    });
+
+    it('reads at most 16 files at once, however many folders it walks', async () => {
+        let reading = 0;
+        let most = 0;
+        const slowFile = (name: string) => ({
+            name,
+            isFile: true,
+            isDirectory: false,
+            file: (resolve: (file: File) => void) => {
+                reading += 1;
+                most = Math.max(most, reading);
+                setTimeout(() => {
+                    reading -= 1;
+                    resolve(new File(['x'], name));
+                }, 1);
+            },
+        });
+        const folders = Array.from({ length: 10 }, (_, f) =>
+            folderEntry(`F${f}`, Array.from({ length: 20 }, (_, i) => slowFile(`${i}.txt`))),
+        );
+
+        const result = await readDrop(drop(...folders.map(droppedItem)));
+
+        expect(result.files).toHaveLength(200);
+        expect(most).toBeGreaterThan(1);
+        expect(most).toBeLessThanOrEqual(16);
+    });
+
+    // A read that fails must give its slot back, or 16 unreadable files would hang the drop.
+    it('finishes a drop with more unreadable files than it reads at once', async () => {
+        const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failing = Array.from({ length: 40 }, (_, i) => ({
+            ...fileEntry(`bad-${i}`),
+            file: (_: unknown, reject: (error: DOMException) => void) => setTimeout(() => reject(new DOMException('no', 'NotReadableError'))),
+        }));
+
+        const result = await readDrop(drop(droppedItem(folderEntry('Mixed', [...failing, fileEntry('good.txt')]))));
+
+        expect(paths(result)).toEqual(['Mixed/good.txt']);
+        expect(result.unreadable).toHaveLength(40);
+        expect(warned).toHaveBeenCalledWith('Could not read a dropped item', 'Mixed/bad-0', expect.any(DOMException));
+        warned.mockRestore();
+    });
+
+    it('keeps the order the browser listed even when a later folder is read first', async () => {
+        // The first folder's reader answers last.
+        const slow = folderEntry('A', [fileEntry('1.txt')]);
+        slow.createReader = () => {
+            let read = false;
+            return {
+                readEntries: (resolve: (entries: DroppedEntry[]) => void) => {
+                    const batch = read ? [] : [fileEntry('1.txt')];
+                    read = true;
+                    setTimeout(() => resolve(batch), 20);
+                },
+            };
+        };
+
+        const result = await readDrop(drop(droppedItem(slow), droppedItem(folderEntry('B', [fileEntry('2.txt')]))));
+
+        expect(paths(result)).toEqual(['A/1.txt', 'B/2.txt']);
     });
 
     it('takes the file itself when an item has no entry', async () => {
@@ -76,7 +157,7 @@ describe('readDrop', () => {
     it('ignores items that are not files', async () => {
         const result = await readDrop(drop({ kind: 'string', webkitGetAsEntry: () => null, getAsFile: () => null }));
 
-        expect(result).toEqual({ files: [], skipped: [] });
+        expect(result).toEqual({ files: [], skipped: [], unreadable: [] });
     });
 });
 

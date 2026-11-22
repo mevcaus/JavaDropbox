@@ -29,18 +29,31 @@ const pathOf = (file: Pick<FileRow, 'name' | 'relativePath'>, currentPath: strin
 const notUploaded = (names: string[]) =>
     `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`;
 
+// The most paths a toast names. A drop of files the browser can't open (cloud placeholders, say)
+// can hold hundreds, and they're full paths.
+const NAMED_AT_MOST = 5;
+
+const notRead = (paths: string[]) => {
+    const named = paths.slice(0, NAMED_AT_MOST).join(', ');
+    const more = paths.length > NAMED_AT_MOST ? ` and ${paths.length - NAMED_AT_MOST} more` : '';
+    return `${named}${more} could not be read, so ${paths.length === 1 ? 'it was' : 'they were'} not uploaded.`;
+};
+
 // A label styled as a button around a hidden file input, so clicking it opens the browser's own
 // picker. inputProps go to the input, e.g. webkitdirectory to pick a folder.
 const UploadButton = ({
     icon: Icon,
     label,
     busy,
+    progress,
     disabled,
     ...inputProps
 }: {
     icon: LucideIcon;
     label: string;
     busy: boolean;
+    // How far the upload has got, when it takes more than one request.
+    progress: UploadProgress | null;
     disabled: boolean;
     // Picks a folder rather than files. Every browser has it, but React's types don't list it.
     webkitdirectory?: string;
@@ -55,7 +68,9 @@ const UploadButton = ({
         ) : (
             <Icon className="h-4 w-4 mr-2" aria-hidden="true" />
         )}
-        {busy ? 'Uploading…' : label}
+        {/* Not a live region: it would be read out after every request of a long upload. The toasts
+            say when it ends. */}
+        {busy ? (progress ? `Uploading ${progress.sent} of ${progress.total} files…` : 'Uploading…') : label}
         <input type="file" className="sr-only" multiple disabled={disabled} {...inputProps} />
     </label>
 );
@@ -86,14 +101,17 @@ const Dashboard = () => {
     const [previewItem, setPreviewItem] = useState<(FileRow & { path: string }) | null>(null);
     // What is being uploaded, while an upload is running: one upload at a time.
     const [uploading, setUploading] = useState<'files' | 'folder' | 'drop' | null>(null);
-    // How far it has got, once it takes more than one request, for the failure message: the files
-    // stored before a request failed stay stored.
+    // How far it has got, once it takes more than one request.
+    const [progress, setProgress] = useState<UploadProgress | null>(null);
+    // The same, for the failure message: the files stored before a request failed stay stored.
     const reached = useRef<UploadProgress | null>(null);
     const track = (next: UploadProgress) => {
         reached.current = next;
+        setProgress(next);
     };
     const untrack = () => {
         reached.current = null;
+        setProgress(null);
     };
     const uploadFailed = (err: unknown, fallback: string) => {
         const message = readableError(err, fallback);
@@ -273,7 +291,10 @@ const Dashboard = () => {
                 addToast('Could not read the dropped files.', 'error');
                 return;
             }
-            if (dropped.files.length === 0 && dropped.skipped.length === 0) {
+            if (dropped.unreadable.length > 0) {
+                addToast(notRead(dropped.unreadable), 'error');
+            }
+            if (dropped.files.length === 0 && dropped.skipped.length === 0 && dropped.unreadable.length === 0) {
                 addToast('Nothing was uploaded: empty folders are left out.', 'info');
                 return;
             }
@@ -341,6 +362,7 @@ const Dashboard = () => {
                         icon={UploadIcon}
                         label="Upload"
                         busy={uploading === 'files' || uploading === 'drop'}
+                        progress={progress}
                         disabled={uploading !== null}
                         onChange={handleFileUpload}
                     />
@@ -349,6 +371,7 @@ const Dashboard = () => {
                         icon={FolderUp}
                         label="Upload folder"
                         busy={uploading === 'folder'}
+                        progress={progress}
                         disabled={uploading !== null}
                         onChange={handleFolderUpload}
                         webkitdirectory=""
