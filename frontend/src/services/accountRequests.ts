@@ -3,6 +3,7 @@ import { sendRequest, type Request } from './baseQuery';
 import { apiSlice } from './apiSlice';
 import type { components } from './apiSchema';
 import type { Message } from './generatedApi';
+import { fieldsOf } from '../utils/errors';
 
 // The requests that carry a secret, there or back, and so aren't in the API slice. RTK Query puts
 // a mutation's arguments on every action it dispatches for it (meta.arg.originalArgs), and keeps
@@ -57,13 +58,21 @@ export type NewLink = components['schemas']['NewLink'];
 
 type Tags = Parameters<typeof apiSlice.util.invalidateTags>[0];
 
-// Asks again for the lists a new link changes, failed or not, as the slice's cache tags did for
-// these requests: a failure can still have changed what's listed.
+// Asks again for the lists a new link changes, as the slice's cache tags did for these requests:
+// when it's made, and when the server refuses or can't be reached, since a failure can still have
+// changed what's listed. A bug in the app, which never reached the server, asks for nothing, as in
+// the slice.
 const sendLink = async (dispatch: Dispatch<UnknownAction>, request: Request, endpoint: string, tags: Tags) => {
-    try {
-        return await send<NewLink>(request, endpoint);
-    } finally {
+    const refresh = () => {
         if (tags.length > 0) dispatch(apiSlice.util.invalidateTags(tags));
+    };
+    try {
+        const link = await send<NewLink>(request, endpoint);
+        refresh();
+        return link;
+    } catch (failure) {
+        if (fieldsOf(failure).status !== undefined) refresh();
+        throw failure;
     }
 };
 

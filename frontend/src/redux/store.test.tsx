@@ -243,8 +243,8 @@ describe('store', () => {
             await user.click(screen.getByRole('button', { name: 'Create invitation' }));
 
             expect(await screen.findByLabelText('Invitation link')).toHaveValue('http://localhost/invite/invite-link-secret');
-            expect(everythingShown(seen, store.getState())).not.toContain('invite-link-secret');
             await waitFor(() => expect(invitesAsked()).toBe(before + 1));
+            expect(everythingShown(seen, store.getState())).not.toContain('invite-link-secret');
         });
 
         it('shows the Redux DevTools no password reset link', async () => {
@@ -276,8 +276,8 @@ describe('store', () => {
             await user.click(screen.getByRole('button', { name: 'Generate link' }));
 
             expect(await screen.findByLabelText('Share link')).toHaveValue('http://localhost/share/share-link-secret');
-            expect(everythingShown(seen, store.getState())).not.toContain('share-link-secret');
             await waitFor(() => expect(sharesAsked()).toBe(2));
+            expect(everythingShown(seen, store.getState())).not.toContain('share-link-secret');
         });
     });
 });

@@ -13,7 +13,7 @@ import { primaryButton, secondaryButton } from './modalStyles';
 /**
  * Invites someone: the admin picks a username, a role and a quota, and gets a one-time link to hand
  * over, at which the invitee chooses a password. Making it refreshes the page's list of invitations
- * through its cache tag.
+ * (see createInvite in accountRequests.ts).
  */
 const InviteModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
     isOpen ? <InviteDialog onClose={onClose} /> : null;

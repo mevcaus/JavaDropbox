@@ -117,7 +117,8 @@ export const apiSlice = generatedApi
             // the admin's own account.
             // Storage too: the admin page lists no files, so no listing would ask for it.
             importFiles: { invalidatesTags: ['Accounts', 'Files', 'Storage'] },
-            // A new invitation asks for the list again from accountRequests.ts, which sends it.
+            // (A new invitation asks for the list again from accountRequests.ts, which sends it.)
+
             // Failed or not: a failure is most often an invitation used or expired meanwhile, which
             // shouldn't stay listed.
             revokeInvite: { invalidatesTags: ['Invites'] },

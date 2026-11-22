@@ -197,8 +197,21 @@ describe('refreshing versions and share links', () => {
         await createShareLink(store.dispatch, { path: 'a.txt', expirationMinutes: 60 });
         await settle();
 
-        const paths =api.get.mock.calls.filter(([url]) => url === '/api/share').map(([, config]) => config?.params);
+        const paths = api.get.mock.calls.filter(([url]) => url === '/api/share').map(([, config]) => config?.params);
         expect(paths).toEqual([{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'a.txt' }]);
+    });
+
+    it('refreshes the shared item\'s links when making a link fails too', async () => {
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
+        api.post.mockRejectedValueOnce({ response: { status: 500, data: '' } });
+
+        await expect(createShareLink(store.dispatch, { path: 'a.txt', expirationMinutes: 60 })).rejects.toEqual({
+            status: 500,
+            data: '',
+        });
+        await settle();
+
+        expect(api.get.mock.calls.filter(([url]) => url === '/api/share')).toHaveLength(2);
     });
 
     // Uploading over a file keeps its old content as a version; a delete takes versions and links.
@@ -274,6 +287,30 @@ describe('refreshing the accounts and invitations', () => {
         await settle();
 
         expect(asked()).toEqual([1, 2, 1]);
+    });
+
+    // As the slice's tags did: a refusal can still have changed what's listed.
+    it('asks for the invitations again when making one fails', async () => {
+        api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'Already invited' } } });
+
+        await expect(createInvite(store.dispatch, { username: 'carol' })).rejects.toEqual({
+            status: 409,
+            data: { message: 'Already invited' },
+        });
+        await settle();
+
+        expect(asked()).toEqual([1, 2, 1]);
+    });
+
+    it('asks for nothing again after a bug in the app, which never reached the server', async () => {
+        api.post.mockRejectedValueOnce(new TypeError('a bug'));
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await expect(createInvite(store.dispatch, { username: 'carol' })).rejects.toBeInstanceOf(TypeError);
+        await settle();
+
+        expect(asked()).toEqual([1, 1, 1]);
+        logged.mockRestore();
     });
 });
 

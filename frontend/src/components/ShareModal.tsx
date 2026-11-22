@@ -121,7 +121,7 @@ const ShareDialog = ({ isOpen, onClose, item }: ShareModalProps & { item: ShareI
                     </p>
                 </div>
             )}
-            {/* A new link refreshes this list through its cache tag. */}
+            {/* A new link refreshes this list (see createShareLink in accountRequests.ts). */}
             <ActiveLinks path={item.path} />
             <ModalActions>
                 {!shareUrl && (
