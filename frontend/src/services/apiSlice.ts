@@ -152,7 +152,8 @@ export const apiSlice = generatedApi
              * one folder per request, and takes only so many files and bytes in one (see
              * uploadBatches), so this sends each folder's files in as many requests as that takes,
              * parents first and one after another, and stops at the first that fails. What was
-             * sent before it stays stored. The tree is refreshed once at the end, not after every
+             * sent before it stays stored, and so may some of the failed request's own files, since
+             * the server stores them one by one. The tree is refreshed once at the end, not after every
              * request. Empty folders aren't uploaded: neither the picker nor a drop reports them.
              *
              * onProgress hears how many files are stored, at the start and after each request,
@@ -164,10 +165,15 @@ export const apiSlice = generatedApi
             >({
                 async queryFn({ files, path, onProgress }, _api, _extra, baseQuery) {
                     const answer = await baseQuery({ url: '/api/files/upload-limits' });
-                    // A server from before the limits were published has no such path: upload as
-                    // it took uploads then, a folder's files at once.
+                    // The app ships with its server, so this is only ever missing behind npm run
+                    // dev against an older backend, or for a page cached from a newer release
+                    // after a rollback. Upload as such a server took uploads, a folder's files at
+                    // once, and say so in the console.
                     if (answer.error && answer.error.status !== 404) {
                         return { error: answer.error };
+                    }
+                    if (answer.error) {
+                        console.warn('The server publishes no upload limits; sending each folder in one request');
                     }
                     const limits = limitsFrom(answer.error ? null : answer.data);
                     // Refused here rather than by the server halfway through, after the batches
@@ -179,7 +185,9 @@ export const apiSlice = generatedApi
                             error: {
                                 status: 413,
                                 data: {
-                                    message: `"${tooLarge.relativePath}" is too large to upload: the most a file can be is ${formatSize(largest)}. Nothing was uploaded.`,
+                                    // About: largest is the request limit less its framing, which
+                                    // formatSize rounds, e.g. to 1024 MB for a 1024 MB limit.
+                                    message: `"${tooLarge.relativePath}" is too large to upload: the most a file can be is about ${formatSize(largest)}. Nothing was uploaded.`,
                                 },
                             },
                         };

@@ -2,9 +2,8 @@ import { sendRequest, type Request } from './baseQuery';
 import type { Message } from './generatedApi';
 
 // The three requests that carry a new password, the setup code or an account link's token. They
-// aren't in the API slice: RTK Query keeps a mutation's arguments in the store
-// (state.api.mutations[id].originalArgs) and puts them on its actions (meta.arg.originalArgs),
-// where the Redux DevTools and any middleware see them (#432). So they're left out of the
+// aren't in the API slice: RTK Query puts a mutation's arguments on every action it dispatches
+// for it (meta.arg.originalArgs), where the Redux DevTools and any middleware see them (#432). So they're left out of the
 // generated endpoints (openapi-config.cjs) and sent from here, the way the slice sends its own
 // requests, through baseQuery's sendRequest.
 //

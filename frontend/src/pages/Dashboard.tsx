@@ -98,7 +98,11 @@ const Dashboard = () => {
     const uploadFailed = (err: unknown, fallback: string) => {
         const message = readableError(err, fallback);
         const sent = reached.current?.sent ?? 0;
-        return sent > 0 ? `${message} ${sent} of ${reached.current?.total} files were uploaded before it stopped.` : message;
+        // At least: the server stores a request's files one by one, so the request that failed may
+        // have stored some of its own first.
+        return sent > 0
+            ? `${message} At least ${sent} of ${reached.current?.total} files were uploaded before it stopped.`
+            : message;
     };
     // Whether files are being dragged over the table.
     const [draggingOver, setDraggingOver] = useState(false);

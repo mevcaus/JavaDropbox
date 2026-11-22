@@ -39,8 +39,9 @@ export const largestUpload = ({ maxFileBytes, maxRequestBytes }: UploadLimits): 
 
 /**
  * The files bound for one folder split into requests the server takes: none with more files or
- * more bytes than limits allow, as GET /api/files/upload-limits answers them. A file too large
- * for a request of its own still gets one, for the server to refuse with its own message.
+ * more bytes than limits allow, as GET /api/files/upload-limits answers them. uploadFolder
+ * refuses a file larger than largestUpload before it gets here; one that still arrives gets a
+ * request of its own, for the server to refuse with its own message.
  */
 export const uploadBatches = (files: readonly File[], path: string, limits: UploadLimits): File[][] => {
     const { maxFilesPerRequest, maxRequestBytes } = limits;

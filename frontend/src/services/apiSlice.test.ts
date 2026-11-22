@@ -511,12 +511,35 @@ describe('uploadFolder', () => {
             return { data: [] };
         });
         api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const files = Array.from({ length: 60 }, (_, i) => pickedFile(`${i}.txt`));
 
         const result = await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '' }));
 
         expect(result.error).toBeUndefined();
         expect(api.post).toHaveBeenCalledTimes(1);
+        expect(warned).toHaveBeenCalledWith(expect.stringContaining('no upload limits'));
+        warned.mockRestore();
+    });
+
+    it('counts progress across every folder of the upload', async () => {
+        api.get.mockImplementation(async (url: string) =>
+            url === '/api/files/upload-limits'
+                ? { data: { maxFileBytes: null, maxRequestBytes: null, maxFilesPerRequest: 2 } }
+                : { data: [] },
+        );
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const files = ['Top/a', 'Top/b', 'Top/c', 'Top/Sub/d', 'Top/Sub/e'].map(pickedFile);
+        const onProgress = vi.fn();
+
+        await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '', onProgress }));
+
+        expect(postedFolders().map(([path, names]) => [path, names])).toEqual([
+            ['Top', ['a', 'b']],
+            ['Top', ['c']],
+            ['Top/Sub', ['d', 'e']],
+        ]);
+        expect(onProgress.mock.calls.map(([{ sent }]) => sent)).toEqual([0, 2, 3, 5]);
     });
 
     it('refuses a file too large for any request before sending anything', async () => {
@@ -532,7 +555,7 @@ describe('uploadFolder', () => {
 
         expect(result.error).toEqual({
             status: 413,
-            data: { message: '"Trip/big.iso" is too large to upload: the most a file can be is 5 MB. Nothing was uploaded.' },
+            data: { message: '"Trip/big.iso" is too large to upload: the most a file can be is about 5 MB. Nothing was uploaded.' },
         });
         expect(api.post).not.toHaveBeenCalled();
     });

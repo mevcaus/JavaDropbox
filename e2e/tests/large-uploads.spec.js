@@ -7,8 +7,11 @@ import { test, expect, dropFiles, openFolder, row, textFile } from '../support/f
 const COUNT = 200;
 const names = Array.from({ length: COUNT }, (_, i) => `file-${String(i).padStart(3, '0')}.txt`);
 // Each file is stored in a transaction of its own, over several requests one after another, while
-// the other spec files run against the same stack. Far more than that takes, but not forever.
+// the other spec files run against the same stack. Far more than that takes (about 6 seconds a
+// test on a laptop), but not forever. Each test gets room for the wait and its folder fixture,
+// over Playwright's default of 30 seconds.
 const STORED = { timeout: 60_000 };
+test.describe.configure({ timeout: 120_000 });
 
 // The files listed in the open folder: every row but the header.
 const expectAllListed = async (page) => {

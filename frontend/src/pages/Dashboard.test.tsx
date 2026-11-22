@@ -492,7 +492,7 @@ describe('Dashboard', () => {
 
         await waitFor(() =>
             expect(addToast).toHaveBeenCalledWith(
-                'Not enough storage left. 49 of 120 files were uploaded before it stopped.',
+                'Not enough storage left. At least 49 of 120 files were uploaded before it stopped.',
                 'error',
             ),
         );
