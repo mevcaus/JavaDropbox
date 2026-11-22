@@ -1,6 +1,6 @@
 // The file endpoints the app links to rather than loading into the store, and helpers for the file
 // tree, which comes from the API slice (apiSlice.ts).
-import type { FileTreeNode, PickedFile } from '../services/apiSlice';
+import type { FileTreeNode, PickedFile, UploadLimits } from '../services/apiSlice';
 
 // A file's contents, served as a download or for the browser to show (see FileController).
 export const DOWNLOAD_ENDPOINT = '/api/files/download';
@@ -23,6 +23,48 @@ export const filesByFolder = (files: readonly PickedFile[], path: string): [stri
         else groups.set(target, [file]);
     }
     return [...groups].sort(([a], [b]) => a.localeCompare(b));
+};
+
+// What the multipart framing adds to a request, generously: per file its boundary and headers,
+// with a name of up to 255 characters, and per request the closing boundary and the path's part.
+const PART_OVERHEAD = 1024;
+const REQUEST_OVERHEAD = 1024;
+
+/**
+ * The largest file the server takes, alone in a request with its framing, or Infinity for no
+ * limit.
+ */
+export const largestUpload = ({ maxFileBytes, maxRequestBytes }: UploadLimits): number =>
+    Math.min(maxFileBytes ?? Infinity, maxRequestBytes == null ? Infinity : maxRequestBytes - REQUEST_OVERHEAD - PART_OVERHEAD);
+
+/**
+ * The files bound for one folder split into requests the server takes: none with more files or
+ * more bytes than limits allow, as GET /api/files/upload-limits answers them. uploadFolder
+ * refuses a file larger than largestUpload before it gets here; one that still arrives gets a
+ * request of its own, for the server to refuse with its own message.
+ */
+export const uploadBatches = (files: readonly File[], path: string, limits: UploadLimits): File[][] => {
+    const { maxFilesPerRequest, maxRequestBytes } = limits;
+    const empty = REQUEST_OVERHEAD + new TextEncoder().encode(path).length;
+    const batches: File[][] = [];
+    let batch: File[] = [];
+    let bytes = empty;
+    for (const file of files) {
+        const size = file.size + PART_OVERHEAD;
+        const full =
+            batch.length > 0 &&
+            ((maxFilesPerRequest != null && batch.length >= maxFilesPerRequest) ||
+                (maxRequestBytes != null && bytes + size > maxRequestBytes));
+        if (full) {
+            batches.push(batch);
+            batch = [];
+            bytes = empty;
+        }
+        batch.push(file);
+        bytes += size;
+    }
+    if (batch.length > 0) batches.push(batch);
+    return batches;
 };
 
 // One shared empty result, so a component comparing by reference doesn't see a change every time.

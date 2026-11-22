@@ -456,8 +456,122 @@ describe('uploadFolder', () => {
 
         expect(result.error).toEqual({ status: 400, data: { message: '"B" is a file, not a folder' } });
         expect(postedFolders().map(([path]) => path)).toEqual(['Top', 'Top/B']);
-        // Once for the subscription, once after the upload.
-        expect(api.get).toHaveBeenCalledTimes(2);
+        // The tree: once for the subscription, once after the upload.
+        expect(api.get.mock.calls.filter(([url]) => url === '/api/files')).toHaveLength(2);
+    });
+
+    // #350: Tomcat refuses a request with more parts than server.tomcat.max-part-count.
+    it('sends a large folder in batches the server takes, and says how far it has got', async () => {
+        api.get.mockImplementation(async (url: string) =>
+            url === '/api/files/upload-limits'
+                ? { data: { maxFileBytes: 1000, maxRequestBytes: 1_000_000, maxFilesPerRequest: 49 } }
+                : { data: [] },
+        );
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const files = Array.from({ length: 120 }, (_, i) => pickedFile(`Photos/${i}.jpg`));
+        const onProgress = vi.fn();
+
+        const result = await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '', onProgress }));
+
+        expect(result.error).toBeUndefined();
+        const posted = api.post.mock.calls.map(([, body]) => ({
+            path: postedMultipart(body).get('path'),
+            names: postedFileNames(body),
+        }));
+        expect(posted.map(({ path, names }) => [path, names.length])).toEqual([
+            ['Photos', 49],
+            ['Photos', 49],
+            ['Photos', 22],
+        ]);
+        expect(posted.flatMap(({ names }) => names)).toEqual(files.map(({ file }) => file.name));
+        expect(onProgress.mock.calls.map(([progress]) => progress)).toEqual([
+            { sent: 0, total: 120 },
+            { sent: 49, total: 120 },
+            { sent: 98, total: 120 },
+            { sent: 120, total: 120 },
+        ]);
+    });
+
+    it('says nothing of progress for an upload that takes one request', async () => {
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const onProgress = vi.fn();
+
+        await store.dispatch(
+            apiSlice.endpoints.uploadFolder.initiate({ files: [pickedFile('a.txt')], path: '', onProgress }),
+        );
+
+        expect(api.get).toHaveBeenCalledWith('/api/files/upload-limits', expect.anything());
+        expect(api.post).toHaveBeenCalledTimes(1);
+        expect(onProgress).not.toHaveBeenCalled();
+    });
+
+    it('uploads as before to a server that publishes no limits', async () => {
+        api.get.mockImplementation(async (url: string) => {
+            if (url === '/api/files/upload-limits') throw { response: { status: 404, data: '' } };
+            return { data: [] };
+        });
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const files = Array.from({ length: 60 }, (_, i) => pickedFile(`${i}.txt`));
+
+        const result = await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '' }));
+
+        expect(result.error).toBeUndefined();
+        expect(api.post).toHaveBeenCalledTimes(1);
+        expect(warned).toHaveBeenCalledWith(expect.stringContaining('no upload limits'));
+        warned.mockRestore();
+    });
+
+    it('counts progress across every folder of the upload', async () => {
+        api.get.mockImplementation(async (url: string) =>
+            url === '/api/files/upload-limits'
+                ? { data: { maxFileBytes: null, maxRequestBytes: null, maxFilesPerRequest: 2 } }
+                : { data: [] },
+        );
+        api.post.mockResolvedValue({ data: { message: 'Uploaded' } });
+        const files = ['Top/a', 'Top/b', 'Top/c', 'Top/Sub/d', 'Top/Sub/e'].map(pickedFile);
+        const onProgress = vi.fn();
+
+        await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '', onProgress }));
+
+        expect(postedFolders().map(([path, names]) => [path, names])).toEqual([
+            ['Top', ['a', 'b']],
+            ['Top', ['c']],
+            ['Top/Sub', ['d', 'e']],
+        ]);
+        expect(onProgress.mock.calls.map(([{ sent }]) => sent)).toEqual([0, 2, 3, 5]);
+    });
+
+    it('refuses a file too large for any request before sending anything', async () => {
+        api.get.mockImplementation(async (url: string) =>
+            url === '/api/files/upload-limits'
+                ? { data: { maxFileBytes: 5 * 1024 * 1024, maxRequestBytes: 10 * 1024 * 1024, maxFilesPerRequest: 49 } }
+                : { data: [] },
+        );
+        const big = { file: new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'big.iso'), relativePath: 'Trip/big.iso' };
+        const files = [pickedFile('Trip/a.txt'), big, pickedFile('Trip/b.txt')];
+
+        const result = await store.dispatch(apiSlice.endpoints.uploadFolder.initiate({ files, path: '' }));
+
+        expect(result.error).toEqual({
+            status: 413,
+            data: { message: '"Trip/big.iso" is too large to upload: the most a file can be is about 5 MB. Nothing was uploaded.' },
+        });
+        expect(api.post).not.toHaveBeenCalled();
+    });
+
+    it('uploads nothing when it cannot learn the limits', async () => {
+        api.get.mockImplementation(async (url: string) => {
+            if (url === '/api/files/upload-limits') throw { response: { status: 503, data: { message: 'Down' } } };
+            return { data: [] };
+        });
+
+        const result = await store.dispatch(
+            apiSlice.endpoints.uploadFolder.initiate({ files: [pickedFile('a.txt')], path: '' }),
+        );
+
+        expect(result.error).toEqual({ status: 503, data: { message: 'Down' } });
+        expect(api.post).not.toHaveBeenCalled();
     });
 });
 

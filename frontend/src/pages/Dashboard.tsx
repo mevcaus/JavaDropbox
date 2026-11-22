@@ -5,9 +5,9 @@ import {
     useCreateFolderMutation,
     useDeleteItemMutation,
     useGetFileTreeQuery,
-    useUploadFilesMutation,
     useUploadFolderMutation,
     type PickedFile,
+    type UploadProgress,
 } from '../services/apiSlice';
 import { readableError } from '../utils/errors';
 import FileTable, { type FileRow } from '../components/FileTable';
@@ -74,7 +74,6 @@ const Dashboard = () => {
     });
     const files = useMemo(() => filesIn(tree, currentPath), [tree, currentPath]);
     const [createFolder] = useCreateFolderMutation();
-    const [uploadFiles] = useUploadFilesMutation();
     const [uploadFolder] = useUploadFolderMutation();
     const [deleteItem] = useDeleteItemMutation();
     const { addToast } = useToast();
@@ -87,6 +86,24 @@ const Dashboard = () => {
     const [previewItem, setPreviewItem] = useState<(FileRow & { path: string }) | null>(null);
     // What is being uploaded, while an upload is running: one upload at a time.
     const [uploading, setUploading] = useState<'files' | 'folder' | 'drop' | null>(null);
+    // How far it has got, once it takes more than one request, for the failure message: the files
+    // stored before a request failed stay stored.
+    const reached = useRef<UploadProgress | null>(null);
+    const track = (next: UploadProgress) => {
+        reached.current = next;
+    };
+    const untrack = () => {
+        reached.current = null;
+    };
+    const uploadFailed = (err: unknown, fallback: string) => {
+        const message = readableError(err, fallback);
+        const sent = reached.current?.sent ?? 0;
+        // At least: the server stores a request's files one by one, so the request that failed may
+        // have stored some of its own first.
+        return sent > 0
+            ? `${message} At least ${sent} of ${reached.current?.total} files were uploaded before it stopped.`
+            : message;
+    };
     // Whether files are being dragged over the table.
     const [draggingOver, setDraggingOver] = useState(false);
     // How many of the table's elements the drag has entered and not yet left. Every move onto a
@@ -156,12 +173,15 @@ const Dashboard = () => {
 
         setUploading('files');
         try {
-            await uploadFiles({ body: { files: selected, path: currentPath } }).unwrap();
+            // Through uploadFolder, with only their names, so a large selection goes in batches.
+            const files = selected.map((file) => ({ file, relativePath: file.name }));
+            await uploadFolder({ files, path: currentPath, onProgress: track }).unwrap();
             addToast(`Uploaded ${selected.length} ${selected.length === 1 ? 'file' : 'files'} successfully.`, 'success');
         } catch (err) {
-            addToast(readableError(err, 'Failed to upload files.'), 'error');
+            addToast(uploadFailed(err, 'Failed to upload files.'), 'error');
         } finally {
             setUploading(null);
+            untrack();
         }
     };
 
@@ -180,13 +200,15 @@ const Dashboard = () => {
         const folderName = tops.size === 1 && files[0].relativePath.includes('/') ? [...tops][0] : null;
         const count = `${files.length} ${files.length === 1 ? 'file' : 'files'}`;
         try {
-            await uploadFolder({ files, path: currentPath }).unwrap();
+            await uploadFolder({ files, path: currentPath, onProgress: track }).unwrap();
             addToast(
                 folderName ? `Uploaded folder "${folderName}" (${count}) successfully.` : `Uploaded ${count} successfully.`,
                 'success',
             );
         } catch (err) {
-            addToast(readableError(err, 'Failed to upload the folder.'), 'error');
+            addToast(uploadFailed(err, 'Failed to upload the folder.'), 'error');
+        } finally {
+            untrack();
         }
     };
 
