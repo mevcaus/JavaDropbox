@@ -3,12 +3,8 @@ import { skipToken } from '@reduxjs/toolkit/query';
 import { useAppDispatch, useAppSelector } from '../redux/withTypes';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import {
-    useAcceptInviteMutation,
-    useDescribeInviteQuery,
-    useDescribePasswordResetQuery,
-    useResetPasswordMutation,
-} from '../services/apiSlice';
+import { useDescribeInviteQuery, useDescribePasswordResetQuery } from '../services/apiSlice';
+import { acceptInvite, resetPassword } from '../services/accountRequests';
 import { clearUser, logoutUser } from '../features/authSlice';
 import { fieldsOf, readableError } from '../utils/errors';
 import { formatDate } from '../utils/date';
@@ -71,8 +67,7 @@ const AccountLink = ({ purpose }: { purpose: LinkPurpose }) => {
     const invite = useDescribeInviteQuery(purpose === 'invite' ? { token: linkToken } : skipToken);
     const reset = useDescribePasswordResetQuery(purpose === 'reset' ? { token: linkToken } : skipToken);
     const described = purpose === 'invite' ? invite : reset;
-    const [acceptInvite] = useAcceptInviteMutation();
-    const [resetPassword] = useResetPasswordMutation();
+    // Not through the API slice, which would keep the password and the token in the store.
     const setPasswordWith = purpose === 'invite' ? acceptInvite : resetPassword;
 
     // Anything but the link's description, such as the app's HTML from a request that never reached
@@ -105,7 +100,8 @@ const AccountLink = ({ purpose }: { purpose: LinkPurpose }) => {
         }
         setSaving(true);
         try {
-            await setPasswordWith({ token: linkToken, body: { password } }).unwrap();
+            // The token as the address bar has it, not linkToken: these encode it themselves.
+            await setPasswordWith(token, password);
             if (isAuthenticated) {
                 // A reset of this account's own password has already ended its session on the
                 // server; anyone else is still signed in there, and stays signed out here regardless.
