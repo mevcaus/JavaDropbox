@@ -29,6 +29,16 @@ const pathOf = (file: Pick<FileRow, 'name' | 'relativePath'>, currentPath: strin
 const notUploaded = (names: string[]) =>
     `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} not uploaded. ${DOT_NAME_RULE}`;
 
+// The most paths a toast names. A drop of files the browser can't open (cloud placeholders, say)
+// can hold hundreds, and they're full paths.
+const NAMED_AT_MOST = 5;
+
+const notRead = (paths: string[]) => {
+    const named = paths.slice(0, NAMED_AT_MOST).join(', ');
+    const more = paths.length > NAMED_AT_MOST ? ` and ${paths.length - NAMED_AT_MOST} more` : '';
+    return `${named}${more} could not be read, so ${paths.length === 1 ? 'it was' : 'they were'} not uploaded.`;
+};
+
 // A label styled as a button around a hidden file input, so clicking it opens the browser's own
 // picker. inputProps go to the input, e.g. webkitdirectory to pick a folder.
 const UploadButton = ({
@@ -58,10 +68,9 @@ const UploadButton = ({
         ) : (
             <Icon className="h-4 w-4 mr-2" aria-hidden="true" />
         )}
-        {/* Read out as it changes, so a long upload is heard moving along too. */}
-        <span aria-live="polite">
-            {busy ? (progress ? `Uploading ${progress.sent} of ${progress.total} files…` : 'Uploading…') : label}
-        </span>
+        {/* Not a live region: it would be read out after every request of a long upload. The toasts
+            say when it ends. */}
+        {busy ? (progress ? `Uploading ${progress.sent} of ${progress.total} files…` : 'Uploading…') : label}
         <input type="file" className="sr-only" multiple disabled={disabled} {...inputProps} />
     </label>
 );
@@ -283,11 +292,7 @@ const Dashboard = () => {
                 return;
             }
             if (dropped.unreadable.length > 0) {
-                const names = dropped.unreadable;
-                addToast(
-                    `${names.join(', ')} could not be read, so ${names.length === 1 ? 'it was' : 'they were'} not uploaded.`,
-                    'error',
-                );
+                addToast(notRead(dropped.unreadable), 'error');
             }
             if (dropped.files.length === 0 && dropped.skipped.length === 0 && dropped.unreadable.length === 0) {
                 addToast('Nothing was uploaded: empty folders are left out.', 'info');

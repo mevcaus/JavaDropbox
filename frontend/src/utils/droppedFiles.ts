@@ -120,9 +120,11 @@ export const readDrop = async (dataTransfer: {
                 const children = await inSlot(() => readAll(entry.createReader()));
                 return (await Promise.all(children.map((child) => walk(child, relativePath)))).flat();
             }
-        } catch {
-            // The browser says only that it failed (NotFoundError, NotReadableError), so the
-            // path is all there is to tell.
+        } catch (error) {
+            // The page names the path. The error's name (NotFoundError, NotReadableError,
+            // SecurityError) says more, for whoever looks in the console, and a bug in the app
+            // would show here too rather than pass for an unreadable file.
+            console.warn('Could not read a dropped item', relativePath, error);
             unreadable.push(relativePath);
         }
         return [];

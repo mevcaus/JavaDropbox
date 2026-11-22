@@ -398,6 +398,27 @@ describe('Dashboard', () => {
             expect(api.post).not.toHaveBeenCalled();
         });
 
+        it('names only the first few of many unreadable files', async () => {
+            api.get.mockResolvedValue({ data: TREE });
+            renderDashboard();
+            const row = await screen.findByRole('button', { name: 'Download report.pdf' });
+            const unreadable = Array.from({ length: 7 }, (_, i) => ({
+                name: `locked-${i}.txt`,
+                isFile: true,
+                isDirectory: false,
+                file: (_: unknown, reject: (error: Error) => void) => reject(new Error('denied')),
+            }));
+
+            fireEvent.drop(row, { dataTransfer: filesDrag(...unreadable) });
+
+            await waitFor(() =>
+                expect(addToast).toHaveBeenCalledWith(
+                    'locked-0.txt, locked-1.txt, locked-2.txt, locked-3.txt, locked-4.txt and 2 more could not be read, so they were not uploaded.',
+                    'error',
+                ),
+            );
+        });
+
         it('uploads the rest of a drop when one file in it cannot be read', async () => {
             api.get.mockResolvedValue({ data: TREE });
             api.post.mockResolvedValue({ data: { message: 'Uploaded' } });

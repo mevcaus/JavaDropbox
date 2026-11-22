@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { carriesFiles, readDrop, type DroppedEntry, type DroppedItem } from './droppedFiles';
 
 // FileSystemEntry stand-ins: jsdom has no drag and drop of its own.
@@ -109,6 +109,22 @@ describe('readDrop', () => {
         expect(result.files).toHaveLength(200);
         expect(most).toBeGreaterThan(1);
         expect(most).toBeLessThanOrEqual(16);
+    });
+
+    // A read that fails must give its slot back, or 16 unreadable files would hang the drop.
+    it('finishes a drop with more unreadable files than it reads at once', async () => {
+        const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failing = Array.from({ length: 40 }, (_, i) => ({
+            ...fileEntry(`bad-${i}`),
+            file: (_: unknown, reject: (error: DOMException) => void) => setTimeout(() => reject(new DOMException('no', 'NotReadableError'))),
+        }));
+
+        const result = await readDrop(drop(droppedItem(folderEntry('Mixed', [...failing, fileEntry('good.txt')]))));
+
+        expect(paths(result)).toEqual(['Mixed/good.txt']);
+        expect(result.unreadable).toHaveLength(40);
+        expect(warned).toHaveBeenCalledWith('Could not read a dropped item', 'Mixed/bad-0', expect.any(DOMException));
+        warned.mockRestore();
     });
 
     it('keeps the order the browser listed even when a later folder is read first', async () => {
