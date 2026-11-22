@@ -103,6 +103,7 @@ erDiagram
     users |o--o{ account_links : "is reset by"
     blobs |o--o{ file_metadata : "keeps the content of"
     blobs |o--o{ file_versions : "keeps the content of"
+    users |o--o{ file_versions : "owns, when kept as a blob"
 
     users {
         bigint id PK
@@ -132,6 +133,7 @@ erDiagram
         bigint size
         varchar content_hash "SHA-256 when known, a hint until blobs"
         varchar blob_hash FK "the blob it's kept as, null while under .versions/"
+        bigint owner_id FK "the file's account, for a version kept as a blob"
     }
     blobs {
         varchar hash PK "SHA-256 of the content"

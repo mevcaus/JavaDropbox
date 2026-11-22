@@ -53,7 +53,8 @@ public class FileVersion {
   /**
    * The blob the version is kept as (#316), or null where it is at {@link #storedFilename} under
    * the versions folder. Read-only here, like the file's: it changes only together with the blob's
-   * reference count (see {@link FileMetadata#getBlobHash}).
+   * reference count (see {@link FileMetadata#getBlobHash}), and in the same statement as {@code
+   * owner_id}, the account whose file this is, set from the file's row.
    */
   @Column(length = 64, insertable = false, updatable = false)
   private String blobHash;

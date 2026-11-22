@@ -52,7 +52,9 @@ final class RowsFromStore implements IndexableItems.Rows {
                     entry.key().substring(home.length() + 1),
                     entry.isDirectory(),
                     entry.isDirectory() ? 0 : entry.size(),
-                    entry.modified()));
+                    entry.modified(),
+                    // Read from the store, so at its own path.
+                    null));
             return FileVisitResult.CONTINUE;
           });
     } catch (IOException e) {

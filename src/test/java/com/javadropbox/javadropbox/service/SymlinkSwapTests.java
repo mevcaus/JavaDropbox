@@ -59,9 +59,9 @@ class SymlinkSwapTests {
     StoragePath checked = paths.resolveItem("dir");
     List<ListedRow> rows =
         List.of(
-            new ListedRow("dir/secret.txt", false, 6L, null),
-            new ListedRow("dir/sub", true, 0L, null),
-            new ListedRow("dir/sub/precious.txt", false, 8L, null));
+            new ListedRow("dir/secret.txt", false, 6L, null, null),
+            new ListedRow("dir/sub", true, 0L, null, null),
+            new ListedRow("dir/sub/precious.txt", false, 8L, null, null));
     // Only the folder below is swapped: the zip goes on past it.
     Files.writeString(root.resolve("dir/sub/precious.txt"), "inside too");
     swapSubForLinkOutside();

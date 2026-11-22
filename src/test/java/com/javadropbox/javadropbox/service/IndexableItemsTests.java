@@ -70,8 +70,13 @@ class IndexableItemsTests {
         new IndexableItems(
             source,
             storagePaths,
-            // No rows, so every file is at its own path.
-            new FileContents(store, (ownerId, path) -> Optional.empty()),
+            // Text is read by the blob each listed item names, if any, never by asking for the
+            // row again, which would be a query for every file.
+            new FileContents(
+                store,
+                (ownerId, path) -> {
+                  throw new AssertionError("Looked up the row of " + path + " to read its text");
+                }),
             new TextExtractor("50MB", Path.of(System.getProperty("java.io.tmpdir"))) {
               @Override
               public Optional<String> extract(Path file, String name, long size)
@@ -229,6 +234,18 @@ class IndexableItemsTests {
   }
 
   @Test
+  @DisplayName("a file whose listed row names a blob has the blob's text")
+  void textOfAFileKeptAsABlob() throws Exception {
+    String hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    Files.createDirectories(store.path(".blobs/ba"));
+    Files.writeString(store.path(".blobs/ba/" + hash), "words in its blob");
+    Files.writeString(mine.resolve("a.txt"), "words at its path");
+
+    assertThat(items.text("1/a.txt", new Item("a.txt", false, 17, T, hash)))
+        .contains("words in its blob");
+  }
+
+  @Test
   @DisplayName("a file's text whose way passes through a symbolic link is not read")
   void textThroughASymlinkIsNotRead() throws Exception {
     Files.writeString(outside.resolve("secret.txt"), "secret words");
@@ -284,11 +301,12 @@ class IndexableItemsTests {
 
   private void file(long account, String path, long size, Instant updated) {
     rows.computeIfAbsent(account, a -> new ArrayList<>())
-        .add(new ListedRow(path, false, size, updated));
+        .add(new ListedRow(path, false, size, updated, null));
   }
 
   private void folder(long account, String path) {
-    rows.computeIfAbsent(account, a -> new ArrayList<>()).add(new ListedRow(path, true, 0L, T));
+    rows.computeIfAbsent(account, a -> new ArrayList<>())
+        .add(new ListedRow(path, true, 0L, T, null));
   }
 
   private static Item item(String name, Path file) throws IOException {

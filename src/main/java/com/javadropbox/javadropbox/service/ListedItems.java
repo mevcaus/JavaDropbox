@@ -34,11 +34,6 @@ final class ListedItems {
    */
   record Item(String path, boolean folder, long size, Instant modified, String blobHash) {
 
-    /** An item whose content, if any, is at its own path. */
-    Item(String path, boolean folder, long size, Instant modified) {
-      this(path, folder, size, modified, null);
-    }
-
     String name() {
       return path.substring(path.lastIndexOf('/') + 1);
     }
@@ -72,7 +67,8 @@ final class ListedItems {
     }
     for (String folder : folders) {
       if (!withRows.contains(folder)) {
-        items.add(new Item(folder, true, 0, null));
+        // A folder with no row: no content, no blob.
+        items.add(new Item(folder, true, 0, null, null));
       }
     }
     items.sort(Comparator.comparing(Item::path));
