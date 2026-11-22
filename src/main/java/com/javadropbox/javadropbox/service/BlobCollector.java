@@ -103,9 +103,11 @@ public class BlobCollector {
   }
 
   @PreDestroy
-  public void stop() {
+  public void stop() throws InterruptedException {
     // A delete under way finishes or rolls back with its transaction; the next start carries on.
+    // Waited for a little, so a round isn't still going when the connection pool closes.
     worker.shutdownNow();
+    worker.awaitTermination(5, TimeUnit.SECONDS);
   }
 
   // Anything thrown out of a scheduled task would end the schedule for good, silently.
@@ -135,19 +137,19 @@ public class BlobCollector {
               grace.toSeconds(),
               BATCH);
       afterListed.run();
-      int skipped = 0;
+      int deletedNow = 0;
       for (String hash : due) {
         if (Thread.currentThread().isInterrupted()) {
           break;
         }
-        switch (deleteIfDue(hash)) {
-          case DELETED -> deleted++;
-          case SKIPPED -> skipped++;
-          case KEPT -> {}
+        if (deleteIfDue(hash) == Outcome.DELETED) {
+          deletedNow++;
         }
       }
-      // A batch of nothing but blobs others hold would only be listed again.
-      if (due.size() < BATCH || skipped == due.size()) {
+      deleted += deletedNow;
+      // A batch that deleted nothing, of blobs others hold or deletes that keep failing, would
+      // only be listed again: the next round tries them.
+      if (due.size() < BATCH || deletedNow == 0) {
         break;
       }
       if (batch == 0) {

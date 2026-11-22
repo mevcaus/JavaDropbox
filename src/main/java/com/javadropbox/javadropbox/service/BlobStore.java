@@ -79,6 +79,9 @@ public class BlobStore {
         throw new IllegalStateException(
             "Hashed " + in.count() + " bytes of content the store wrote " + size + " of");
       }
+      // A blob may take the place of one other files share, so it is made to last first. Here,
+      // outside any transaction, rather than where it is moved into place.
+      store.sync(scratch);
       return new Staged(in.hex(), size, scratch);
     } catch (IOException | RuntimeException e) {
       discard(scratch);
@@ -90,7 +93,7 @@ public class BlobStore {
    * Makes {@code staged} its blob, unless a blob with its hash and size is already there; either
    * way the blob is there afterwards. Two contents with one hash are the same bytes, so a blob put
    * in place meanwhile by someone else is as good as this one. One of another size was left torn by
-   * a crash, since the local disk isn't synced, and is replaced.
+   * a crash, by a release from before blobs were synced as they were staged, and is replaced.
    */
   void place(Staged staged) throws IOException {
     String key = key(staged.hash());

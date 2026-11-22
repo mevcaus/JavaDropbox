@@ -277,18 +277,20 @@ public class LocalFileStore implements FileStore {
     Path target = path(to);
     // A rename replaces a link at the target itself, but follows one along its folders.
     recheck(target.getParent());
-    // On the disk before it takes the place of what was there, which may be a blob other files
-    // share: a crash right after the rename must not leave torn content where good content was.
-    if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
-      try (FileChannel channel = FileChannel.open(source, StandardOpenOption.WRITE)) {
-        channel.force(true);
-      }
-    }
     try {
       Files.move(
           source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     } catch (AtomicMoveNotSupportedException e) {
       Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  // Opened for reading: flushing needs no write access, and a file the app may not write is still
+  // one it can flush.
+  @Override
+  public void sync(String key) throws IOException {
+    try (FileChannel channel = FileChannel.open(recheck(path(key)), StandardOpenOption.READ)) {
+      channel.force(true);
     }
   }
 

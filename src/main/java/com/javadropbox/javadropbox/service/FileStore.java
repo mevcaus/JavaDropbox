@@ -140,6 +140,14 @@ public interface FileStore {
    */
   void replace(String from, String to) throws IOException;
 
+  /**
+   * Makes sure the file at {@code key} is written through to lasting storage, so a crash can't
+   * leave it torn. A file is only as safe as this once written; it costs a flush, so it's for
+   * content others rely on, such as a blob about to take the place of a shared one. Nothing to do
+   * where a write is lasting once it returns, as in S3.
+   */
+  void sync(String key) throws IOException;
+
   /** Gives a file just moved to {@code key} a fresh modification time, if moving it did not. */
   void touch(String key) throws IOException;
 
