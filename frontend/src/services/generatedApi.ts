@@ -4,13 +4,6 @@ const injectedRtkApi = api.injectEndpoints({
     listInvites: build.query<ListInvitesApiResponse, ListInvitesApiArg>({
       query: () => ({ url: `/api/admin/invites` }),
     }),
-    createInvite: build.mutation<CreateInviteApiResponse, CreateInviteApiArg>({
-      query: (queryArg) => ({
-        url: `/api/admin/invites`,
-        method: "POST",
-        body: queryArg.body,
-      }),
-    }),
     revokeInvite: build.mutation<RevokeInviteApiResponse, RevokeInviteApiArg>({
       query: (queryArg) => ({
         url: `/api/admin/invites/${queryArg.id}`,
@@ -33,15 +26,6 @@ const injectedRtkApi = api.injectEndpoints({
     importFiles: build.mutation<ImportFilesApiResponse, ImportFilesApiArg>({
       query: (queryArg) => ({
         url: `/api/admin/users/${queryArg.id}/import`,
-        method: "POST",
-      }),
-    }),
-    createPasswordResetLink: build.mutation<
-      CreatePasswordResetLinkApiResponse,
-      CreatePasswordResetLinkApiArg
-    >({
-      query: (queryArg) => ({
-        url: `/api/admin/users/${queryArg.id}/password-reset`,
         method: "POST",
       }),
     }),
@@ -166,16 +150,6 @@ const injectedRtkApi = api.injectEndpoints({
         },
       }),
     }),
-    createShareLink: build.mutation<
-      CreateShareLinkApiResponse,
-      CreateShareLinkApiArg
-    >({
-      query: (queryArg) => ({
-        url: `/api/share`,
-        method: "POST",
-        body: queryArg.body,
-      }),
-    }),
     revokeShareLink: build.mutation<
       RevokeShareLinkApiResponse,
       RevokeShareLinkApiArg
@@ -203,14 +177,6 @@ const injectedRtkApi = api.injectEndpoints({
 export { injectedRtkApi as generatedApi };
 export type ListInvitesApiResponse = /** status 200 OK */ InviteDto[];
 export type ListInvitesApiArg = void;
-export type CreateInviteApiResponse = /** status 200 OK */ NewLink;
-export type CreateInviteApiArg = {
-  body: {
-    quota?: string;
-    role?: string;
-    username: string;
-  };
-};
 export type RevokeInviteApiResponse = /** status 200 OK */ Message;
 export type RevokeInviteApiArg = {
   id: number;
@@ -226,10 +192,6 @@ export type SetAccountEnabledApiArg = {
 };
 export type ImportFilesApiResponse = /** status 200 OK */ ImportResult;
 export type ImportFilesApiArg = {
-  id: number;
-};
-export type CreatePasswordResetLinkApiResponse = /** status 200 OK */ NewLink;
-export type CreatePasswordResetLinkApiArg = {
   id: number;
 };
 export type SetAccountQuotaApiResponse = /** status 200 OK */ Message;
@@ -306,13 +268,6 @@ export type ListShareLinksApiResponse = /** status 200 OK */ ShareLinkDto[];
 export type ListShareLinksApiArg = {
   path: string;
 };
-export type CreateShareLinkApiResponse = /** status 200 OK */ NewLink;
-export type CreateShareLinkApiArg = {
-  body: {
-    expirationMinutes?: number;
-    path: string;
-  };
-};
 export type RevokeShareLinkApiResponse = /** status 200 OK */ Message;
 export type RevokeShareLinkApiArg = {
   id: number;
@@ -331,10 +286,6 @@ export type InviteDto = {
   quotaBytes: number | null;
   role: string;
   username: string;
-};
-export type NewLink = {
-  expiresAt: string;
-  url: string;
 };
 export type Message = {
   message: string;
@@ -466,12 +417,10 @@ export type SharedItemDto = {
 };
 export const {
   useListInvitesQuery,
-  useCreateInviteMutation,
   useRevokeInviteMutation,
   useListAccountsQuery,
   useSetAccountEnabledMutation,
   useImportFilesMutation,
-  useCreatePasswordResetLinkMutation,
   useSetAccountQuotaMutation,
   useSetAccountRoleMutation,
   useGetDemoInfoQuery,
@@ -488,7 +437,6 @@ export const {
   useDescribePasswordResetQuery,
   useSearchFilesQuery,
   useListShareLinksQuery,
-  useCreateShareLinkMutation,
   useRevokeShareLinkMutation,
   useGetStorageUsageQuery,
   useDescribeSharedItemQuery,

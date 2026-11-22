@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeStore } from '../redux/store';
 import { apiSlice } from './apiSlice';
+import { createInvite, createPasswordResetLink, createShareLink } from './accountRequests';
 import { clearUser, loginUser, logoutUser } from '../features/authSlice';
 import { AxiosError } from 'axios';
 import mockedApi from './api';
@@ -193,11 +194,24 @@ describe('refreshing versions and share links', () => {
         await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'b.txt' }));
         api.post.mockResolvedValueOnce({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z' } });
 
-        await store.dispatch(apiSlice.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
+        await createShareLink(store.dispatch, { path: 'a.txt', expirationMinutes: 60 });
         await settle();
 
         const paths = api.get.mock.calls.filter(([url]) => url === '/api/share').map(([, config]) => config?.params);
         expect(paths).toEqual([{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'a.txt' }]);
+    });
+
+    it('refreshes the shared item\'s links when making a link fails too', async () => {
+        await store.dispatch(apiSlice.endpoints.listShareLinks.initiate({ path: 'a.txt' }));
+        api.post.mockRejectedValueOnce({ response: { status: 500, data: '' } });
+
+        await expect(createShareLink(store.dispatch, { path: 'a.txt', expirationMinutes: 60 })).rejects.toEqual({
+            status: 500,
+            data: '',
+        });
+        await settle();
+
+        expect(api.get.mock.calls.filter(([url]) => url === '/api/share')).toHaveLength(2);
     });
 
     // Uploading over a file keeps its old content as a version; a delete takes versions and links.
@@ -256,8 +270,8 @@ describe('refreshing the accounts and invitations', () => {
         ['disabling an account', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.setAccountEnabled.initiate({ id: 2, body: { enabled: false } })), [2, 2, 1]],
         // An import may be into the admin's own account.
         ['an import', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.importFiles.initiate({ id: 2 })), [2, 1, 2]],
-        ['an invitation', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.createInvite.initiate({ body: { username: 'carol' } })), [1, 2, 1]],
-        ['a password reset link', (dispatch: Dispatch) => dispatch(apiSlice.endpoints.createPasswordResetLink.initiate({ id: 2 })), [1, 1, 1]],
+        ['an invitation', (dispatch: Dispatch) => createInvite(dispatch, { username: 'carol' }), [1, 2, 1]],
+        ['a password reset link', (dispatch: Dispatch) => createPasswordResetLink(dispatch, 2), [1, 1, 1]],
     ])('asks again for what %s changes', async (_label, change, expected) => {
         await change(store.dispatch);
         await settle();
@@ -273,6 +287,30 @@ describe('refreshing the accounts and invitations', () => {
         await settle();
 
         expect(asked()).toEqual([1, 2, 1]);
+    });
+
+    // As the slice's tags did: a refusal can still have changed what's listed.
+    it('asks for the invitations again when making one fails', async () => {
+        api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'Already invited' } } });
+
+        await expect(createInvite(store.dispatch, { username: 'carol' })).rejects.toEqual({
+            status: 409,
+            data: { message: 'Already invited' },
+        });
+        await settle();
+
+        expect(asked()).toEqual([1, 2, 1]);
+    });
+
+    it('asks for nothing again after a bug in the app, which never reached the server', async () => {
+        api.post.mockRejectedValueOnce(new TypeError('a bug'));
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await expect(createInvite(store.dispatch, { username: 'carol' })).rejects.toBeInstanceOf(TypeError);
+        await settle();
+
+        expect(asked()).toEqual([1, 1, 1]);
+        logged.mockRestore();
     });
 });
 
@@ -588,7 +626,7 @@ describe('request bodies', () => {
     it('sends a form endpoint its fields as a form', async () => {
         api.post.mockResolvedValue({ data: { url: 'u', expiresAt: '2026-01-01T00:00:00Z' } });
 
-        await store.dispatch(apiSlice.endpoints.createShareLink.initiate({ body: { path: 'a.txt', expirationMinutes: 60 } }));
+        await createShareLink(store.dispatch, { path: 'a.txt', expirationMinutes: 60 });
 
         const [url, body] = api.post.mock.calls[0];
         expect(url).toBe('/api/share');

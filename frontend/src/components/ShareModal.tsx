@@ -1,11 +1,8 @@
 import { useId, useState } from 'react';
 import { Link2, Loader2 } from 'lucide-react';
-import {
-    useCreateShareLinkMutation,
-    useListShareLinksQuery,
-    useRevokeShareLinkMutation,
-    type ShareLinkDto,
-} from '../services/apiSlice';
+import { useListShareLinksQuery, useRevokeShareLinkMutation, type ShareLinkDto } from '../services/apiSlice';
+import { createShareLink } from '../services/accountRequests';
+import { useAppDispatch } from '../redux/withTypes';
 import { useToast } from '../hooks/useToast';
 import { useDemoInfo } from '../hooks/useDemoInfo';
 import { readableError } from '../utils/errors';
@@ -49,19 +46,31 @@ const ShareModal = ({ isOpen, onClose, item }: ShareModalProps) =>
 
 const ShareDialog = ({ isOpen, onClose, item }: ShareModalProps & { item: ShareItem }) => {
     const [expirationMinutes, setExpirationMinutes] = useState(EXPIRATION_OPTIONS[2].minutes);
-    const [createShareLink, created] = useCreateShareLinkMutation();
+    const dispatch = useAppDispatch();
+    // Held here rather than in the API slice's mutation state, which would keep the link in the
+    // store. The dialog is keyed by path, so they're the item's own.
+    const [creating, setCreating] = useState(false);
+    const [shareUrl, setShareUrl] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
     // The public demo only allows short links. Until its limits have loaded, all choices show.
     const options = expirationOptions(useDemoInfo()?.maxShareMinutes);
     // A choice the limit rules out (such as the default) falls back to the longest one allowed.
     const minutes = options.some((opt) => opt.minutes === expirationMinutes)
         ? expirationMinutes
         : options[options.length - 1].minutes;
-    const shareUrl = created.data?.url ?? null;
-    const error = created.error ? readableError(created.error, 'Failed to create share link.') : null;
 
-    // The outcome shows from the mutation's own state; a failure isn't thrown on to anyone.
-    const handleGenerate = () => {
-        createShareLink({ body: { path: item.path, expirationMinutes: minutes } });
+    // The outcome shows in the dialog; a failure isn't thrown on to anyone.
+    const handleGenerate = async () => {
+        setCreating(true);
+        setError(null);
+        try {
+            const link = await createShareLink(dispatch, { path: item.path, expirationMinutes: minutes });
+            setShareUrl(link.url);
+        } catch (err) {
+            setError(readableError(err, 'Failed to create share link.'));
+        } finally {
+            setCreating(false);
+        }
     };
 
     const kind = item.isDirectory ? 'folder' : 'file';
@@ -112,12 +121,12 @@ const ShareDialog = ({ isOpen, onClose, item }: ShareModalProps & { item: ShareI
                     </p>
                 </div>
             )}
-            {/* A new link refreshes this list through its cache tag. */}
+            {/* A new link refreshes this list (see createShareLink in accountRequests.ts). */}
             <ActiveLinks path={item.path} />
             <ModalActions>
                 {!shareUrl && (
-                    <button type="button" disabled={created.isLoading} className={primaryButton.blue} onClick={handleGenerate}>
-                        {created.isLoading ? <Loader2 className="animate-spin h-5 w-5" /> : 'Generate link'}
+                    <button type="button" disabled={creating} className={primaryButton.blue} onClick={handleGenerate}>
+                        {creating ? <Loader2 className="animate-spin h-5 w-5" /> : 'Generate link'}
                     </button>
                 )}
                 <button type="button" className={secondaryButton} onClick={onClose}>
