@@ -70,8 +70,11 @@ public final class FolderArchive {
     // is left out too.
     Optional<Entry> content;
     try {
+      // By the blob the listing found on its row, so a zip of many files needs no query for each.
       content =
-          contents.of(folder.home().resolveItem(item.path())).filter(entry -> !entry.isDirectory());
+          contents
+              .of(folder.home().resolveItem(item.path()), item.blobHash())
+              .filter(entry -> !entry.isDirectory());
     } catch (BadRequestException e) {
       log.warn("Left a file out of a zip: {}", e.getMessage());
       return;

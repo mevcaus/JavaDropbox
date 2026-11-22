@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,16 +59,20 @@ class SymlinkSwapTests {
     StoragePath checked = paths.resolveItem("dir");
     List<ListedRow> rows =
         List.of(
-            new ListedRow("dir/secret.txt", false, 6L, null),
-            new ListedRow("dir/sub", true, 0L, null),
-            new ListedRow("dir/sub/precious.txt", false, 8L, null));
+            new ListedRow("dir/secret.txt", false, 6L, null, null),
+            new ListedRow("dir/sub", true, 0L, null, null),
+            new ListedRow("dir/sub/precious.txt", false, 8L, null, null));
     // Only the folder below is swapped: the zip goes on past it.
     Files.writeString(root.resolve("dir/sub/precious.txt"), "inside too");
     swapSubForLinkOutside();
 
     ByteArrayOutputStream zip = new ByteArrayOutputStream();
     FolderArchive.write(
-        new FileContents(store), checked, ListedItems.below("dir", rows), "dir", zip);
+        new FileContents(store, (ownerId, path) -> Optional.empty()),
+        checked,
+        ListedItems.below("dir", rows),
+        "dir",
+        zip);
 
     assertThat(zip.toString()).doesNotContain("outside secret").doesNotContain("precious");
     assertThat(names(zip.toByteArray())).containsExactly("dir/", "dir/secret.txt", "dir/sub/");

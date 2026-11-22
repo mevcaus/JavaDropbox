@@ -93,7 +93,9 @@ class FileTreeServiceTests {
   void fileRowWithRowsBelowIsOneFolder() {
     // No row for f/g: f has rows below it, but none directly in it.
     List<ListedRow> listed =
-        List.of(new ListedRow("f", false, 9L, JAN), new ListedRow("f/g/h.txt", false, 3L, MAR));
+        List.of(
+            new ListedRow("f", false, 9L, JAN, null),
+            new ListedRow("f/g/h.txt", false, 3L, MAR, null));
     when(files.findAllOf(7L)).thenReturn(List.of(file("f", 9, JAN), file("f/g/h.txt", 3, MAR)));
 
     List<FileTreeNode> nodes = tree.tree(ada);

@@ -101,6 +101,9 @@ erDiagram
     file_metadata ||--o{ share_links : "is shared by"
     users ||--o{ share_links : creates
     users |o--o{ account_links : "is reset by"
+    blobs |o--o{ file_metadata : "keeps the content of"
+    blobs |o--o{ file_versions : "keeps the content of"
+    users |o--o{ file_versions : "owns, when kept as a blob"
 
     users {
         bigint id PK
@@ -120,6 +123,7 @@ erDiagram
         boolean is_directory
         bigint size
         varchar content_hash "SHA-256 of what the app stored, a hint until blobs"
+        varchar blob_hash FK "the blob it's kept as, null while at its path"
     }
     file_versions {
         bigint id PK
@@ -128,6 +132,13 @@ erDiagram
         varchar stored_filename
         bigint size
         varchar content_hash "SHA-256 when known, a hint until blobs"
+        varchar blob_hash FK "the blob it's kept as, null while under .versions/"
+        bigint owner_id FK "the file's account, for a version kept as a blob"
+    }
+    blobs {
+        varchar hash PK "SHA-256 of the content"
+        bigint size
+        int reference_count "files and versions pointing at it"
     }
     file_history {
         bigint id PK

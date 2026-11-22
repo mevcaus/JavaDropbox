@@ -70,7 +70,13 @@ class IndexableItemsTests {
         new IndexableItems(
             source,
             storagePaths,
-            new FileContents(store),
+            // Text is read by the blob each listed item names, if any, never by asking for the
+            // row again, which would be a query for every file.
+            new FileContents(
+                store,
+                (ownerId, path) -> {
+                  throw new AssertionError("Looked up the row of " + path + " to read its text");
+                }),
             new TextExtractor("50MB", Path.of(System.getProperty("java.io.tmpdir"))) {
               @Override
               public Optional<String> extract(Path file, String name, long size)
@@ -228,12 +234,25 @@ class IndexableItemsTests {
   }
 
   @Test
+  @DisplayName("a file whose listed row names a blob has the blob's text")
+  void textOfAFileKeptAsABlob() throws Exception {
+    String hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    Files.createDirectories(store.path(".blobs/ba"));
+    Files.writeString(store.path(".blobs/ba/" + hash), "words in its blob");
+    Files.writeString(mine.resolve("a.txt"), "words at its path");
+
+    assertThat(items.text("1/a.txt", new Item("a.txt", false, 17, T, hash)))
+        .contains("words in its blob");
+  }
+
+  @Test
   @DisplayName("a file's text whose way passes through a symbolic link is not read")
   void textThroughASymlinkIsNotRead() throws Exception {
     Files.writeString(outside.resolve("secret.txt"), "secret words");
     Files.createSymbolicLink(mine.resolve("link"), outside);
 
-    assertThat(items.text("1/link/secret.txt", new Item("secret.txt", false, 12, T))).isEmpty();
+    assertThat(items.text("1/link/secret.txt", new Item("secret.txt", false, 12, T, null)))
+        .isEmpty();
     assertThat(extracted).isZero();
   }
 
@@ -259,10 +278,10 @@ class IndexableItemsTests {
   @Test
   @DisplayName("a file is stamped with its row's size and time, -1 for none, a folder with nothing")
   void stamps() {
-    assertThat(Stamp.of(new Item("k", false, 5, T)))
+    assertThat(Stamp.of(new Item("k", false, 5, T, null)))
         .isEqualTo(new Stamp(false, 5, T.toEpochMilli()));
-    assertThat(Stamp.of(new Item("k", false, 5, null))).isEqualTo(new Stamp(false, 5, -1));
-    assertThat(Stamp.of(new Item("k", true, 0, T))).isEqualTo(Stamp.FOLDER);
+    assertThat(Stamp.of(new Item("k", false, 5, null, null))).isEqualTo(new Stamp(false, 5, -1));
+    assertThat(Stamp.of(new Item("k", true, 0, T, null))).isEqualTo(Stamp.FOLDER);
   }
 
   private record Reported(List<String> changed, List<String> gone) {}
@@ -282,14 +301,15 @@ class IndexableItemsTests {
 
   private void file(long account, String path, long size, Instant updated) {
     rows.computeIfAbsent(account, a -> new ArrayList<>())
-        .add(new ListedRow(path, false, size, updated));
+        .add(new ListedRow(path, false, size, updated, null));
   }
 
   private void folder(long account, String path) {
-    rows.computeIfAbsent(account, a -> new ArrayList<>()).add(new ListedRow(path, true, 0L, T));
+    rows.computeIfAbsent(account, a -> new ArrayList<>())
+        .add(new ListedRow(path, true, 0L, T, null));
   }
 
   private static Item item(String name, Path file) throws IOException {
-    return new Item(name, false, Files.size(file), T);
+    return new Item(name, false, Files.size(file), T, null);
   }
 }

@@ -29,8 +29,10 @@ final class ListedItems {
    * @param path in the account's folder
    * @param size in bytes; 0 for a folder
    * @param modified when its content last changed, or null, as for a folder with no row
+   * @param blobHash the blob a file's content is kept as, or null where it's at its own path, so
+   *     that reading many files, as a folder zip does, needs no query for each
    */
-  record Item(String path, boolean folder, long size, Instant modified) {
+  record Item(String path, boolean folder, long size, Instant modified, String blobHash) {
 
     String name() {
       return path.substring(path.lastIndexOf('/') + 1);
@@ -60,11 +62,13 @@ final class ListedItems {
       withRows.add(row.path());
       boolean folder = folders.contains(row.path()) || Boolean.TRUE.equals(row.isDirectory());
       long size = folder || row.size() == null ? 0 : row.size();
-      items.add(new Item(row.path(), folder, size, row.updatedAt()));
+      items.add(
+          new Item(row.path(), folder, size, row.updatedAt(), folder ? null : row.blobHash()));
     }
     for (String folder : folders) {
       if (!withRows.contains(folder)) {
-        items.add(new Item(folder, true, 0, null));
+        // A folder with no row: no content, no blob.
+        items.add(new Item(folder, true, 0, null, null));
       }
     }
     items.sort(Comparator.comparing(Item::path));

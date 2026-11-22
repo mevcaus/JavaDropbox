@@ -32,6 +32,11 @@ import org.junit.jupiter.api.io.TempDir;
 @DisplayName("Folder archives")
 class FolderArchiveTests {
 
+  // A row whose content, if any, is at its own path.
+  private static ListedRow row(String path, Boolean isDirectory, Long size, Instant updatedAt) {
+    return new ListedRow(path, isDirectory, size, updatedAt, null);
+  }
+
   @TempDir Path serving;
 
   private LocalFileStore store;
@@ -48,7 +53,22 @@ class FolderArchiveTests {
     store = new LocalFileStore(serving);
     home = new StoragePaths(store, serving).home(1);
     folder = Files.createDirectories(store.path(home.key()).resolve("project"));
-    rows.add(new ListedRow("project", true, 0L, Instant.now()));
+    rows.add(row("project", true, 0L, Instant.now()));
+  }
+
+  @Test
+  @DisplayName("a file whose listed row names a blob is zipped from the blob")
+  void fileKeptAsABlobIsZippedFromIt() throws IOException {
+    String hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    store.createFolders(".blobs/ba");
+    store.write(
+        ".blobs/ba/" + hash,
+        new ByteArrayInputStream("in its blob".getBytes(StandardCharsets.UTF_8)),
+        11);
+    Files.writeString(folder.resolve("a.txt"), "at its path");
+    rows.add(new ListedRow("project/a.txt", false, 11L, Instant.now(), hash));
+
+    assertThat(unzip(archive())).containsEntry("project/a.txt", "in its blob");
   }
 
   @Test
@@ -96,9 +116,9 @@ class FolderArchiveTests {
     Files.writeString(folder.resolve("unlisted.txt"), "no row");
     Files.createDirectories(folder.resolve("unlisted-folder"));
     // A row whose content isn't there is left out, and the zip stays whole.
-    rows.add(new ListedRow("project/missing.txt", false, 3L, Instant.now()));
+    rows.add(row("project/missing.txt", false, 3L, Instant.now()));
     // Nor anything outside the folder.
-    rows.add(new ListedRow("project-other.txt", false, 3L, Instant.now()));
+    rows.add(row("project-other.txt", false, 3L, Instant.now()));
     Files.writeString(folder.resolveSibling("project-other.txt"), "beside it");
 
     assertThat(unzip(archive())).containsOnlyKeys("project/", "project/listed.txt");
@@ -144,7 +164,7 @@ class FolderArchiveTests {
     file("a.txt", "a");
     Path fifo = folder.resolve("pipe");
     makeFifo(fifo);
-    rows.add(new ListedRow("project/pipe", false, 0L, Instant.now()));
+    rows.add(row("project/pipe", false, 0L, Instant.now()));
 
     try {
       byte[] zip = assertTimeoutPreemptively(Duration.ofSeconds(5), this::archive);
@@ -162,12 +182,12 @@ class FolderArchiveTests {
     Path file = folder.resolve(path);
     Files.createDirectories(file.getParent());
     Files.writeString(file, content);
-    rows.add(new ListedRow("project/" + path, false, (long) content.length(), Instant.now()));
+    rows.add(row("project/" + path, false, (long) content.length(), Instant.now()));
   }
 
   private void folder(String path) throws IOException {
     Files.createDirectories(folder.resolve(path));
-    rows.add(new ListedRow("project/" + path, true, 0L, Instant.now()));
+    rows.add(row("project/" + path, true, 0L, Instant.now()));
   }
 
   private byte[] archive() throws IOException {
@@ -178,7 +198,13 @@ class FolderArchiveTests {
 
   private void write(OutputStream out) throws IOException {
     FolderArchive.write(
-        new FileContents(store),
+        // A zip reads each file by the blob its listed row names, if any, never by asking for
+        // the row again, which would be a query for every file.
+        new FileContents(
+            store,
+            (ownerId, path) -> {
+              throw new AssertionError("Looked up the row of " + path + " while zipping");
+            }),
         home.resolveItem("project"),
         ListedItems.below("project", rows),
         "project",
