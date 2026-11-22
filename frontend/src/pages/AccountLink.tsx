@@ -100,6 +100,7 @@ const AccountLink = ({ purpose }: { purpose: LinkPurpose }) => {
         }
         setSaving(true);
         try {
+            // The token as the address bar has it, not linkToken: these encode it themselves.
             await setPasswordWith(token, password);
             if (isAuthenticated) {
                 // A reset of this account's own password has already ended its session on the

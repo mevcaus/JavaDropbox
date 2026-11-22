@@ -120,4 +120,20 @@ describe('Setup', () => {
 
         expect(await screen.findByRole('alert')).toHaveTextContent(expected);
     });
+
+    // An exception that isn't a failed request, such as a bug in the app, is logged as RTK logs one,
+    // and the page says setup failed.
+    it('logs a mistake in the app, without the request, and says setup failed', async () => {
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        api.post.mockRejectedValueOnce(new TypeError('a bug'));
+        const user = userEvent.setup();
+        renderSetup();
+
+        await fillForm(user, { password: 'logged-secret-pw' });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Setup failed');
+        expect(logged).toHaveBeenCalledWith('completeSetup failed', expect.any(TypeError));
+        expect(JSON.stringify(logged.mock.calls)).not.toContain('logged-secret-pw');
+        logged.mockRestore();
+    });
 });

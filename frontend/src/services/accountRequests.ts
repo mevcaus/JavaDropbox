@@ -8,12 +8,21 @@ import type { Message } from './generatedApi';
 // generated endpoints (openapi-config.cjs) and sent from here, the way the slice sends its own
 // requests, through baseQuery's sendRequest.
 //
-// Each answers with the server's message, or throws what a mutation's unwrap() throws, the
-// status and the body the server answered with, so readableError reads it the same way. Nothing
-// here is cached and nothing needs refetching afterwards.
+// Each answers with the server's message. When the server refuses or can't be reached, it throws
+// what a mutation's unwrap() throws, the status and the body the server answered with, so
+// readableError reads it the same way. Nothing here is cached and nothing needs refetching
+// afterwards.
 
 const send = async (request: Request, endpoint: string): Promise<Message> => {
-    const result = await sendRequest(request, endpoint);
+    let result: Awaited<ReturnType<typeof sendRequest>>;
+    try {
+        result = await sendRequest(request, endpoint);
+    } catch (bug) {
+        // A mistake in the app rather than a failed request, logged as RTK logs one in the slice.
+        // It never carries the request's body: sendRequest turns every axios error into a result.
+        console.error(`${endpoint} failed`, bug);
+        throw bug;
+    }
     if ('error' in result) throw result.error;
     return result.data as Message;
 };

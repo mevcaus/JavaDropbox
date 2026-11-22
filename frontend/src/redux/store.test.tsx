@@ -194,6 +194,7 @@ describe('store', () => {
         );
         expect(everythingShown(seen, store.getState())).not.toContain('reset-secret-pw');
         const withToken = seen.filter((action) => JSON.stringify(action).includes('reset-secret-token'));
+        expect(withToken.length).toBeGreaterThan(0);
         for (const action of withToken) {
             expect(action).toMatchObject({ meta: { arg: { endpointName: 'describePasswordReset' } } });
         }
