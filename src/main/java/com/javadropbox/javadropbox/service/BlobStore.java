@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
  * <p>Writing is in two steps: {@link #stage} writes the content to a scratch file and hashes it,
  * and {@link #place} puts it in place as its blob if no blob with that hash is there, so that the
  * code counting references (#316) can put a blob back in place under the same lock as the code
- * deleting it. A staged file that wasn't needed is dropped with {@link #discard}. Nothing calls
- * this yet.
+ * deleting it. A staged file that wasn't needed is dropped with {@link #discard}. {@link
+ * BlobReferences} decides which, and counts who points at each blob; nothing calls either yet.
  */
 @Component
 public class BlobStore {
@@ -98,6 +98,18 @@ public class BlobStore {
     if (existing.isPresent() && existing.get().size() == staged.size()) {
       return;
     }
+    store.createFolders(key.substring(0, key.lastIndexOf('/')));
+    store.replace(staged.scratch(), key);
+  }
+
+  /**
+   * Makes {@code staged} its blob whether or not one is there already, with the same store calls a
+   * new blob takes. A blob already there is replaced by the same bytes. Used where skipping the
+   * copy would show, by how long the upload took, that someone else already stores this content
+   * (see BlobReferences).
+   */
+  void placeAnyway(Staged staged) throws IOException {
+    String key = key(staged.hash());
     store.createFolders(key.substring(0, key.lastIndexOf('/')));
     store.replace(staged.scratch(), key);
   }
